@@ -17,6 +17,27 @@ export const EXPIRE_SCOPE = "expire";
 export const MARKETPLACE_ORDER_CAUSE = "MARKETPLACE_ORDER";
 export const MARKETPLACE_QUANTITY_EDIT_CAUSE = "MARKETPLACE_QUANTITY_EDIT";
 export const MARKETPLACE_QUANTITY_EDIT_SCOPE = "marketplace-quantity-edit";
+/** How long a marketplace may still report the qty INW just left before that read is a real edit. */
+export const STALE_MARKETPLACE_QTY_REVERT_MS = 10 * 60 * 1000;
+
+/**
+ * True when a marketplace quantity is the on-hand INW just moved away from.
+ * Applying it would snap INW back to the previous qty while the other side catches up.
+ * A different quantity still applies immediately.
+ */
+export function qtyObservationRevertsRecentChange(input: {
+  currentOnHand: number;
+  targetOnHand: number;
+  previousOnHand: number | null;
+  changedAt: Date;
+  now: Date;
+  withinMs?: number;
+}): boolean {
+  if (input.currentOnHand === input.targetOnHand) return false;
+  if (input.previousOnHand == null || input.previousOnHand !== input.targetOnHand) return false;
+  const withinMs = input.withinMs ?? STALE_MARKETPLACE_QTY_REVERT_MS;
+  return input.now.getTime() - input.changedAt.getTime() <= withinMs;
+}
 
 export class FoundationInventoryError extends Error {
   readonly code: string;
@@ -323,23 +344,31 @@ export async function projectStoreItemVariantsMatrix(
   }
   // Rebuild from ACTIVE optioned variants only. Keeping unmatched JSON rows
   // resurrected retired axes (Materials, Color, …) after a structure replace.
-  const axes = [...axisNames].sort((a, b) => a.localeCompare(b)).map((name) => {
-    const prev = existingAxes.find((axis) => String(axis.name ?? "") === name);
-    const photosByValue =
-      prev?.photosByValue && typeof prev.photosByValue === "object" && !Array.isArray(prev.photosByValue)
-        ? prev.photosByValue
-        : undefined;
-    return {
-      name,
-      values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
-      ...(photosByValue ? { photosByValue } : {}),
-    };
-  });
+  const axes = [...axisNames]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => {
+      const prev = existingAxes.find((axis) => String(axis.name ?? "") === name);
+      const photosByValue =
+        prev?.photosByValue && typeof prev.photosByValue === "object" && !Array.isArray(prev.photosByValue)
+          ? prev.photosByValue
+          : undefined;
+      return {
+        name,
+        values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
+        ...(photosByValue ? { photosByValue } : {}),
+      };
+    })
+    .filter((axis) => axis.values.length >= 2);
+  const droppedAxes = new Set(
+    [...axisNames].filter((name) => !axes.some((axis) => axis.name === name))
+  );
   const skus = live.map((row) => {
+    const options = { ...row.options };
+    for (const name of droppedAxes) delete options[name];
     const photos =
       photosById.get(row.storeVariantId) ?? photosByCombo.get(optionComboKey(row.options));
     return {
-      options: row.options,
+      options,
       quantity: row.quantity,
       priceCents: row.priceCents,
       storeVariantId: row.storeVariantId,
@@ -358,6 +387,17 @@ export async function projectStoreItemVariantsMatrix(
 
   const positivePrices = [...prices].filter((p) => Number.isFinite(p) && p > 0);
   const facadePrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null;
+
+  if (axes.length === 0) {
+    await tx.storeItem.update({
+      where: { id: storeItemId },
+      data: {
+        variants: Prisma.JsonNull,
+        ...(facadePrice != null ? { priceCents: facadePrice } : {}),
+      },
+    });
+    return;
+  }
 
   await tx.storeItem.update({
     where: { id: storeItemId },
@@ -958,6 +998,32 @@ export async function applyTrackedMarketplaceSale(
  * Idempotent via sourceSystem/sourceScope/eventType/sourceFactId.
  * Call only after causal sale/echo reconciliation proves the delta is a manual edit.
  */
+export async function marketplaceQtyWouldRevertRecentInwChange(
+  db: FoundationDb,
+  input: { variantId: string; targetOnHand: number; now?: Date }
+): Promise<boolean> {
+  const state = await db.inventoryState.findUnique({
+    where: { variantId: input.variantId },
+    select: { onHand: true, updatedAt: true },
+  });
+  if (state?.onHand == null) return false;
+  const now = input.now ?? new Date();
+  if (state.onHand === input.targetOnHand) return false;
+  if (now.getTime() - state.updatedAt.getTime() > STALE_MARKETPLACE_QTY_REVERT_MS) return false;
+  const latest = await db.inventoryEvent.findFirst({
+    where: { variantId: input.variantId, onHandAfter: state.onHand },
+    orderBy: { createdAt: "desc" },
+    select: { onHandBefore: true, createdAt: true },
+  });
+  return qtyObservationRevertsRecentChange({
+    currentOnHand: state.onHand,
+    targetOnHand: input.targetOnHand,
+    previousOnHand: latest?.onHandBefore ?? null,
+    changedAt: latest?.createdAt ?? state.updatedAt,
+    now,
+  });
+}
+
 export async function applyTrackedMarketplaceQuantityEdit(
   tx: FoundationDb,
   args: {

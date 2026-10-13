@@ -13,6 +13,7 @@ import {
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
   recordEtsyListingVariantTopologyDesire,
+  captureShopifyInventoryProjectionDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
   recordShopifyListingVariantTopologyDesire,
@@ -55,6 +56,42 @@ function kickEtsySyncJobsAfterEdit() {
       }
     })()
   );
+}
+
+/** Drain Shopify content and inventory jobs so track-quantity lands without waiting on cron. */
+function kickShopifySyncJobsAfterEdit() {
+  waitUntil(
+    (async () => {
+      const { runNextShopifySyncJob } = await import("@/lib/shopify/admin-graphql");
+      for (let i = 0; i < 40; i += 1) {
+        const ran = await runNextShopifySyncJob({ workerId: `shopify-edit-inline-${i}` });
+        if (!ran.claimed) break;
+      }
+    })()
+  );
+}
+
+async function queueShopifyTrackedQuantities(
+  tx: Prisma.TransactionClient,
+  memberId: string,
+  storeItemId: string
+) {
+  const item = await tx.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { inventoryTracking: true },
+  });
+  if (!item || item.inventoryTracking === "made_to_order") return;
+  const variants = await tx.storeVariant.findMany({
+    where: { storeItemId, memberId, status: "ACTIVE" },
+    select: { id: true },
+  });
+  for (const variant of variants) {
+    await captureShopifyInventoryProjectionDesire(tx, {
+      memberId,
+      storeVariantId: variant.id,
+      force: true,
+    });
+  }
 }
 
 import { gateInteractiveOrFoundationWriter, jsonIfCutoverBlocked, resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
@@ -668,6 +705,7 @@ export async function PATCH(
           memberId: ownerId,
           storeItemId: itemId,
         });
+        await queueShopifyTrackedQuantities(tx, ownerId, itemId);
         return projected;
       });
       if (item.status === "sold_out") {
@@ -679,6 +717,7 @@ export async function PATCH(
         title: item.title,
       });
       kickEtsySyncJobsAfterEdit();
+      kickShopifySyncJobsAfterEdit();
       return NextResponse.json({ ...item });
     } catch (e) {
       const cutover = jsonIfCutoverBlocked(e);
@@ -775,6 +814,7 @@ export async function PATCH(
       memberId: ownerId,
       storeItemId: itemId,
     });
+    await queueShopifyTrackedQuantities(tx, ownerId, itemId);
     return updated;
   });
 
@@ -790,6 +830,7 @@ export async function PATCH(
   });
 
   kickEtsySyncJobsAfterEdit();
+  kickShopifySyncJobsAfterEdit();
   return NextResponse.json({ ...item });
 }
 

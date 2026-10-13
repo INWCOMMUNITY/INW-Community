@@ -7,6 +7,7 @@ import {
   markEtsyListingContentPollComplete,
   normalizeEtsyTags,
   prisma,
+  marketplaceTopologyMatchKey,
   reconcileEtsyListingHealthFromDb,
   type EtsyJobHandlerResult,
   type EtsyRemoteListingObservation,
@@ -15,7 +16,6 @@ import {
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { optionsFromEtsyPropertyValues } from "./listing-variants";
-import { skuSelectionKey } from "@/lib/listing-variant-matrix";
 import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
@@ -25,6 +25,27 @@ const MAX_LISTINGS_PER_POLL = 25;
 
 function createListingDedupeKey(connectionId: string, storeItemId: string): string {
   return `CREATE_LISTING:${connectionId}:${storeItemId}`;
+}
+
+function readEtsyOfferingQuantity(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return Number.parseInt(value.trim(), 10);
+  }
+  return null;
+}
+
+/** Run queued Shopify jobs now so an Etsy qty edit does not wait on cron. */
+async function drainShopifySyncJobs(workerPrefix: string): Promise<void> {
+  try {
+    const { runNextShopifySyncJob } = await import("../shopify/admin-graphql");
+    for (let i = 0; i < 8; i += 1) {
+      const ran = await runNextShopifySyncJob({ workerId: `${workerPrefix}-${i}` });
+      if (!ran.claimed) break;
+    }
+  } catch {
+    // Cron still picks up PROJECT_INVENTORY if this drain cannot run.
+  }
 }
 
 type RemoteListing = {
@@ -193,10 +214,7 @@ async function fetchRemoteObservation(input: {
             ? offering.price
             : null,
       });
-      const quantity =
-        typeof offering.quantity === "number" && Number.isFinite(offering.quantity)
-          ? Math.max(0, Math.trunc(offering.quantity))
-          : null;
+      const quantity = readEtsyOfferingQuantity(offering.quantity);
       variants.push({
         etsyProductId: productId,
         etsyOfferingId: offeringId,
@@ -301,7 +319,7 @@ export async function handleEtsyPollListingContentJob(
       continue;
     }
 
-    await prisma.$transaction(async (tx) => {
+    const inventory = await prisma.$transaction(async (tx) => {
       await applyEtsyListingContentInbound(tx, {
         connectionId: connection.id,
         memberId: connection.memberId,
@@ -309,7 +327,7 @@ export async function handleEtsyPollListingContentJob(
         remote: fetched.remote,
         now: deps.now,
       });
-      await applyEtsyListingInventoryInbound(tx, {
+      return applyEtsyListingInventoryInbound(tx, {
         connectionId: connection.id,
         memberId: connection.memberId,
         listingLinkId: link.id,
@@ -321,6 +339,10 @@ export async function handleEtsyPollListingContentJob(
         now: deps.now,
       });
     });
+    // Etsy qty is now INW. Push that qty to Shopify without waiting on cron.
+    if ((inventory?.applied ?? 0) > 0) {
+      await drainShopifySyncJobs("etsy-qty");
+    }
 
     // Refresh Sync Airport health after inbound so completed qty/content sync
     // clears stale INVENTORY_SYNC_PENDING / CONTENT_SYNC_PENDING banners.
@@ -350,14 +372,14 @@ export async function handleEtsyPollListingContentJob(
           raw && typeof raw === "object" && !Array.isArray(raw)
             ? (raw as Record<string, string>)
             : {};
-        return skuSelectionKey(opts);
+        return marketplaceTopologyMatchKey(opts);
       })
       .filter((key) => key.length > 0)
       .sort();
     const remoteComboKeys = [
       ...new Set(
         fetched.remote.variants
-          .map((v) => skuSelectionKey(v.options ?? {}))
+          .map((v) => marketplaceTopologyMatchKey(v.options ?? {}))
           .filter((key) => key.length > 0)
       ),
     ].sort();
@@ -392,6 +414,18 @@ export async function handleEtsyPollListingContentJob(
           return synced;
         }
       }
+    }
+
+    // INW and Etsy can already match. Shopify still needs a variant added earlier.
+    try {
+      const { pushUnmappedStoreVariantsToShopify } = await import("../shopify/reconcile-listing");
+      await pushUnmappedStoreVariantsToShopify({
+        memberId: connection.memberId,
+        storeItemId: link.storeItemId,
+        now: deps.now,
+      });
+    } catch {
+      // The next poll retries a Shopify variant that is still missing.
     }
 
     await reconcileEtsyListingHealthFromDb(prisma, {

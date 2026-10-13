@@ -280,6 +280,14 @@ export type EtsyInventoryPutBody = {
   sku_on_property: number[];
 };
 
+function etsyOfferingQuantity(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    return Math.max(0, Number.parseInt(value.trim(), 10));
+  }
+  return 0;
+}
+
 function offeringPriceDollars(price: unknown): number {
   if (price && typeof price === "object") {
     const money = price as { amount?: number; divisor?: number };
@@ -350,10 +358,7 @@ export function toEtsyInventoryPutBody(input: {
         const readiness = offering.readiness_state_id;
         return {
           price: offeringPriceDollars(offering.price),
-          quantity:
-            typeof offering.quantity === "number" && Number.isFinite(offering.quantity)
-              ? Math.max(0, Math.trunc(offering.quantity))
-              : 0,
+          quantity: etsyOfferingQuantity(offering.quantity),
           is_enabled: offering.is_enabled !== false,
           ...(readiness != null && readiness !== "" ? { readiness_state_id: readiness } : {}),
         };

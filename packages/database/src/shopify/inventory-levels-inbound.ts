@@ -2,12 +2,15 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   applyTrackedMarketplaceQuantityEdit,
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
+  marketplaceQtyWouldRevertRecentInwChange,
+  trackedAvailable,
 } from "../commerce-foundation-inventory";
 import {
   classifyShopifyDirectInventoryEdit,
   shouldPauseInventoryForDirectShopifyEdit,
 } from "./inventory-direct-edit";
 import {
+  ensureShopifyProjectInventoryJob,
   markShopifyInventoryProjectionApplied,
   markShopifyInventoryProjectionRemoteDrift,
 } from "./inventory-desire";
@@ -52,7 +55,7 @@ export async function applyShopifyInventoryLevelObservation(
     explainedSaleDelta?: number | null;
   }
 ): Promise<ApplyShopifyInventoryLevelResult> {
-  if (input.observation.locationId !== input.primaryLocationId) {
+  if (!sameShopifyLocation(input.observation.locationId, input.primaryLocationId)) {
     return { status: "IGNORED", reason: "NON_PRIMARY_LOCATION" };
   }
 
@@ -77,7 +80,13 @@ export async function applyShopifyInventoryLevelObservation(
     return { status: "PAUSED_UNCERTAIN", code: "INVALID_REMOTE_AVAILABLE" };
   }
 
+  const foundationSellable = await readFoundationSellable(db, variantMap.storeVariantId);
+  // Map desire can already equal Shopify while INW (and therefore Etsy) is still
+  // on the previous qty. That echo used to drop the edit, so Reload had nothing new to push.
+  const foundationDiffers = foundationSellable != null && foundationSellable !== remote;
+
   if (
+    !foundationDiffers &&
     variantMap.inventoryDesiredAvailable != null &&
     remote === variantMap.inventoryDesiredAvailable
   ) {
@@ -95,6 +104,7 @@ export async function applyShopifyInventoryLevelObservation(
     return { status: "ECHO_CONFIRMED" };
   }
   if (
+    !foundationDiffers &&
     variantMap.inventoryPendingTargetQty != null &&
     remote === variantMap.inventoryPendingTargetQty
   ) {
@@ -146,10 +156,10 @@ export async function applyShopifyInventoryLevelObservation(
     explainedDelta: explainedSaleDelta,
   });
 
-  if (cls === "MATCHES_DESIRED" || cls === "MATCHES_APPLIED_BASE") {
+  if (!foundationDiffers && (cls === "MATCHES_DESIRED" || cls === "MATCHES_APPLIED_BASE")) {
     return { status: "ECHO_CONFIRMED" };
   }
-  if (cls === "EXPLAINED_BY_SALE") {
+  if (!foundationDiffers && cls === "EXPLAINED_BY_SALE") {
     // Sale already applied in Foundation; confirm observed remote without MQE.
     await markShopifyInventoryProjectionApplied(db, {
       variantMapId: variantMap.id,
@@ -159,7 +169,15 @@ export async function applyShopifyInventoryLevelObservation(
     });
     return { status: "SALE_EXPLAINED" };
   }
-  if (cls !== "UNEXPLAINED_REMOTE_EDIT" && !shouldPauseInventoryForDirectShopifyEdit(cls)) {
+  const applyDespiteClass =
+    (cls === "NO_CHANGE" && foundationSellable != null) ||
+    (foundationDiffers &&
+      (cls === "MATCHES_DESIRED" || cls === "MATCHES_APPLIED_BASE" || cls === "EXPLAINED_BY_SALE"));
+  if (
+    !applyDespiteClass &&
+    cls !== "UNEXPLAINED_REMOTE_EDIT" &&
+    !shouldPauseInventoryForDirectShopifyEdit(cls)
+  ) {
     return { status: "IGNORED", reason: cls };
   }
 
@@ -180,6 +198,37 @@ export async function applyShopifyInventoryLevelObservation(
   // Shopify available ≈ onHand - reserved; target onHand = available + reserved.
   const reserved = state.reserved ?? 0;
   const targetOnHand = remote + reserved;
+  if (
+    await marketplaceQtyWouldRevertRecentInwChange(db, {
+      variantId: variantMap.storeVariantId,
+      targetOnHand,
+    })
+  ) {
+    // A late read of the qty INW just left. Keep INW and push the newer qty back out.
+    let sellable = remote;
+    try {
+      sellable = trackedAvailable(state.onHand!, reserved);
+    } catch {
+      sellable = Math.max(0, (state.onHand ?? 0) - reserved);
+    }
+    const nextVersion = variantMap.inventoryDesiredVersion + 1;
+    await db.shopifyVariantMap.update({
+      where: { id: variantMap.id },
+      data: {
+        inventoryDesiredVersion: nextVersion,
+        inventoryDesiredAvailable: sellable,
+        inventoryDesiredAt: new Date(),
+        inventoryLastObservedAvailable: remote,
+      },
+    });
+    await ensureShopifyProjectInventoryJob(db, {
+      connectionId: input.connectionId,
+      storeItemId: variantMap.storeItemId,
+      storeVariantId: variantMap.storeVariantId,
+      inventoryDesiredVersion: nextVersion,
+    });
+    return { status: "ECHO_CONFIRMED" };
+  }
   const sourceFactId =
     input.observation.inventoryLevelId?.trim() ||
     `invlvl:${input.observation.inventoryItemId}:${input.observation.locationId}:${input.observation.evidenceId}:${remote}`;
@@ -200,6 +249,20 @@ export async function applyShopifyInventoryLevelObservation(
     });
 
     if (applied.status === "SKIPPED") {
+      if (applied.reason === "ALREADY_AT_TARGET" && variantMap.inventoryDesiredAvailable == null) {
+        const version = Math.max(variantMap.inventoryDesiredVersion, 1);
+        await db.shopifyVariantMap.update({
+          where: { id: variantMap.id },
+          data: {
+            inventoryDesiredAvailable: remote,
+            inventoryDesiredVersion: version,
+            inventoryAppliedAvailable: remote,
+            inventoryAppliedVersion: version,
+            inventoryAppliedAt: new Date(),
+            inventoryLastObservedAvailable: remote,
+          },
+        });
+      }
       return { status: "ECHO_CONFIRMED" };
     }
 
@@ -243,6 +306,32 @@ export async function applyShopifyInventoryLevelObservation(
       message: "Could not prove/apply marketplace quantity edit; inventory paused",
     });
     return { status: "PAUSED_UNCERTAIN", code: "MARKETPLACE_QTY_EDIT_FAILED" };
+  }
+}
+
+function sameShopifyLocation(left: string, right: string): boolean {
+  if (left === right) return true;
+  const numeric = (value: string) => value.split("/").pop()?.split("?")[0] ?? "";
+  const a = numeric(left);
+  const b = numeric(right);
+  return a.length > 0 && a === b;
+}
+
+async function readFoundationSellable(
+  db: ShopifyInventoryLevelsDb,
+  storeVariantId: string
+): Promise<number | null> {
+  const state = await db.inventoryState.findUnique({
+    where: { variantId: storeVariantId },
+    select: { onHand: true, reserved: true, mode: true },
+  });
+  if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+    return null;
+  }
+  try {
+    return trackedAvailable(state.onHand, state.reserved);
+  } catch {
+    return null;
   }
 }
 

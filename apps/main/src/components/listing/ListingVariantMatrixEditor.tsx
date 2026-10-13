@@ -809,12 +809,9 @@ export function ListingVariantMatrixEditor({
                   <select
                     value={PRESETS.includes(axis.name) ? axis.name : "__custom"}
                     onChange={(e) => {
+                      const nextName = e.target.value === "__custom" ? "" : e.target.value;
                       setDraftAxes((prev) =>
-                        prev.map((a, i) =>
-                          i === ai
-                            ? { ...a, name: e.target.value === "__custom" ? axis.name : e.target.value }
-                            : a
-                        )
+                        prev.map((a, i) => (i === ai ? { ...a, name: nextName } : a))
                       );
                     }}
                     className="border border-gray-300 rounded px-2 py-1.5 text-sm"

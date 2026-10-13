@@ -8,7 +8,11 @@ import {
   captureEtsyInventoryProjectionDesire,
   etsyCentsFromMoney,
   prisma,
+  marketplaceTopologyMatchKey,
+  recordEtsyListingVariantTopologyDesire,
+  recordShopifyListingVariantTopologyDesire,
   replaceEtsyListingVariantMaps,
+  STALE_MARKETPLACE_QTY_REVERT_MS,
   type EtsyJobHandlerResult,
 } from "database";
 import { optionValuesKey, skuSelectionKey } from "@/lib/listing-variant-matrix";
@@ -64,6 +68,25 @@ function classifyFailure(
     errorCode: apiClass || "PROVIDER_ERROR",
     errorMessage: message?.slice(0, 400) || "Etsy variant topology sync failed permanently",
   };
+}
+
+function topologyMatchKeysFromLocal(variants: EtsyStoreVariantRow[]): string[] {
+  const keys: string[] = [];
+  for (const variant of variants) {
+    const opts = parseStoreVariantOptions(variant.options);
+    if (!opts) return [];
+    const key = marketplaceTopologyMatchKey(opts);
+    if (!key) return [];
+    keys.push(key);
+  }
+  return keys.sort();
+}
+
+function topologyMatchKeysFromRemote(products: EtsyRemoteInventoryProduct[]): string[] {
+  return products
+    .map((product) => marketplaceTopologyMatchKey(optionsFromEtsyPropertyValues(product.property_values)))
+    .filter((key) => key.length > 0)
+    .sort();
 }
 
 export function localVariantComboKeys(variants: EtsyStoreVariantRow[]): string[] {
@@ -219,6 +242,62 @@ export async function etsySellerTopologyPushPending(listingLinkId: string): Prom
   return Boolean(pending);
 }
 
+/**
+ * A slow Etsy read of the old matrix must not retire a variant INW just added
+ * (Shopify add, then a poll that is only missing that variant). Push INW out.
+ * An Etsy edit that adds a combination is newer: adopt it instead of writing INW back.
+ */
+async function remoteStructureWouldDropRecentInwVariant(input: {
+  storeItemId: string;
+  memberId: string;
+  optioned: Array<{ options: Record<string, string> }>;
+}): Promise<boolean> {
+  const cutoff = Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS;
+  const active = await prisma.storeVariant.findMany({
+    where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+    select: { options: true, createdAt: true },
+  });
+  const inwKeys = new Set<string>();
+  const recentOptionKeys: string[] = [];
+  for (const row of active) {
+    const opts = parseStoreVariantOptions(row.options);
+    if (!opts || Object.keys(opts).length === 0) continue;
+    const key = marketplaceTopologyMatchKey(opts);
+    if (!key) continue;
+    inwKeys.add(key);
+    const createdMs = row.createdAt instanceof Date ? row.createdAt.getTime() : NaN;
+    if (Number.isFinite(createdMs) && createdMs >= cutoff) recentOptionKeys.push(key);
+  }
+  if (recentOptionKeys.length < 1) return false;
+  if (input.optioned.length === 0) return true;
+  const remoteKeys = new Set(input.optioned.map((row) => marketplaceTopologyMatchKey(row.options)));
+  const missingRecent = recentOptionKeys.some((key) => !remoteKeys.has(key));
+  if (!missingRecent) return false;
+  const remoteAddsCombination = [...remoteKeys].some((key) => key.length > 0 && !inwKeys.has(key));
+  return !remoteAddsCombination;
+}
+
+/**
+ * Etsy structure landed in INW. Push that matrix to Shopify only.
+ * Do not record an Etsy topology desire — that would push the change back to its source.
+ */
+async function fanOutAdoptedEtsyTopologyToShopify(
+  memberId: string,
+  storeItemId: string
+): Promise<void> {
+  try {
+    await recordShopifyListingVariantTopologyDesire(prisma, { memberId, storeItemId });
+  } catch {
+    // The inline push below still sends the variant. Cron retries the queued job.
+  }
+  try {
+    const { pushStoreItemTopologyToShopifyNow } = await import("../shopify/reconcile-listing");
+    await pushStoreItemTopologyToShopifyNow({ memberId, storeItemId });
+  } catch {
+    // The reconcile job queued above retries the Shopify create.
+  }
+}
+
 async function pullRemoteTopologyIntoFoundation(input: {
   connectionId: string;
   memberId: string;
@@ -248,6 +327,24 @@ async function pullRemoteTopologyIntoFoundation(input: {
       };
     })
     .filter((row) => Object.keys(row.options).length > 0);
+
+  if (
+    await remoteStructureWouldDropRecentInwVariant({
+      storeItemId: input.storeItemId,
+      memberId: input.memberId,
+      optioned: optioned.map((row) => ({ options: row.options })),
+    })
+  ) {
+    try {
+      await recordEtsyListingVariantTopologyDesire(prisma, {
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+      });
+    } catch {
+      // The next Reload Sync or cron pass can still push the INW matrix.
+    }
+    return { status: "NOOP", reason: "STALE_REMOTE_STRUCTURE" };
+  }
 
   try {
     if (optioned.length === 0) {
@@ -339,6 +436,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
         ],
       })
     );
+    await fanOutAdoptedEtsyTopologyToShopify(input.memberId, input.storeItemId);
     return { status: "PULLED", pairCount: 1 };
   }
 
@@ -347,6 +445,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
     remote: input.remoteProducts,
   });
   if (!correlation.ok) {
+    await fanOutAdoptedEtsyTopologyToShopify(input.memberId, input.storeItemId);
     return {
       outcome: "DEAD",
       errorClass: "PERMANENT",
@@ -370,6 +469,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
       })),
     })
   );
+  await fanOutAdoptedEtsyTopologyToShopify(input.memberId, input.storeItemId);
   return { status: "PULLED", pairCount: correlation.pairs.length };
 }
 
@@ -378,7 +478,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
  * direction "pull" (cron default): adopt Etsy structure into Foundation when combos diverge.
  * direction "push": seller topology desire — PUT INW products[] onto Etsy.
  */
-export async function syncEtsyListingVariantTopology(input: {
+async function syncEtsyListingVariantTopologyInner(input: {
   connectionId: string;
   memberId: string;
   listingLinkId: string;
@@ -624,7 +724,7 @@ export async function syncEtsyListingVariantTopology(input: {
     return { status: "PUSHED", pairCount: 1 };
   }
 
-  const localKeys = localVariantComboKeys(variantRows);
+  const localKeys = topologyMatchKeysFromLocal(variantRows);
   if (localKeys.length !== variantRows.length) {
     return {
       outcome: "DEAD",
@@ -653,7 +753,7 @@ export async function syncEtsyListingVariantTopology(input: {
   }
 
   const remoteProducts = inventoryRes.data.products;
-  const remoteKeys = remoteProductComboKeys(remoteProducts);
+  const remoteKeys = topologyMatchKeysFromRemote(remoteProducts);
   const mapsOk = mapsMatchLocalCombos({ maps, variants: variantRows });
   const combosMatch = sameKeySet(localKeys, remoteKeys);
   const hasDeprecatedProperties = inventoryHasDeprecatedEtsyProperties(remoteProducts);
@@ -808,6 +908,30 @@ export async function syncEtsyListingVariantTopology(input: {
   }
 
   return { status: "PUSHED", pairCount: correlation.pairs.length };
+}
+
+/**
+ * Sync Size×Color between INW StoreVariants and Etsy products[].
+ * direction "pull" (cron default): adopt Etsy structure into Foundation when combos diverge.
+ * direction "push": seller topology desire — PUT INW products[] onto Etsy.
+ * Afterward, create any INW variant Shopify still does not have.
+ */
+export async function syncEtsyListingVariantTopology(
+  input: Parameters<typeof syncEtsyListingVariantTopologyInner>[0]
+): Promise<SyncEtsyVariantTopologyResult> {
+  try {
+    return await syncEtsyListingVariantTopologyInner(input);
+  } finally {
+    try {
+      const { pushUnmappedStoreVariantsToShopify } = await import("../shopify/reconcile-listing");
+      await pushUnmappedStoreVariantsToShopify({
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+      });
+    } catch {
+      // The next Etsy poll retries a Shopify variant that is still missing.
+    }
+  }
 }
 
 /** Content and inventory jobs should wait when topology just changed the offering ids. */

@@ -63,7 +63,7 @@ export async function ensureEtsyProjectInventoryJob(
  */
 export async function captureEtsyInventoryProjectionDesire(
   db: EtsyInventoryDesireDb,
-  input: { memberId: string; storeVariantId: string }
+  input: { memberId: string; storeVariantId: string; force?: boolean }
 ): Promise<CaptureEtsyInventoryProjectionDesireResult> {
   const connection = await db.etsyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
@@ -124,6 +124,7 @@ export async function captureEtsyInventoryProjectionDesire(
   }
 
   if (
+    !input.force &&
     locked.inventoryDesiredAvailable === sellable &&
     locked.inventoryDesiredVersion > locked.inventoryAppliedVersion
   ) {
@@ -143,7 +144,10 @@ export async function captureEtsyInventoryProjectionDesire(
     };
   }
 
+  // A previous push can mark applied while Etsy still has the old qty (the price
+  // PUT raced it). Reload passes force so we open a new version and write again.
   if (
+    !input.force &&
     locked.inventoryAppliedAvailable === sellable &&
     locked.inventoryDesiredVersion <= locked.inventoryAppliedVersion &&
     locked.inventoryDesiredAvailable === sellable

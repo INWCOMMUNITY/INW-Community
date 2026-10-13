@@ -3,7 +3,9 @@ import {
   applyTrackedMarketplaceQuantityEdit,
   ETSY_SOURCE_SYSTEM,
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
+  marketplaceQtyWouldRevertRecentInwChange,
   projectStoreItemQuantity,
+  trackedAvailable,
 } from "../commerce-foundation-inventory";
 import { classifyShopifyDirectInventoryEdit } from "../shopify/inventory-direct-edit";
 import {
@@ -163,6 +165,37 @@ export async function applyEtsyOfferingInventoryObservation(
 
   const reserved = state.reserved ?? 0;
   const targetOnHand = remote + reserved;
+  if (
+    await marketplaceQtyWouldRevertRecentInwChange(db, {
+      variantId: variantMap.storeVariantId,
+      targetOnHand,
+      now: input.now,
+    })
+  ) {
+    // Etsy still has the qty INW just left. Keep INW and push the newer qty out.
+    let sellable = remote;
+    try {
+      sellable = trackedAvailable(state.onHand, reserved);
+    } catch {
+      sellable = Math.max(0, state.onHand - reserved);
+    }
+    const nextVersion = variantMap.inventoryDesiredVersion + 1;
+    await db.etsyVariantMap.update({
+      where: { id: variantMap.id },
+      data: {
+        inventoryDesiredVersion: nextVersion,
+        inventoryDesiredAvailable: sellable,
+        inventoryDesiredAt: input.now ?? new Date(),
+      },
+    });
+    await ensureEtsyProjectInventoryJob(db, {
+      connectionId: input.connectionId,
+      storeItemId: variantMap.storeItemId,
+      storeVariantId: variantMap.storeVariantId,
+      inventoryDesiredVersion: nextVersion,
+    });
+    return { status: "ECHO_CONFIRMED" };
+  }
   const base =
     variantMap.inventoryAppliedAvailable != null
       ? String(variantMap.inventoryAppliedAvailable)

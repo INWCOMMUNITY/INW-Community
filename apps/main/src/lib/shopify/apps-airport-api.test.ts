@@ -30,6 +30,12 @@ vi.mock("@/lib/shopify/listing-actions", () => ({
 vi.mock("@/lib/shopify/export-readiness", () => ({
   getShopifyExportReadiness: vi.fn(),
 }));
+vi.mock("@vercel/functions", () => ({
+  waitUntil: (work: Promise<unknown>) => work,
+}));
+vi.mock("@/lib/shopify/admin-graphql", () => ({
+  runNextShopifySyncJob: vi.fn(async () => ({ claimed: false })),
+}));
 
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";

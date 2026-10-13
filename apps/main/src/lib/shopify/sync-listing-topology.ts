@@ -7,7 +7,10 @@ import {
   Prisma,
   prisma,
   projectStoreItemQuantity,
+  recordEtsyListingVariantTopologyDesire,
   shopifyCentsFromMoneyString,
+  STALE_MARKETPLACE_QTY_REVERT_MS,
+  canonicalMarketplaceAxisName,
   shopifySelectedOptionsToInwOptions,
   shopifyTopologyToInwMatrix,
   type ShopifyTopologyDiffPlan,
@@ -17,7 +20,12 @@ import {
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { centsToShopifyMoney } from "./listing-export-id";
-import { productSetShopifyMultiVariantDraftListing } from "./product-set-listing";
+import {
+  bulkCreateVariantInventory,
+  loadShopifyCreateInventory,
+  productSetShopifyMultiVariantDraftListing,
+  productSetVariantInventory,
+} from "./product-set-listing";
 
 type HandlerFailure = {
   outcome: "RETRY" | "DEAD";
@@ -25,6 +33,188 @@ type HandlerFailure = {
   errorCode: string;
   errorMessage: string;
 };
+
+/**
+ * Shopify structure landed in INW. Push that matrix to Etsy only.
+ * Do not record a Shopify topology desire — that would push the change back to its source.
+ */
+async function fanOutAdoptedShopifyTopologyToEtsy(
+  memberId: string,
+  storeItemId: string
+): Promise<void> {
+  try {
+    await prisma.$transaction((tx) =>
+      recordEtsyListingVariantTopologyDesire(tx, { memberId, storeItemId })
+    );
+  } catch {
+    return;
+  }
+  try {
+    const { drainEtsySyncJobs } = await import("./process-inventory-levels");
+    await drainEtsySyncJobs("shopify-topology");
+  } catch {
+    // Cron still runs the versioned RECONCILE_LISTING.
+  }
+}
+
+/**
+ * Etsy stores "Primary color" / "Materials" while the Shopify product still has
+ * "Color" / "Material". Creating a variant under the Etsy name adds a fourth
+ * option and Shopify rejects it, so the new variant never leaves INW.
+ */
+export function alignLocalOptionsToShopifyAxes(
+  localVariants: ShopifyTopologyLocalVariant[],
+  remoteSnaps: ShopifyRemoteVariantSnap[]
+): ShopifyTopologyLocalVariant[] {
+  const remoteNameByAlias = new Map<string, string>();
+  for (const snap of remoteSnaps) {
+    for (const opt of snap.selectedOptions) {
+      if (!opt.name.trim() || opt.name.trim().toLowerCase() === "title") continue;
+      const alias = canonicalMarketplaceAxisName(opt.name);
+      if (!remoteNameByAlias.has(alias)) remoteNameByAlias.set(alias, opt.name.trim());
+    }
+  }
+  const remoteByGid = new Map(remoteSnaps.map((row) => [row.shopifyVariantId, row]));
+  const localNameToShopify = new Map<string, string>();
+  for (const local of localVariants) {
+    const gid = local.shopifyVariantId?.trim();
+    if (!gid) continue;
+    const remote = remoteByGid.get(gid);
+    if (!remote) continue;
+    for (const opt of local.selectedOptions) {
+      const value = opt.value.trim().toLowerCase();
+      if (!value) continue;
+      const match = remote.selectedOptions.find((row) => row.value.trim().toLowerCase() === value);
+      if (!match?.name.trim()) continue;
+      localNameToShopify.set(opt.name.trim().toLowerCase(), match.name.trim());
+    }
+  }
+  return localVariants.map((local) => ({
+    ...local,
+    selectedOptions: local.selectedOptions.map((opt) => {
+      const fromSibling = localNameToShopify.get(opt.name.trim().toLowerCase());
+      if (fromSibling) return { ...opt, name: fromSibling };
+      const fromAlias = remoteNameByAlias.get(canonicalMarketplaceAxisName(opt.name));
+      if (fromAlias) return { ...opt, name: fromAlias };
+      return opt;
+    }),
+  }));
+}
+
+/**
+ * Shopify rejects a new variant that omits an option the product already has.
+ * A single shared value (Materials: only Wool) is safe to copy onto that variant.
+ * Several values are not guessed.
+ */
+export function fillSingleValueShopifyOptions(
+  localVariants: ShopifyTopologyLocalVariant[],
+  remoteSnaps: ShopifyRemoteVariantSnap[]
+): ShopifyTopologyLocalVariant[] {
+  const valuesByAxis = new Map<string, { name: string; values: Set<string> }>();
+  for (const snap of remoteSnaps) {
+    for (const opt of snap.selectedOptions) {
+      const axisName = opt.name.trim();
+      if (!axisName || axisName.toLowerCase() === "title") continue;
+      const alias = canonicalMarketplaceAxisName(axisName);
+      if (!alias) continue;
+      const slot = valuesByAxis.get(alias) ?? { name: axisName, values: new Set<string>() };
+      const value = opt.value.trim();
+      if (value) slot.values.add(value);
+      valuesByAxis.set(alias, slot);
+    }
+  }
+  return localVariants.map((local) => {
+    const present = new Set(
+      local.selectedOptions.map((opt) => canonicalMarketplaceAxisName(opt.name)).filter(Boolean)
+    );
+    const selectedOptions = [...local.selectedOptions];
+    for (const [alias, slot] of valuesByAxis) {
+      if (present.has(alias) || slot.values.size !== 1) continue;
+      const value = [...slot.values][0];
+      if (!value) continue;
+      selectedOptions.push({ name: slot.name, value });
+    }
+    return { ...local, selectedOptions };
+  });
+}
+
+function optionRecord(raw: unknown): Record<string, string> {
+  if (typeof raw === "string") {
+    try {
+      return optionRecord(JSON.parse(raw));
+    } catch {
+      return {};
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    const axis = name.trim();
+    const optionValue = value == null ? "" : String(value).trim();
+    if (!axis || !optionValue) continue;
+    out[axis] = optionValue;
+  }
+  return out;
+}
+
+/**
+ * A marketplace read that is missing a variant INW just created is the old structure.
+ * Keep that variant. Deleting it here is what snapped Wool off the listing.
+ */
+async function restoreRecentlyCreatedVariants(input: {
+  memberId: string;
+  storeItemId: string;
+  localVariants: ShopifyTopologyLocalVariant[];
+  removedVariants: Array<{ storeVariantId: string; shopifyVariantId: string }>;
+}): Promise<{
+  localVariants: ShopifyTopologyLocalVariant[];
+  removedVariants: Array<{ storeVariantId: string; shopifyVariantId: string }>;
+  restored: boolean;
+}> {
+  if (input.removedVariants.length < 1) {
+    return { ...input, restored: false };
+  }
+  const cutoff = new Date(Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS);
+  const recent = await prisma.storeVariant.findMany({
+    where: {
+      id: { in: input.removedVariants.map((row) => row.storeVariantId) },
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      createdAt: { gte: cutoff },
+    },
+    select: { id: true, options: true, priceCents: true, sku: true },
+  });
+  if (recent.length < 1) return { ...input, restored: false };
+  const recentIds = new Set(recent.map((row) => row.id));
+  await prisma.storeVariant.updateMany({
+    where: { id: { in: [...recentIds] }, status: "RETIRED" },
+    data: { status: "ACTIVE", retiredAt: null },
+  });
+  const byId = new Map(recent.map((row) => [row.id, row] as const));
+  const restored = input.removedVariants
+    .filter((row) => recentIds.has(row.storeVariantId))
+    .map((row) => {
+      const sv = byId.get(row.storeVariantId)!;
+      return {
+        storeVariantId: sv.id,
+        selectedOptions: Object.entries(optionRecord(sv.options)).map(([name, value]) => ({
+          name,
+          value,
+        })),
+        priceCents: sv.priceCents,
+        sku: sv.sku,
+        shopifyVariantId: row.shopifyVariantId,
+      };
+    });
+  return {
+    localVariants: [
+      ...input.localVariants.filter((row) => !recentIds.has(row.storeVariantId)),
+      ...restored,
+    ],
+    removedVariants: input.removedVariants.filter((row) => !recentIds.has(row.storeVariantId)),
+    restored: true,
+  };
+}
 
 /** Clear stale topology conflict once inbound planning no longer conflicts. */
 async function clearResolvedTopologyConflict(listingLinkId: string): Promise<void> {
@@ -316,8 +506,8 @@ async function productOptionAddValues(input: {
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyProductOptionAddValues",
-    document: `mutation ShopifyProductOptionAddValues($productId: ID!, $option: OptionUpdateInput!, $optionValuesToAdd: [OptionValueCreateInput!]) {
-      productOptionUpdate(productId: $productId, option: $option, optionValuesToAdd: $optionValuesToAdd) {
+    document: `mutation ShopifyProductOptionAddValues($productId: ID!, $option: OptionUpdateInput!, $optionValuesToAdd: [OptionValueCreateInput!], $variantStrategy: ProductOptionUpdateVariantStrategy) {
+      productOptionUpdate(productId: $productId, option: $option, optionValuesToAdd: $optionValuesToAdd, variantStrategy: $variantStrategy) {
         userErrors { field message code }
       }
     }`,
@@ -325,6 +515,8 @@ async function productOptionAddValues(input: {
       productId: input.productId,
       option: { id: input.optionId },
       optionValuesToAdd: input.values,
+      // Add the value only. The following bulk create adds the one missing variant.
+      variantStrategy: "LEAVE_AS_IS",
     },
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -485,6 +677,8 @@ async function productVariantsBulkCreate(input: {
     optionValues: Array<{ optionName: string; name: string }>;
     price: string;
     sku?: string;
+    trackInventory?: boolean;
+    inventoryQuantities?: Array<{ locationId: string; availableQuantity: number }>;
   }>;
   fetchImpl?: ShopifyFetch;
   now?: Date;
@@ -525,11 +719,18 @@ async function productVariantsBulkCreate(input: {
     }`,
     variables: {
       productId: input.productId,
-      variants: input.variants.map((v) => ({
-        optionValues: v.optionValues,
-        price: v.price,
-        ...(v.sku ? { inventoryItem: { sku: v.sku } } : {}),
-      })),
+      variants: input.variants.map((v) => {
+        const inventoryItem = {
+          ...(v.sku ? { sku: v.sku } : {}),
+          ...(v.trackInventory ? { tracked: true } : {}),
+        };
+        return {
+          optionValues: v.optionValues,
+          price: v.price,
+          ...(Object.keys(inventoryItem).length > 0 ? { inventoryItem } : {}),
+          ...(v.inventoryQuantities?.length ? { inventoryQuantities: v.inventoryQuantities } : {}),
+        };
+      }),
     },
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -844,6 +1045,11 @@ async function pushInwSimpleOntoShopifyProduct(input: {
     };
   }
 
+  const simpleInventory = await loadShopifyCreateInventory({
+    connectionId: input.connectionId,
+    storeVariantIds: [survivor.storeVariantId],
+  });
+  const simpleAvailable = simpleInventory.availableByVariantId.get(survivor.storeVariantId);
   const remote = await productSetShopifyMultiVariantDraftListing({
     connectionId: input.connectionId,
     storeItemId: input.storeItemId,
@@ -856,6 +1062,9 @@ async function pushInwSimpleOntoShopifyProduct(input: {
         optionValues: [{ optionName: "Title", name: "Default Title" }],
         price: centsToShopifyMoney(Math.max(1, survivor.priceCents || 1)),
         ...(survivor.sku ? { sku: survivor.sku } : {}),
+        ...(simpleInventory.locationId && simpleAvailable != null
+          ? productSetVariantInventory(simpleInventory.locationId, simpleAvailable)
+          : {}),
       },
     ],
     fetchImpl: input.fetchImpl,
@@ -962,6 +1171,10 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
     };
   }
 
+  const matrixInventory = await loadShopifyCreateInventory({
+    connectionId: input.connectionId,
+    storeVariantIds: rows.map((row) => row.storeVariantId),
+  });
   const remote = await productSetShopifyMultiVariantDraftListing({
     connectionId: input.connectionId,
     storeItemId: input.storeItemId,
@@ -972,14 +1185,20 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
       name,
       values: Array.from(values).map((value) => ({ name: value })),
     })),
-    variants: rows.map((row) => ({
-      optionValues: row.selectedOptions.map((opt) => ({
-        optionName: opt.name,
-        name: opt.value,
-      })),
-      price: centsToShopifyMoney(row.priceCents),
-      ...(row.sku ? { sku: row.sku } : {}),
-    })),
+    variants: rows.map((row) => {
+      const available = matrixInventory.availableByVariantId.get(row.storeVariantId);
+      return {
+        optionValues: row.selectedOptions.map((opt) => ({
+          optionName: opt.name,
+          name: opt.value,
+        })),
+        price: centsToShopifyMoney(row.priceCents),
+        ...(row.sku ? { sku: row.sku } : {}),
+        ...(matrixInventory.locationId && available != null
+          ? productSetVariantInventory(matrixInventory.locationId, available)
+          : {}),
+      };
+    }),
     fetchImpl: input.fetchImpl,
     now: input.now,
   });
@@ -1077,6 +1296,21 @@ export async function syncShopifyListingTopology(input: {
   | { ok: true; plan: ShopifyTopologyDiffPlan; importedStoreVariantIds: string[] }
   | ({ ok: false } & HandlerFailure)
 > {
+  const kept = await restoreRecentlyCreatedVariants({
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    localVariants: input.localVariants,
+    removedVariants: input.removedVariants ?? [],
+  });
+  if (kept.restored) {
+    input = {
+      ...input,
+      localVariants: kept.localVariants,
+      removedVariants: kept.removedVariants,
+    };
+    await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
+  }
+
   const remoteRead = await readShopifyProductTopology({
     connectionId: input.connectionId,
     productId: input.productId,
@@ -1086,6 +1320,13 @@ export async function syncShopifyListingTopology(input: {
   if (!remoteRead.ok) return remoteRead;
 
   const remoteSnaps = toRemoteSnaps(remoteRead.topology);
+  input = {
+    ...input,
+    localVariants: fillSingleValueShopifyOptions(
+      alignLocalOptionsToShopifyAxes(input.localVariants, remoteSnaps),
+      remoteSnaps
+    ),
+  };
   const remoteIsDefaultTitle =
     remoteSnaps.length > 0 &&
     remoteSnaps.every((row) => isShopifyDefaultTitleOnly(row.selectedOptions));
@@ -1124,6 +1365,21 @@ export async function syncShopifyListingTopology(input: {
         !isShopifyDefaultTitleOnly(row.selectedOptions)
     );
     if (localHadMappedOptions) {
+      const cutoff = new Date(Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS);
+      const recentOptionVariant = await prisma.storeVariant.findFirst({
+        where: {
+          storeItemId: input.storeItemId,
+          memberId: input.memberId,
+          status: "ACTIVE",
+          createdAt: { gte: cutoff },
+        },
+        select: { id: true, options: true },
+      });
+      if (recentOptionVariant && Object.keys(optionRecord(recentOptionVariant.options)).length > 0) {
+        await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
+        await clearResolvedTopologyConflict(input.listingLinkId);
+        return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
+      }
       const pulled = await pullShopifySimpleTopologyIntoInw({
         connectionId: input.connectionId,
         memberId: input.memberId,
@@ -1133,6 +1389,7 @@ export async function syncShopifyListingTopology(input: {
         now: input.now,
       });
       if (!pulled.ok) return pulled;
+      await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
       await clearResolvedTopologyConflict(input.listingLinkId);
       return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
     }
@@ -1204,17 +1461,14 @@ export async function syncShopifyListingTopology(input: {
   // MUTATE — never productSet partial.
   void plan.forbidProductSetPartial;
 
-  // Shopify added an option axis (Color+Size → +Material). Pull that in.
-  // Do not push the old INW option set back out; that call fails and blocks the import.
+  // Axis names are compared after the inbound import so a later outbound pass
+  // can tell "Shopify added an axis" from "INW removed an axis".
   const remoteAxisNames = new Set(
     remoteSnaps.flatMap((row) => [...realAxisNames(row.selectedOptions)])
   );
   const localAxisNames = new Set(
     input.localVariants.flatMap((row) => [...realAxisNames(row.selectedOptions)])
   );
-  const remoteAddedAxis =
-    remoteAxisNames.size > localAxisNames.size &&
-    [...localAxisNames].every((name) => remoteAxisNames.has(name));
 
   // Pull remote option labels onto mapped StoreVariants (inbound).
   // Keep the existing INW quantity. A new Shopify variant is added below with its own quantity.
@@ -1349,7 +1603,21 @@ export async function syncShopifyListingTopology(input: {
   }
 
   // Retire mappings for provider-deleted variants; mark StoreVariant RETIRED so qty projection drops it.
+  // A variant created moments ago is missing from a stale read, not a real delete.
+  const retireCandidateIds = plan.retireMappings
+    .map((row) => row.storeVariantId)
+    .filter((id) => !reboundStoreVariantIds.has(id));
+  const recentRetireIds = new Set<string>();
+  if (retireCandidateIds.length > 0) {
+    const cutoff = new Date(Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS);
+    const recentRetires = await prisma.storeVariant.findMany({
+      where: { id: { in: retireCandidateIds }, createdAt: { gte: cutoff } },
+      select: { id: true },
+    });
+    for (const row of recentRetires) recentRetireIds.add(row.id);
+  }
   for (const row of plan.retireMappings) {
+    if (recentRetireIds.has(row.storeVariantId)) continue;
     await prisma.shopifyVariantMap.deleteMany({
       where: {
         shopifyListingLinkId: input.listingLinkId,
@@ -1370,27 +1638,26 @@ export async function syncShopifyListingTopology(input: {
     });
   }
 
-  // Shopify added an axis (inbound import). Do not push the old INW option set back.
-  // INW removing an axis looks the same on axis counts but has delete/create work — continue.
-  if (
-    remoteAddedAxis &&
+  // Shopify added a variant, renamed options, or removed a variant, and INW did not
+  // also ask to create or delete. Stop here. Falling through uses the pre-import
+  // option list and would delete the value Shopify just added.
+  const inboundOnly =
     plan.deleteRemoteVariants.length === 0 &&
-    plan.createVariants.length === 0
-  ) {
-    // Rebuild from the remote we just pulled (Material import, etc.).
-    if (
-      plan.renameOptionValues.length > 0 ||
-      plan.importRemoteVariants.length > 0 ||
-      plan.retireMappings.length > 0
-    ) {
-      await rebuildStoreItemVariantsFromRemote({
-        memberId: input.memberId,
-        storeItemId: input.storeItemId,
-        listingLinkId: input.listingLinkId,
-        connectionId: input.connectionId,
-        topology: remoteRead.topology,
-      });
-    }
+    plan.createVariants.length === 0 &&
+    plan.createOptionValues.length === 0;
+  const adoptedFromShopify =
+    plan.importRemoteVariants.length > 0 ||
+    plan.renameOptionValues.length > 0 ||
+    plan.retireMappings.length > 0;
+  if (inboundOnly && adoptedFromShopify) {
+    await rebuildStoreItemVariantsFromRemote({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      listingLinkId: input.listingLinkId,
+      connectionId: input.connectionId,
+      topology: remoteRead.topology,
+    });
+    await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
     await clearResolvedTopologyConflict(input.listingLinkId);
     return { ok: true, plan, importedStoreVariantIds };
   }
@@ -1436,14 +1703,19 @@ export async function syncShopifyListingTopology(input: {
 
   // Drop option values the seller removed. MANAGE deletes their Shopify variants too.
   const localValuesByAxis = new Map<string, Set<string>>();
+  const rememberOptionValue = (name: string, value: string) => {
+    const axis = name.trim().toLowerCase();
+    const normalized = value.trim().toLowerCase();
+    if (!axis || axis === "title" || !normalized) return;
+    if (!localValuesByAxis.has(axis)) localValuesByAxis.set(axis, new Set());
+    localValuesByAxis.get(axis)!.add(normalized);
+  };
   for (const row of input.localVariants) {
-    for (const opt of row.selectedOptions) {
-      const axis = opt.name.trim().toLowerCase();
-      const value = opt.value.trim().toLowerCase();
-      if (!axis || axis === "title" || !value) continue;
-      if (!localValuesByAxis.has(axis)) localValuesByAxis.set(axis, new Set());
-      localValuesByAxis.get(axis)!.add(value);
-    }
+    for (const opt of row.selectedOptions) rememberOptionValue(opt.name, opt.value);
+  }
+  // Values just imported from Shopify must survive this outbound delete pass.
+  for (const rem of plan.importRemoteVariants) {
+    for (const opt of rem.selectedOptions) rememberOptionValue(opt.name, opt.value);
   }
   let deletedOptionValues = false;
   for (const option of remoteRead.topology.options) {
@@ -1590,14 +1862,33 @@ export async function syncShopifyListingTopology(input: {
   }
 
   if (plan.createVariants.length > 0) {
+    const optionRank = new Map(
+      topologyForCreate.options.map((option, index) => [option.name.trim(), index] as const)
+    );
+    const createInventory = await loadShopifyCreateInventory({
+      connectionId: input.connectionId,
+      storeVariantIds: plan.createVariants.map((v) => v.storeVariantId),
+    });
     const created = await productVariantsBulkCreate({
       connectionId: input.connectionId,
       productId: input.productId,
-      variants: plan.createVariants.map((v) => ({
-        optionValues: v.optionValues,
-        price: centsToShopifyMoney(v.priceCents),
-        ...(v.sku ? { sku: v.sku } : {}),
-      })),
+      variants: plan.createVariants.map((v) => {
+        const available = createInventory.availableByVariantId.get(v.storeVariantId);
+        const inventory =
+          createInventory.locationId && available != null
+            ? bulkCreateVariantInventory(createInventory.locationId, available)
+            : null;
+        return {
+          optionValues: [...v.optionValues].sort(
+            (a, b) =>
+              (optionRank.get(a.optionName) ?? optionRank.size) -
+              (optionRank.get(b.optionName) ?? optionRank.size)
+          ),
+          price: centsToShopifyMoney(v.priceCents),
+          ...(v.sku ? { sku: v.sku } : {}),
+          ...(inventory ?? {}),
+        };
+      }),
       fetchImpl: input.fetchImpl,
       now: input.now,
     });
@@ -1641,6 +1932,13 @@ export async function syncShopifyListingTopology(input: {
       connectionId: input.connectionId,
       topology: finalRead.topology,
     });
+  }
+
+  // Mixed plan: Shopify structure was adopted and INW also had outbound work.
+  // Etsy still needs the variants Shopify added. INW-only creates already recorded
+  // an Etsy desire from the listing save.
+  if (plan.importRemoteVariants.length > 0 || plan.renameOptionValues.length > 0) {
+    await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
   }
 
   await clearResolvedTopologyConflict(input.listingLinkId);

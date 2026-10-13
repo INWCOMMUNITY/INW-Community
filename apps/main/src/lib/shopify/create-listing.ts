@@ -22,8 +22,11 @@ import {
   lookupShopifyListingVariantsByCustomId,
 } from "./listing-product-lookup";
 import {
+  loadShopifyCreateInventory,
   productSetShopifyDraftListing,
   productSetShopifyMultiVariantDraftListing,
+  productSetVariantInventory,
+  restoreShopifyTrackedQuantities,
 } from "./product-set-listing";
 import { enqueueShopifyPublishListingAfterMapping } from "./publish-listing-job";
 
@@ -544,6 +547,40 @@ export async function handleShopifyCreateListingJob(
   }
 
   if (discovered.product) {
+    const existingInventory = await loadShopifyCreateInventory({
+      connectionId: connection.id,
+      storeVariantIds: [variant.id],
+    });
+    const existingAvailable = existingInventory.availableByVariantId.get(variant.id);
+    if (existingInventory.locationId && existingAvailable != null) {
+      const restored = await restoreShopifyTrackedQuantities({
+        connectionId: connection.id,
+        locationId: existingInventory.locationId,
+        variants: [
+          {
+            inventoryItemId: discovered.product.inventoryItemId,
+            available: existingAvailable,
+          },
+        ],
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (!restored.ok) {
+        return restored.class === "RETRY"
+          ? {
+              outcome: "RETRY",
+              errorClass: restored.errorClass,
+              errorCode: restored.errorCode,
+              errorMessage: restored.errorMessage,
+            }
+          : {
+              outcome: "DEAD",
+              errorClass: restored.errorClass,
+              errorCode: restored.errorCode,
+              errorMessage: restored.errorMessage,
+            };
+      }
+    }
     return persistCreateListingMapping({
       memberId: connection.memberId,
       connectionId: connection.id,
@@ -555,6 +592,11 @@ export async function handleShopifyCreateListingJob(
     });
   }
 
+  const inventory = await loadShopifyCreateInventory({
+    connectionId: connection.id,
+    storeVariantIds: [variant.id],
+  });
+  const available = inventory.availableByVariantId.get(variant.id);
   const remote = await productSetShopifyDraftListing({
     connectionId: connection.id,
     storeItemId: storeItem.id,
@@ -562,6 +604,9 @@ export async function handleShopifyCreateListingJob(
     descriptionHtml: storeItem.description,
     priceCents: variant.priceCents,
     sku: variant.sku,
+    ...(inventory.locationId && available != null
+      ? { inventory: { locationId: inventory.locationId, available } }
+      : {}),
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
@@ -639,8 +684,13 @@ async function handleMultiVariantCreate(ctx: {
   }));
 
   const variantById = new Map(variants.map((v) => [v.id, v]));
+  const inventory = await loadShopifyCreateInventory({
+    connectionId: connection.id,
+    storeVariantIds: variantOptionsList.map((vo) => vo.storeVariantId),
+  });
   const shopifyVariants = variantOptionsList.map((vo) => {
     const sv = variantById.get(vo.storeVariantId)!;
+    const available = inventory.availableByVariantId.get(vo.storeVariantId);
     return {
       optionValues: Object.entries(vo.options).map(([optionName, name]) => ({
         optionName,
@@ -648,6 +698,9 @@ async function handleMultiVariantCreate(ctx: {
       })),
       price: centsToShopifyMoney(sv.priceCents),
       ...(sv.sku ? { sku: sv.sku } : {}),
+      ...(inventory.locationId && available != null
+        ? productSetVariantInventory(inventory.locationId, available)
+        : {}),
     };
   });
 
@@ -685,20 +738,99 @@ async function handleMultiVariantCreate(ctx: {
         selectedOptions: variant.selectedOptions,
       })),
     });
-    if (!recovered.ok) {
+    if (recovered.ok) {
+      if (inventory.locationId) {
+        const trackedVariants = recovered.pairs.flatMap((pair) => {
+          const available = inventory.availableByVariantId.get(pair.storeVariantId);
+          if (available == null) return [];
+          return [{ inventoryItemId: pair.shopifyInventoryItemId, available }];
+        });
+        if (trackedVariants.length > 0) {
+          const restored = await restoreShopifyTrackedQuantities({
+            connectionId: connection.id,
+            locationId: inventory.locationId,
+            variants: trackedVariants,
+            fetchImpl: deps.fetchImpl,
+            now: deps.now,
+          });
+          if (!restored.ok) {
+            return restored.class === "RETRY"
+              ? {
+                  outcome: "RETRY",
+                  errorClass: restored.errorClass,
+                  errorCode: restored.errorCode,
+                  errorMessage: restored.errorMessage,
+                }
+              : {
+                  outcome: "DEAD",
+                  errorClass: restored.errorClass,
+                  errorCode: restored.errorCode,
+                  errorMessage: restored.errorMessage,
+                };
+          }
+        }
+      }
+      return persistMultiVariantCreateListingMapping({
+        memberId: connection.memberId,
+        connectionId: connection.id,
+        storeItemId: storeItem.id,
+        pairs: recovered.pairs,
+        productId: discovered.product.productId,
+      });
+    }
+    // The disconnected product is still on Shopify. Rewrite it from current INW
+    // instead of dying when the variant counts or combinations differ.
+    const rewritten = await productSetShopifyMultiVariantDraftListing({
+      connectionId: connection.id,
+      storeItemId: storeItem.id,
+      title: storeItem.title,
+      descriptionHtml: storeItem.description,
+      preserveStatus: true,
+      productOptions,
+      variants: shopifyVariants,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!rewritten.ok) {
+      return rewritten.class === "RETRY"
+        ? {
+            outcome: "RETRY",
+            errorClass: rewritten.errorClass,
+            errorCode: rewritten.errorCode,
+            errorMessage: rewritten.errorMessage,
+          }
+        : {
+            outcome: "DEAD",
+            errorClass: rewritten.errorClass,
+            errorCode: rewritten.errorCode,
+            errorMessage: rewritten.errorMessage,
+          };
+    }
+    const afterRewrite = correlateVariantsByOptionCombination({
+      requested: variantOptionsList.map((vo) => ({
+        storeVariantId: vo.storeVariantId,
+        selectedOptions: Object.entries(vo.options).map(([name, value]) => ({ name, value })),
+      })),
+      remote: rewritten.variants.map((v) => ({
+        shopifyVariantId: v.variantId,
+        shopifyInventoryItemId: v.inventoryItemId,
+        selectedOptions: v.selectedOptions,
+      })),
+    });
+    if (!afterRewrite.ok) {
       return {
         outcome: "DEAD",
-        errorClass: "RECOVERY_CONFLICT",
-        errorCode: recovered.code,
-        errorMessage: recovered.message,
+        errorClass: "GRAPHQL_PERMANENT",
+        errorCode: afterRewrite.code,
+        errorMessage: afterRewrite.message,
       };
     }
     return persistMultiVariantCreateListingMapping({
       memberId: connection.memberId,
       connectionId: connection.id,
       storeItemId: storeItem.id,
-      pairs: recovered.pairs,
-      productId: discovered.product.productId,
+      pairs: afterRewrite.pairs,
+      productId: rewritten.productId,
     });
   }
 

@@ -44,10 +44,13 @@ export function classifyShopifyInventoryProjectionAction(input: {
 
   const desired = input.desiredAvailable;
 
+  // Untracked variants show no quantity ("-") even when the price is already correct.
+  // Turn tracking on before any drift check, including after the first init.
+  if (!input.tracked) {
+    return { action: "ENABLE_TRACKED" };
+  }
+
   if (input.initState === "PENDING" || input.initState === "FAILED") {
-    if (!input.tracked) {
-      return { action: "ENABLE_TRACKED" };
-    }
     if (!input.levelExists || input.remoteAvailable == null) {
       return { action: "INIT_ACTIVATE", quantity: desired };
     }
@@ -59,8 +62,13 @@ export function classifyShopifyInventoryProjectionAction(input: {
     };
   }
 
-  // INITIALIZED — strict remote-drift rules.
-  if (input.remoteAvailable == null || !input.levelExists) {
+  // INITIALIZED — a missing level means the variant was never stocked (often because
+  // tracking was just enabled). Write the INW quantity. A level that exists but
+  // cannot be read is still drift.
+  if (!input.levelExists) {
+    return { action: "INIT_ACTIVATE", quantity: desired };
+  }
+  if (input.remoteAvailable == null) {
     return {
       action: "REMOTE_DRIFT",
       code: "REMOTE_DRIFT",

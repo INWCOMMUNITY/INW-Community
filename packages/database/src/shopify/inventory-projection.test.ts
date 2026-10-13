@@ -117,6 +117,32 @@ describe("classifyShopifyInventoryProjectionAction", () => {
     ).toBe("INVALID_TARGET");
   });
 
+  it("turns tracking on for an initialized variant Shopify is not tracking", () => {
+    expect(
+      classifyShopifyInventoryProjectionAction({
+        initState: "INITIALIZED",
+        desiredAvailable: 2,
+        appliedAvailable: 2,
+        remoteAvailable: null,
+        levelExists: false,
+        tracked: false,
+      }).action
+    ).toBe("ENABLE_TRACKED");
+  });
+
+  it("stocks an initialized variant that is tracked but has no location level", () => {
+    expect(
+      classifyShopifyInventoryProjectionAction({
+        initState: "INITIALIZED",
+        desiredAvailable: 2,
+        appliedAvailable: 2,
+        remoteAvailable: null,
+        levelExists: false,
+        tracked: true,
+      })
+    ).toEqual({ action: "INIT_ACTIVATE", quantity: 2 });
+  });
+
   it("enable tracked during pending init", () => {
     expect(
       classifyShopifyInventoryProjectionAction({

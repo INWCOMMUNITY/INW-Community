@@ -145,6 +145,7 @@ export {
   setTrackedOnHand,
   SHOPIFY_SOURCE_SYSTEM,
   ETSY_SOURCE_SYSTEM,
+  STALE_MARKETPLACE_QTY_REVERT_MS,
   trackedAvailable,
 } from "./commerce-foundation-inventory";
 export {
@@ -587,6 +588,11 @@ export {
   reconcileEtsyListingHealthFromDb,
 } from "./etsy/listing-health";
 export type { EtsyHealthDb, EtsyListingHealthSnapshot } from "./etsy/listing-health";
+export {
+  canonicalMarketplaceAxisName,
+  marketplaceTopologyMatchKey,
+  normalizeMarketplaceTopologyMatchKey,
+} from "./marketplace-option-aliases";
 export {
   assertShopifyInventoryItemGid,
   assertShopifyLineItemGid,

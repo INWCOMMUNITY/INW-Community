@@ -10,6 +10,7 @@ vi.mock("database", async () => {
       shopifyConnection: { findUnique: vi.fn(), findFirst: vi.fn() },
       storeItem: { findFirst: vi.fn() },
       storeVariant: { findMany: vi.fn() },
+      inventoryState: { findMany: vi.fn() },
       shopifyProviderEvidence: { findUnique: vi.fn() },
       shopifySyncJob: { updateMany: vi.fn() },
     },
@@ -406,6 +407,9 @@ describe("shopify CREATE_LISTING provider", () => {
     vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
       { id: "var-1", priceCents: 1250, sku: "SKU-1", memberId: "member-a", storeItemId: "item-1" },
     ] as never);
+    vi.mocked(prisma.inventoryState.findMany).mockResolvedValue([
+      { variantId: "var-1", mode: "TRACKED_FINITE", onHand: 4, reserved: 0 },
+    ] as never);
     vi.mocked(createShopifyListingMapping).mockResolvedValue({
       listingLink: {
         id: "link-1",
@@ -483,6 +487,33 @@ describe("shopify CREATE_LISTING provider", () => {
     });
   }
 
+  function trackedQuantityResponse(operationName: string | undefined) {
+    if (operationName === "ShopifyInventoryItemEnableTracked") {
+      return jsonResponse({
+        data: {
+          inventoryItemUpdate: {
+            inventoryItem: { id: "gid://shopify/InventoryItem/7", tracked: true },
+            userErrors: [],
+          },
+        },
+      });
+    }
+    if (operationName === "ShopifyInventoryActivateOnRelist") {
+      return jsonResponse({
+        data: {
+          inventoryActivate: {
+            inventoryLevel: {
+              id: "gid://shopify/InventoryLevel/1",
+              quantities: [{ name: "available", quantity: 4 }],
+            },
+            userErrors: [],
+          },
+        },
+      });
+    }
+    return null;
+  }
+
   function productSetSuccess() {
     return jsonResponse({
       data: {
@@ -543,6 +574,18 @@ describe("shopify CREATE_LISTING provider", () => {
       expect(variables.input.status).toBe("DRAFT");
       expect(variables.input.metafields).toBeUndefined();
       expect(variables.identifier.customId.value).toBe(customId);
+      const setVariants = (
+        variables.input as {
+          variants: Array<{
+            inventoryItem?: { tracked?: boolean };
+            inventoryQuantities?: Array<{ locationId: string; name: string; quantity: number }>;
+          }>;
+        }
+      ).variants;
+      expect(setVariants[0]?.inventoryItem).toEqual({ tracked: true });
+      expect(setVariants[0]?.inventoryQuantities).toEqual([
+        { locationId: "gid://shopify/Location/1", name: "available", quantity: 4 },
+      ]);
       return productSetSuccess();
     });
 
@@ -594,6 +637,8 @@ describe("shopify CREATE_LISTING provider", () => {
         if (discoveryCalls === 1) return discoveryNull(customId);
         return discoveryProduct({ customId });
       }
+      const tracked = trackedQuantityResponse(body.operationName);
+      if (tracked) return tracked;
       expect(body.operationName).toBe("ShopifyCreateListingProductSet");
       productSetCalls += 1;
       expect(body.variables.identifier?.customId?.value).toBe(customId);
@@ -640,6 +685,8 @@ describe("shopify CREATE_LISTING provider", () => {
         // Simulates lease reclaim after productSet succeeded but mapping never wrote.
         return discoveryProduct({ customId });
       }
+      const tracked = trackedQuantityResponse(body.operationName);
+      if (tracked) return tracked;
       productSetCalls += 1;
       throw new Error("productSet must not run when product already exists");
     });
@@ -694,6 +741,8 @@ describe("shopify CREATE_LISTING provider", () => {
       if (body.operationName === "ShopifyCreateListingProductByCustomId") {
         return discoveryProduct({ customId, status: "DRAFT" });
       }
+      const tracked = trackedQuantityResponse(body.operationName);
+      if (tracked) return tracked;
       if (
         body.operationName === "ShopifyListingProductActivate" ||
         String(body.query ?? "").includes("productUpdate")
@@ -722,6 +771,8 @@ describe("shopify CREATE_LISTING provider", () => {
       if (body.operationName === "ShopifyCreateListingProductByCustomId") {
         return discoveryProduct({ customId, status: "ACTIVE" });
       }
+      const tracked = trackedQuantityResponse(body.operationName);
+      if (tracked) return tracked;
       productSetCalls += 1;
       return productSetSuccess();
     });
@@ -782,9 +833,34 @@ describe("shopify CREATE_LISTING provider", () => {
       { id: "var-1", priceCents: 1250, sku: "SKU-S", options: { Size: "S" }, memberId: "member-a", storeItemId: "item-1" },
       { id: "var-2", priceCents: 1250, sku: "SKU-M", options: { Size: "M" }, memberId: "member-a", storeItemId: "item-1" },
     ] as never);
+    vi.mocked(prisma.inventoryState.findMany).mockResolvedValue([
+      { variantId: "var-1", mode: "TRACKED_FINITE", onHand: 2, reserved: 0 },
+      { variantId: "var-2", mode: "TRACKED_FINITE", onHand: 5, reserved: 0 },
+    ] as never);
     let productSetCalls = 0;
+    const activated: Array<{ inventoryItemId: string; available: number; locationId: string }> = [];
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      const body = JSON.parse(String(init?.body)) as {
+        operationName?: string;
+        variables?: {
+          inventoryItemId?: string;
+          available?: number;
+          locationId?: string;
+          input?: { tracked?: boolean };
+        };
+      };
+      if (body.operationName === "ShopifyInventoryItemEnableTracked") {
+        expect(body.variables?.input?.tracked).toBe(true);
+        return trackedQuantityResponse(body.operationName);
+      }
+      if (body.operationName === "ShopifyInventoryActivateOnRelist") {
+        activated.push({
+          inventoryItemId: body.variables?.inventoryItemId ?? "",
+          available: body.variables?.available ?? -1,
+          locationId: body.variables?.locationId ?? "",
+        });
+        return trackedQuantityResponse(body.operationName);
+      }
       if (body.operationName === "ShopifyListingExportMetafieldLookup") {
         return metafieldLookupResponse();
       }
@@ -833,6 +909,18 @@ describe("shopify CREATE_LISTING provider", () => {
     );
     expect(result).toEqual({ outcome: "SUCCESS" });
     expect(productSetCalls).toBe(0);
+    expect(activated).toEqual([
+      {
+        inventoryItemId: "gid://shopify/InventoryItem/7",
+        available: 2,
+        locationId: "gid://shopify/Location/1",
+      },
+      {
+        inventoryItemId: "gid://shopify/InventoryItem/8",
+        available: 5,
+        locationId: "gid://shopify/Location/1",
+      },
+    ]);
     expect(createShopifyListingMapping).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -853,15 +941,23 @@ describe("shopify CREATE_LISTING provider", () => {
     );
   });
 
-  it("does not productSet when an existing multi-variant product does not match INW options", async () => {
+  it("rewrites an existing Shopify product when its variants do not match INW", async () => {
     const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
     vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
       { id: "var-1", priceCents: 1250, sku: null, options: { Size: "S" }, memberId: "member-a", storeItemId: "item-1" },
-      { id: "var-2", priceCents: 1250, sku: null, options: { Size: "M" }, memberId: "member-a", storeItemId: "item-1" },
+      { id: "var-2", priceCents: 1500, sku: null, options: { Size: "M" }, memberId: "member-a", storeItemId: "item-1" },
+    ] as never);
+    vi.mocked(prisma.inventoryState.findMany).mockResolvedValue([
+      { variantId: "var-1", mode: "TRACKED_FINITE", onHand: 2, reserved: 0 },
+      { variantId: "var-2", mode: "TRACKED_FINITE", onHand: 5, reserved: 0 },
     ] as never);
     let productSetCalls = 0;
+    let rewriteInput: { status?: string; variants?: unknown } | null = null;
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      const body = JSON.parse(String(init?.body)) as {
+        operationName?: string;
+        variables?: { input?: { status?: string; variants?: unknown } };
+      };
       if (body.operationName === "ShopifyListingExportMetafieldLookup") {
         return metafieldLookupResponse();
       }
@@ -872,18 +968,13 @@ describe("shopify CREATE_LISTING provider", () => {
               id: "gid://shopify/Product/9",
               status: "ACTIVE",
               listingExportId: { value: customId },
-              variantsCount: { count: 2 },
+              variantsCount: { count: 1 },
               variants: {
                 nodes: [
                   {
                     id: "gid://shopify/ProductVariant/8",
-                    selectedOptions: [{ name: "Color", value: "Red" }],
+                    selectedOptions: [{ name: "Size", value: "S" }],
                     inventoryItem: { id: "gid://shopify/InventoryItem/7" },
-                  },
-                  {
-                    id: "gid://shopify/ProductVariant/9",
-                    selectedOptions: [{ name: "Color", value: "Blue" }],
-                    inventoryItem: { id: "gid://shopify/InventoryItem/8" },
                   },
                 ],
                 pageInfo: { hasNextPage: false },
@@ -893,7 +984,32 @@ describe("shopify CREATE_LISTING provider", () => {
         });
       }
       productSetCalls += 1;
-      return productSetSuccess();
+      rewriteInput = body.variables?.input ?? null;
+      return jsonResponse({
+        data: {
+          productSet: {
+            product: {
+              id: "gid://shopify/Product/9",
+              status: "ACTIVE",
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/11",
+                    selectedOptions: [{ name: "Size", value: "S" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/11" },
+                  },
+                  {
+                    id: "gid://shopify/ProductVariant/12",
+                    selectedOptions: [{ name: "Size", value: "M" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/12" },
+                  },
+                ],
+              },
+            },
+            userErrors: [],
+          },
+        },
+      });
     });
 
     const result = await handleShopifyCreateListingJob(
@@ -908,12 +1024,44 @@ describe("shopify CREATE_LISTING provider", () => {
       },
       { fetchImpl }
     );
-    expect(result).toMatchObject({
-      outcome: "DEAD",
-      errorClass: "RECOVERY_CONFLICT",
-      errorCode: "OPTION_CORRELATION_FAILED",
-    });
-    expect(productSetCalls).toBe(0);
-    expect(createShopifyListingMapping).not.toHaveBeenCalled();
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productSetCalls).toBe(1);
+    expect(rewriteInput?.status).toBeUndefined();
+    expect(rewriteInput?.variants).toEqual([
+      {
+        optionValues: [{ optionName: "Size", name: "S" }],
+        price: "12.50",
+        inventoryItem: { tracked: true },
+        inventoryQuantities: [
+          { locationId: "gid://shopify/Location/1", name: "available", quantity: 2 },
+        ],
+      },
+      {
+        optionValues: [{ optionName: "Size", name: "M" }],
+        price: "15.00",
+        inventoryItem: { tracked: true },
+        inventoryQuantities: [
+          { locationId: "gid://shopify/Location/1", name: "available", quantity: 5 },
+        ],
+      },
+    ]);
+    expect(createShopifyListingMapping).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        shopifyProductId: "gid://shopify/Product/9",
+        variants: [
+          {
+            storeVariantId: "var-1",
+            shopifyVariantId: "gid://shopify/ProductVariant/11",
+            shopifyInventoryItemId: "gid://shopify/InventoryItem/11",
+          },
+          {
+            storeVariantId: "var-2",
+            shopifyVariantId: "gid://shopify/ProductVariant/12",
+            shopifyInventoryItemId: "gid://shopify/InventoryItem/12",
+          },
+        ],
+      })
+    );
   });
 });

@@ -190,10 +190,25 @@ export async function runShopifyListingAction(input: {
       memberId: input.memberId,
       storeItemId: listing.storeItemId,
     });
-    for (const map of listing.variantMaps) {
+    try {
+      const { pushUnmappedStoreVariantsToShopify } = await import("./reconcile-listing");
+      await pushUnmappedStoreVariantsToShopify({
+        memberId: input.memberId,
+        storeItemId: listing.storeItemId,
+        fetchImpl: input.fetchImpl,
+      });
+    } catch {
+      // Cron still creates a variant that is still missing.
+    }
+    const maps = await prisma.shopifyVariantMap.findMany({
+      where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+      select: { storeVariantId: true },
+    });
+    for (const map of maps) {
       await captureShopifyInventoryProjectionDesire(prisma, {
         memberId: input.memberId,
         storeVariantId: map.storeVariantId,
+        force: true,
       });
     }
     if (input.action === "reconnect") {

@@ -166,7 +166,7 @@ export async function seedShopifyInventoryProjectionOnMapping(
  */
 export async function captureShopifyInventoryProjectionDesire(
   db: ShopifyInventoryDesireDb,
-  input: { memberId: string; storeVariantId: string }
+  input: { memberId: string; storeVariantId: string; force?: boolean }
 ): Promise<CaptureShopifyInventoryProjectionDesireResult> {
   const connection = await db.shopifyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
@@ -236,8 +236,10 @@ export async function captureShopifyInventoryProjectionDesire(
     return { status: "SKIPPED", reason: "INVALID_STATE" };
   }
 
-  // No-op when sellable equals already-recorded desire (e.g. reservation convert).
+  // A previous push can mark this quantity desired while Shopify still has the old
+  // number. Reload passes force so we open a new version and write again.
   if (
+    !input.force &&
     locked.inventoryDesiredAvailable === sellable &&
     locked.inventoryDesiredVersion > 0 &&
     locked.inventoryInitState !== "FAILED"

@@ -330,7 +330,7 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         {
           id: "gid://shopify/ProductVariant/8",
           price: "10.37",
-          inventoryItem: { sku: "SKU-NEW" },
+          inventoryItem: { sku: "SKU-NEW", tracked: true },
         },
       ]);
       expect(JSON.stringify(variants[0])).not.toMatch(/inventoryQuantities|quantityAdjustments|optionValues|media/i);

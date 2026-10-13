@@ -208,7 +208,7 @@ describe("runEtsyListingAction", () => {
     );
     expect(captureEtsyInventoryProjectionDesire).toHaveBeenCalledWith(
       prisma,
-      expect.objectContaining({ memberId: "m1", storeVariantId: "sv-1" })
+      expect.objectContaining({ memberId: "m1", storeVariantId: "sv-1", force: true })
     );
     expect(reconcileEtsyListingHealthFromDb).toHaveBeenCalledWith(
       prisma,

@@ -9,6 +9,7 @@
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import {
   allMatrixAxesSelected,
+  buyerFacingAxes,
   decrementMatrixSku,
   findSkuRow,
   incrementMatrixSku,
@@ -429,14 +430,14 @@ export function variantOptionLabels(v: { name?: string; options?: unknown; value
 export function listingVariantDisplayAxes(variants: unknown): { name: string; options: string[] }[] {
   const matrix = normalizeVariantMatrix(variants);
   if (matrix && matrix.axes.length > 0) {
-    return matrix.axes.map((a) => ({ name: a.name, options: a.values }));
+    return buyerFacingAxes(matrix).map((a) => ({ name: a.name, options: a.values }));
   }
   if (!variants || !Array.isArray(variants)) return [];
   return (variants as { name?: string; options?: unknown }[])
     .map((v) => {
       const name = v.name?.trim() ?? "";
       const options = variantOptionLabels(v);
-      return name && options.length > 0 ? { name, options } : null;
+      return name && options.length >= 2 ? { name, options } : null;
     })
     .filter((v): v is { name: string; options: string[] } => v != null);
 }
@@ -454,6 +455,7 @@ export function allVariantAxesSelected(
   return (variants as { name?: string; options?: unknown }[]).every((v) => {
     const name = v.name?.trim();
     if (!name) return true;
+    if (variantOptionLabels(v).length < 2) return true;
     const sel = selectedVariant[name];
     if (!sel?.trim()) return false;
     const labels = variantOptionLabels(v);

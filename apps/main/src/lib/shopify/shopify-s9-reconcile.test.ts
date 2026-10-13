@@ -27,7 +27,7 @@ vi.mock("database", async () => {
         },
         shopifyProviderEvidence: { update: vi.fn() },
       })),
-      shopifyConnection: { findUnique: vi.fn() },
+      shopifyConnection: { findUnique: vi.fn(), findFirst: vi.fn() },
       shopifyListingLink: { findFirst: vi.fn(), findUnique: vi.fn() },
       shopifyVariantMap: { findMany: vi.fn() },
       shopifyListingFieldState: { findMany: vi.fn().mockResolvedValue([]) },
@@ -79,7 +79,8 @@ vi.mock("./sync-listing-topology", () => ({
 }));
 
 import { persistShopifyListingHealth, prisma } from "database";
-import { handleShopifyReconcileListingJob } from "./reconcile-listing";
+import { handleShopifyReconcileListingJob, pushUnmappedStoreVariantsToShopify } from "./reconcile-listing";
+import { syncShopifyListingTopology } from "./sync-listing-topology";
 import { notifyShopifyListingIssueOnce } from "./listing-issue-notify";
 
 const connection = {
@@ -333,5 +334,34 @@ describe("handleShopifyReconcileListingJob", () => {
     expect(result.outcome).toBe("RETRY");
     expect(persistShopifyListingHealth).not.toHaveBeenCalled();
     expect(notifyShopifyListingIssueOnce).not.toHaveBeenCalled();
+  });
+});
+
+describe("pushUnmappedStoreVariantsToShopify", () => {
+  it("creates an INW variant Shopify is missing even when Etsy already matches", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue({ id: "conn-s9" } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: { Color: "Red" }, priceCents: 700, sku: null },
+      { id: "sv-brown", options: { "Primary color": "Brown" }, priceCents: 700, sku: null },
+    ] as never);
+    await pushUnmappedStoreVariantsToShopify({ memberId: "member-a", storeItemId: "item-1" });
+    expect(syncShopifyListingTopology).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeItemId: "item-1",
+        pushTopology: true,
+        localVariants: expect.arrayContaining([
+          expect.objectContaining({ storeVariantId: "sv-brown", shopifyVariantId: null }),
+        ]),
+      })
+    );
+  });
+
+  it("leaves Shopify alone when every INW variant is already mapped", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue({ id: "conn-s9" } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: { Color: "Red" }, priceCents: 700, sku: null },
+    ] as never);
+    await pushUnmappedStoreVariantsToShopify({ memberId: "member-a", storeItemId: "item-1" });
+    expect(syncShopifyListingTopology).not.toHaveBeenCalled();
   });
 });
