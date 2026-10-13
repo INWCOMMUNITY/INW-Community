@@ -2,6 +2,8 @@ import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createMember, createStoreItem, createVariant } from "./fixtures";
 import { foundationTestDatabaseUrl } from "./local-url";
+import { persistEtsyInstall } from "../etsy/connection";
+import { createEtsyImportedListingMapping } from "../etsy/import-mapping";
 import {
   disconnectShopifyConnection,
   persistShopifyInstall,
@@ -1021,5 +1023,127 @@ describe("shopify S6 semantic three-way inbound", () => {
     expect((await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } })).title).toBe(
       "Local Edit"
     );
+  });
+
+  it("sends a Shopify price change to Etsy and does not queue another Shopify content push", async () => {
+    const seller = await createMember(prisma, "s6-etsy");
+    const shop = `s6e-${seller.id.slice(-8)}.myshopify.com`;
+    const shopId = `gid://shopify/Shop/${seller.id.replace(/\D/g, "").slice(0, 8) || "7602"}`;
+    const item = await createStoreItem(prisma, seller.id, "Shared Title", {
+      priceCents: 1000,
+      sku: "S6E-SKU",
+    });
+    await prisma.storeItem.update({
+      where: { id: item.id },
+      data: { description: "Shared description" },
+    });
+    const variant = await createVariant(prisma, {
+      memberId: seller.id,
+      storeItemId: item.id,
+      isDefault: true,
+      sku: "S6E-SKU",
+      priceCents: 1000,
+    });
+    const gen = await activeConnection(seller.id, shop, new Date("2026-09-24T12:00:00Z"), shopId);
+    await createShopifyListingMapping(prisma, {
+      memberId: seller.id,
+      connectionId: gen.id,
+      storeItemId: item.id,
+      shopifyProductId: "gid://shopify/Product/910",
+      variants: [
+        {
+          storeVariantId: variant.id,
+          shopifyVariantId: "gid://shopify/ProductVariant/810",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/710",
+        },
+      ],
+    });
+    const listing = await prisma.shopifyListingLink.findUniqueOrThrow({
+      where: {
+        shopifyConnectionId_storeItemId: { shopifyConnectionId: gen.id, storeItemId: item.id },
+      },
+    });
+    const etsyShopId = `8${seller.id.replace(/\D/g, "").slice(-7) || "4455667"}`;
+    const etsyConn = await persistEtsyInstall(prisma, {
+      memberId: seller.id,
+      etsyUserId: `7${etsyShopId.slice(-6)}`,
+      shopId: etsyShopId,
+      shopName: "Fanout Shop",
+      accessTokenEncrypted: "cipher-a",
+      refreshTokenEncrypted: "cipher-r",
+      accessTokenExpiresAt: new Date("2026-09-30T13:00:00Z"),
+      refreshTokenExpiresAt: new Date("2026-12-29T00:00:00Z"),
+      grantedScopes: "listings_r listings_w shops_r transactions_r",
+    });
+    await createEtsyImportedListingMapping(prisma, {
+      memberId: seller.id,
+      connectionId: etsyConn.id,
+      storeItemId: item.id,
+      etsyListingId: `88${etsyShopId.slice(-5)}`,
+      remoteListingState: "active",
+      importBootstrapStartedAt: new Date("2026-09-30T12:00:00Z"),
+      variants: [
+        {
+          storeVariantId: variant.id,
+          etsyProductId: "901",
+          etsyOfferingId: "902",
+          remoteSku: "S6E-SKU",
+          remoteAvailable: 2,
+        },
+      ],
+    });
+
+    const shopifyJobsBefore = await prisma.shopifySyncJob.count({
+      where: { shopifyConnectionId: gen.id, kind: "UPDATE_LISTING_CONTENT" },
+    });
+    const etsyJobsBefore = await prisma.etsySyncJob.count({
+      where: { etsyConnectionId: etsyConn.id, kind: "UPDATE_LISTING_CONTENT" },
+    });
+    const evidence = await createEvidence({
+      connectionId: gen.id,
+      shopDomain: shop,
+      webhookId: `wh-price-${seller.id}`,
+      productId: "gid://shopify/Product/910",
+    });
+    await prisma.shopifyProviderEvidence.update({
+      where: { id: evidence.id },
+      data: { triggeredAt: new Date() },
+    });
+    const applied = await applyShopifyProductsUpdateObservation(prisma, {
+      evidenceId: evidence.id,
+      connectionId: gen.id,
+      listingLinkId: listing.id,
+      mappedVariantId: "gid://shopify/ProductVariant/810",
+      mappedStoreVariantId: variant.id,
+      remote: {
+        productId: "gid://shopify/Product/910",
+        status: "DRAFT",
+        title: "Shared Title",
+        descriptionHtml: "Shared description",
+        updatedAt: new Date("2026-09-25T16:00:00Z"),
+        variants: [
+          {
+            id: "gid://shopify/ProductVariant/810",
+            price: "12.00",
+            sku: "S6E-SKU",
+            updatedAt: new Date("2026-09-25T16:00:00Z"),
+            inventoryItemId: "gid://shopify/InventoryItem/710",
+          },
+        ],
+      },
+    });
+    expect(applied).toMatchObject({ status: "PROCESSED" });
+    const afterVariant = await prisma.storeVariant.findUniqueOrThrow({ where: { id: variant.id } });
+    expect(afterVariant.priceCents).toBe(1200);
+    expect(
+      await prisma.shopifySyncJob.count({
+        where: { shopifyConnectionId: gen.id, kind: "UPDATE_LISTING_CONTENT" },
+      })
+    ).toBe(shopifyJobsBefore);
+    expect(
+      await prisma.etsySyncJob.count({
+        where: { etsyConnectionId: etsyConn.id, kind: "UPDATE_LISTING_CONTENT" },
+      })
+    ).toBeGreaterThan(etsyJobsBefore);
   });
 });

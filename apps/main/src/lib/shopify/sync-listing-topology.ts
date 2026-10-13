@@ -20,7 +20,12 @@ import {
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { centsToShopifyMoney } from "./listing-export-id";
-import { productSetShopifyMultiVariantDraftListing } from "./product-set-listing";
+import {
+  bulkCreateVariantInventory,
+  loadShopifyCreateInventory,
+  productSetShopifyMultiVariantDraftListing,
+  productSetVariantInventory,
+} from "./product-set-listing";
 
 type HandlerFailure = {
   outcome: "RETRY" | "DEAD";
@@ -672,6 +677,8 @@ async function productVariantsBulkCreate(input: {
     optionValues: Array<{ optionName: string; name: string }>;
     price: string;
     sku?: string;
+    trackInventory?: boolean;
+    inventoryQuantities?: Array<{ locationId: string; availableQuantity: number }>;
   }>;
   fetchImpl?: ShopifyFetch;
   now?: Date;
@@ -712,11 +719,18 @@ async function productVariantsBulkCreate(input: {
     }`,
     variables: {
       productId: input.productId,
-      variants: input.variants.map((v) => ({
-        optionValues: v.optionValues,
-        price: v.price,
-        ...(v.sku ? { inventoryItem: { sku: v.sku } } : {}),
-      })),
+      variants: input.variants.map((v) => {
+        const inventoryItem = {
+          ...(v.sku ? { sku: v.sku } : {}),
+          ...(v.trackInventory ? { tracked: true } : {}),
+        };
+        return {
+          optionValues: v.optionValues,
+          price: v.price,
+          ...(Object.keys(inventoryItem).length > 0 ? { inventoryItem } : {}),
+          ...(v.inventoryQuantities?.length ? { inventoryQuantities: v.inventoryQuantities } : {}),
+        };
+      }),
     },
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -1031,6 +1045,11 @@ async function pushInwSimpleOntoShopifyProduct(input: {
     };
   }
 
+  const simpleInventory = await loadShopifyCreateInventory({
+    connectionId: input.connectionId,
+    storeVariantIds: [survivor.storeVariantId],
+  });
+  const simpleAvailable = simpleInventory.availableByVariantId.get(survivor.storeVariantId);
   const remote = await productSetShopifyMultiVariantDraftListing({
     connectionId: input.connectionId,
     storeItemId: input.storeItemId,
@@ -1043,6 +1062,9 @@ async function pushInwSimpleOntoShopifyProduct(input: {
         optionValues: [{ optionName: "Title", name: "Default Title" }],
         price: centsToShopifyMoney(Math.max(1, survivor.priceCents || 1)),
         ...(survivor.sku ? { sku: survivor.sku } : {}),
+        ...(simpleInventory.locationId && simpleAvailable != null
+          ? productSetVariantInventory(simpleInventory.locationId, simpleAvailable)
+          : {}),
       },
     ],
     fetchImpl: input.fetchImpl,
@@ -1149,6 +1171,10 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
     };
   }
 
+  const matrixInventory = await loadShopifyCreateInventory({
+    connectionId: input.connectionId,
+    storeVariantIds: rows.map((row) => row.storeVariantId),
+  });
   const remote = await productSetShopifyMultiVariantDraftListing({
     connectionId: input.connectionId,
     storeItemId: input.storeItemId,
@@ -1159,14 +1185,20 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
       name,
       values: Array.from(values).map((value) => ({ name: value })),
     })),
-    variants: rows.map((row) => ({
-      optionValues: row.selectedOptions.map((opt) => ({
-        optionName: opt.name,
-        name: opt.value,
-      })),
-      price: centsToShopifyMoney(row.priceCents),
-      ...(row.sku ? { sku: row.sku } : {}),
-    })),
+    variants: rows.map((row) => {
+      const available = matrixInventory.availableByVariantId.get(row.storeVariantId);
+      return {
+        optionValues: row.selectedOptions.map((opt) => ({
+          optionName: opt.name,
+          name: opt.value,
+        })),
+        price: centsToShopifyMoney(row.priceCents),
+        ...(row.sku ? { sku: row.sku } : {}),
+        ...(matrixInventory.locationId && available != null
+          ? productSetVariantInventory(matrixInventory.locationId, available)
+          : {}),
+      };
+    }),
     fetchImpl: input.fetchImpl,
     now: input.now,
   });
@@ -1833,18 +1865,30 @@ export async function syncShopifyListingTopology(input: {
     const optionRank = new Map(
       topologyForCreate.options.map((option, index) => [option.name.trim(), index] as const)
     );
+    const createInventory = await loadShopifyCreateInventory({
+      connectionId: input.connectionId,
+      storeVariantIds: plan.createVariants.map((v) => v.storeVariantId),
+    });
     const created = await productVariantsBulkCreate({
       connectionId: input.connectionId,
       productId: input.productId,
-      variants: plan.createVariants.map((v) => ({
-        optionValues: [...v.optionValues].sort(
-          (a, b) =>
-            (optionRank.get(a.optionName) ?? optionRank.size) -
-            (optionRank.get(b.optionName) ?? optionRank.size)
-        ),
-        price: centsToShopifyMoney(v.priceCents),
-        ...(v.sku ? { sku: v.sku } : {}),
-      })),
+      variants: plan.createVariants.map((v) => {
+        const available = createInventory.availableByVariantId.get(v.storeVariantId);
+        const inventory =
+          createInventory.locationId && available != null
+            ? bulkCreateVariantInventory(createInventory.locationId, available)
+            : null;
+        return {
+          optionValues: [...v.optionValues].sort(
+            (a, b) =>
+              (optionRank.get(a.optionName) ?? optionRank.size) -
+              (optionRank.get(b.optionName) ?? optionRank.size)
+          ),
+          price: centsToShopifyMoney(v.priceCents),
+          ...(v.sku ? { sku: v.sku } : {}),
+          ...(inventory ?? {}),
+        };
+      }),
       fetchImpl: input.fetchImpl,
       now: input.now,
     });

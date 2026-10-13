@@ -43,7 +43,11 @@ vi.mock("database", async () => {
       inventoryState: {
         create: vi.fn(async () => ({})),
         findUnique: vi.fn(async () => ({ mode: "TRACKED_FINITE", reserved: 0 })),
+        findMany: vi.fn(async () => []),
         update: vi.fn(async () => ({})),
+      },
+      shopifyConnection: {
+        findUnique: vi.fn(async () => null),
       },
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) =>
         fn({
@@ -65,7 +69,7 @@ vi.mock("database", async () => {
   };
 });
 
-import { marketplaceTopologyMatchKey, planShopifyTopologyDiff } from "database";
+import { marketplaceTopologyMatchKey, planShopifyTopologyDiff, prisma } from "database";
 import {
   alignLocalOptionsToShopifyAxes,
   fillSingleValueShopifyOptions,
@@ -1101,6 +1105,13 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
       };
     });
 
+    vi.mocked(prisma.shopifyConnection.findUnique).mockResolvedValueOnce({
+      primaryLocationId: "gid://shopify/Location/1",
+    } as never);
+    vi.mocked(prisma.inventoryState.findMany).mockResolvedValueOnce([
+      { variantId: "sv-brown", mode: "TRACKED_FINITE", onHand: 3, reserved: 0 },
+    ] as never);
+
     const result = await syncShopifyListingTopology({
       connectionId: "conn-1",
       memberId: "mem-1",
@@ -1165,6 +1176,10 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
             { optionName: "Size", name: "Small" },
           ],
           price: "7.00",
+          inventoryItem: { tracked: true },
+          inventoryQuantities: [
+            { locationId: "gid://shopify/Location/1", availableQuantity: 3 },
+          ],
         },
       ],
     });
