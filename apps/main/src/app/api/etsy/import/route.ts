@@ -47,5 +47,6 @@ export async function POST(req: NextRequest) {
     storeItemId: result.storeItemId,
     listingLinkId: result.listingLinkId,
     etsyListingId: result.etsyListingId,
+    personalizationWarning: result.personalizationWarning,
   });
 }

@@ -21,6 +21,7 @@ import {
   orderEligibleForAnotherShippoLabel,
   orderHasShippedLine,
 } from "@/lib/shippo-order-label-eligibility";
+import { formatBuyerResponseLines } from "@/lib/listing-buyer-fields";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -33,6 +34,7 @@ interface OrderItem {
   id: string;
   quantity: number;
   fulfillmentType?: string | null;
+  buyerResponses?: unknown;
   storeItem?: { id: string; title: string; slug: string; photos: string[]; listingType?: string };
 }
 
@@ -267,6 +269,9 @@ export default function OrderDetailScreen() {
                 )}
                 <View style={styles.itemBody}>
                   <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
+                  {formatBuyerResponseLines(oi.buyerResponses).map((line) => (
+                    <Text key={line} style={styles.linkBtnText}>{line}</Text>
+                  ))}
                   <Text style={styles.linkBtnText}>View in-app listing</Text>
                 </View>
               </Pressable>

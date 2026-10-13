@@ -29,6 +29,10 @@ vi.mock("./import-discovery", () => ({
   fetchShopifyImportProductDetail: vi.fn(),
 }));
 
+vi.mock("./buyer-metafields", () => ({
+  importShopifyBuyerMetafields: vi.fn(async () => ({ incompatible: [] })),
+}));
+
 import {
   beginShopifyListingImportAttempt,
   completeShopifyListingImportAttempt,

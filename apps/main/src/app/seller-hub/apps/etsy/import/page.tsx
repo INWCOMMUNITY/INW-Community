@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
@@ -60,6 +60,8 @@ function formatEta(seconds: number | null): string {
   return rem > 0 ? `About ${hrs}h ${rem}m remaining` : `About ${hrs}h remaining`;
 }
 
+const PERSONALIZATION_NOTICE_PREFIX = "PERSONALIZATION:";
+
 function batchIsActive(batch: BatchProgress | null): boolean {
   return batch != null && (batch.state === "PENDING" || batch.state === "RUNNING");
 }
@@ -84,6 +86,11 @@ export default function AppsAirportEtsyImportPage() {
   const [bulkStarting, setBulkStarting] = useState(false);
   const [bulkCancelling, setBulkCancelling] = useState(false);
   const [batch, setBatch] = useState<BatchProgress | null>(null);
+  const [personalizationNotice, setPersonalizationNotice] = useState<{
+    lines: string[];
+    continueHref?: string;
+  } | null>(null);
+  const shownBulkNotice = useRef<string | null>(null);
 
   const loadBatch = useCallback(async () => {
     try {
@@ -165,6 +172,20 @@ export default function AppsAirportEtsyImportPage() {
     }
   }, [batch, load]);
 
+  useEffect(() => {
+    if (!batch || batch.state !== "COMPLETED") return;
+    if (shownBulkNotice.current === batch.id) return;
+    const lines = batch.failures
+      .filter((failure) => failure.message.startsWith(PERSONALIZATION_NOTICE_PREFIX))
+      .map(
+        (failure) =>
+          `#${failure.etsyListingId}: ${failure.message.slice(PERSONALIZATION_NOTICE_PREFIX.length).trim()}`
+      );
+    if (lines.length === 0) return;
+    shownBulkNotice.current = batch.id;
+    setPersonalizationNotice({ lines });
+  }, [batch]);
+
   async function openReview(candidate: Candidate) {
     setError(null);
     setReviewLoading(true);
@@ -233,6 +254,7 @@ export default function AppsAirportEtsyImportPage() {
         storeItemId?: string;
         status?: string;
         code?: string;
+        personalizationWarning?: string | null;
       };
       if (!response.ok || !body.storeItemId) {
         if (body.code === "UNAUTHORIZED" || body.code === "CONNECTION_REQUIRED") {
@@ -244,7 +266,15 @@ export default function AppsAirportEtsyImportPage() {
         }
         return;
       }
-      router.push(`${APPS_AIRPORT_ETSY_PATH}?imported=${encodeURIComponent(body.storeItemId)}`);
+      const href = `${APPS_AIRPORT_ETSY_PATH}?imported=${encodeURIComponent(body.storeItemId)}`;
+      if (body.personalizationWarning) {
+        setPersonalizationNotice({
+          lines: [body.personalizationWarning],
+          continueHref: href,
+        });
+        return;
+      }
+      router.push(href);
     } catch {
       setError("Import failed.");
     } finally {
@@ -402,11 +432,14 @@ export default function AppsAirportEtsyImportPage() {
               }}
             />
           </div>
-          {batch.failures.length > 0 ? (
+          {batch.failures.some((f) => !f.message.startsWith(PERSONALIZATION_NOTICE_PREFIX)) ? (
             <div className="mt-3 max-h-36 overflow-y-auto text-xs text-neutral-700">
               <p className="font-semibold text-neutral-800 mb-1">Recent failures</p>
               <ul className="space-y-1">
-                {batch.failures.slice(-8).map((f) => (
+                {batch.failures
+                  .filter((f) => !f.message.startsWith(PERSONALIZATION_NOTICE_PREFIX))
+                  .slice(-8)
+                  .map((f) => (
                   <li key={`${f.etsyListingId}-${f.message.slice(0, 24)}`}>
                     #{f.etsyListingId}: {f.message}
                   </li>
@@ -646,6 +679,39 @@ export default function AppsAirportEtsyImportPage() {
               </div>
             </>
           ) : null}
+        </div>
+      ) : null}
+      {personalizationNotice ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          data-testid="etsy-personalization-notice"
+        >
+          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-bold" style={{ color: "var(--color-heading)" }}>
+              Custom options were not fully imported
+            </h2>
+            <p className="mt-2 text-sm text-neutral-700">
+              The listing imported. Etsy custom options that INW cannot store were left off, so they will not show on the product or sync back.
+            </p>
+            <ul className="mt-3 space-y-2 text-sm text-neutral-800">
+              {personalizationNotice.lines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="btn mt-5"
+              onClick={() => {
+                const href = personalizationNotice.continueHref;
+                setPersonalizationNotice(null);
+                if (href) router.push(href);
+              }}
+            >
+              {personalizationNotice.continueHref ? "Continue" : "Close"}
+            </button>
+          </div>
         </div>
       ) : null}
     </AppsAirportChrome>

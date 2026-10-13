@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { prisma } from "database";
+import { prisma, publicBuyerFieldsFromRows } from "database";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { includeUnavailableVisibleToViewer, withPublicStockWhere } from "@/lib/store-item-public-access";
@@ -27,6 +27,24 @@ const storeItemPublicSelect = {
   shippingDisabled: true,
   localDeliveryTerms: true,
   pickupTerms: true,
+  buyerFields: {
+    orderBy: { position: "asc" },
+    select: {
+      id: true,
+      position: true,
+      kind: true,
+      title: true,
+      instructions: true,
+      required: true,
+      maxCharacters: true,
+      maxFiles: true,
+      labelEachFile: true,
+      options: {
+        orderBy: { position: "asc" },
+        select: { id: true, label: true, position: true },
+      },
+    },
+  },
   member: {
     select: {
       id: true,
@@ -99,6 +117,7 @@ export type StoreItemPublicPayload = {
   saveCount?: number;
   unavailable?: boolean;
   soldAt?: string;
+  buyerFields?: ReturnType<typeof publicBuyerFieldsFromRows>;
 };
 
 async function resolveBusiness(
@@ -200,6 +219,7 @@ export async function getStoreItemPublicPayload(
     shippingDisabled: resolvedItem.shippingDisabled,
     localDeliveryTerms: resolvedItem.localDeliveryTerms,
     pickupTerms: resolvedItem.pickupTerms,
+    buyerFields: publicBuyerFieldsFromRows(resolvedItem.buyerFields ?? []),
     member: resolvedItem.member,
     business,
     saveCount,

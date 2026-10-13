@@ -20,6 +20,10 @@ import { randomUUID } from "crypto";
 import type { ShopifyFetch } from "./admin-graphql";
 import { fetchShopifyImportProductDetail } from "./import-discovery";
 import type { ShopifyImportCandidate } from "./import-discovery";
+import {
+  importShopifyBuyerMetafields,
+  type IncompatibleShopifyMetafield,
+} from "./buyer-metafields";
 
 export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
 
@@ -33,6 +37,7 @@ export type ImportShopifyListingResult =
         preBootstrapAcked: number;
         postBootstrapApplied: number;
       };
+      incompatibleMetafields: IncompatibleShopifyMetafield[];
     }
   | {
       status: "ERROR";
@@ -155,6 +160,7 @@ export async function importShopifyListing(input: {
       listingLinkId: attempt.listingLinkId,
       shopifyProductId: productId,
       bootstrap,
+      incompatibleMetafields: [],
     };
   }
 
@@ -203,6 +209,7 @@ export async function importShopifyListing(input: {
           listingLinkId: healed.attempt.listingLinkId,
           shopifyProductId: productId,
           bootstrap,
+          incompatibleMetafields: [],
         };
       }
     }
@@ -260,29 +267,48 @@ export async function importShopifyListing(input: {
     primaryLocationId: connection.primaryLocationId!,
   };
 
-  // ── Multi-variant import ──
-  if (multi) {
-    return importMultiVariant({
-      snap,
-      attempt,
-      connection: connectionWithLocation,
-      productId,
-      bootstrapStartedAt,
-      stockMode: input.stockMode,
-      memberId: input.memberId,
-    });
+  const imported = multi
+    ? await importMultiVariant({
+        snap,
+        attempt,
+        connection: connectionWithLocation,
+        productId,
+        bootstrapStartedAt,
+        stockMode: input.stockMode,
+        memberId: input.memberId,
+      })
+    : await importSingleVariant({
+        snap,
+        attempt,
+        connection: connectionWithLocation,
+        productId,
+        bootstrapStartedAt,
+        stockMode: input.stockMode,
+        memberId: input.memberId,
+      });
+
+  if (imported.status !== "IMPORTED") {
+    return imported.status === "ERROR"
+      ? imported
+      : { ...imported, incompatibleMetafields: imported.incompatibleMetafields ?? [] };
   }
 
-  // ── Simple single-variant import (preserved) ──
-  return importSingleVariant({
-    snap,
-    attempt,
-    connection: connectionWithLocation,
-    productId,
-    bootstrapStartedAt,
-    stockMode: input.stockMode,
-    memberId: input.memberId,
-  });
+  const incompatibleMetafields = await importShopifyBuyerMetafields({
+    connectionId: connection.id,
+    shopifyProductId: productId,
+    storeItemId: imported.storeItemId,
+    fetchImpl: input.fetchImpl,
+  })
+    .then((mapped) => mapped.incompatible)
+    .catch((error: unknown) => [
+      {
+        name: "Custom options",
+        typeLabel: "Import",
+        reason: error instanceof Error ? error.message : "Could not save custom options from Shopify.",
+      },
+    ]);
+
+  return { ...imported, incompatibleMetafields };
 }
 
 async function importSingleVariant(ctx: {
@@ -442,6 +468,7 @@ async function importSingleVariant(ctx: {
     listingLinkId: created.listingLinkId,
     shopifyProductId: productId,
     bootstrap,
+    incompatibleMetafields: [],
   };
 }
 
@@ -775,5 +802,6 @@ async function importMultiVariant(ctx: {
       preBootstrapAcked: totalPreAcked,
       postBootstrapApplied: totalPostApplied,
     },
+    incompatibleMetafields: [],
   };
 }

@@ -98,6 +98,15 @@ describe("etsy POLL_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.etsyListingLink.update).mockReset();
     vi.mocked(prisma.storeVariant.count).mockReset();
     vi.mocked(etsyConnectionRequest).mockReset();
+    vi.mocked(etsyConnectionRequest).mockResolvedValue({
+      ok: true,
+      class: "SUCCESS",
+      httpStatus: 200,
+      data: { personalization_questions: [] },
+      message: "ok",
+      retryAfterMs: null,
+      rateLimit: null,
+    });
     vi.mocked(applyEtsyListingContentInbound).mockReset();
     vi.mocked(markEtsyListingContentPollComplete).mockReset();
     vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, Prisma, resolveCheckoutVariant } from "database";
+import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, Prisma, publicBuyerFieldsFromRows, resolveCheckoutVariant, validateBuyerResponses } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerAnalyticsSource } from "@/lib/seller-analytics-source";
 import { getAvailableQuantity, getSkuPriceCents } from "@/lib/store-item-variants";
@@ -49,6 +49,7 @@ const addSchema = z.object({
   fulfillmentType: z.enum(["ship", "local_delivery", "pickup"]).optional(),
   localDeliveryDetails: localDeliveryDetailsSchema.optional(),
   pickupDetails: pickupDetailsSchema.optional(),
+  buyerResponses: z.unknown().optional(),
 });
 
 export const dynamic = "force-dynamic";
@@ -138,6 +139,7 @@ export async function GET(req: NextRequest) {
       fulfillmentType: i.fulfillmentType,
       localDeliveryDetails: i.localDeliveryDetails,
       pickupDetails: i.pickupDetails,
+      buyerResponses: i.buyerResponses,
       priceOverrideCents: i.priceOverrideCents,
       resaleOfferId: i.resaleOfferId,
       resaleOffer: i.resaleOffer,
@@ -171,6 +173,19 @@ export async function POST(req: NextRequest) {
   if (!storeItem || !listingHasPublicStock(storeItem)) {
     return NextResponse.json({ error: "Item not available" }, { status: 400 });
   }
+  const buyerFieldRows = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: storeItem.id },
+    orderBy: { position: "asc" },
+    include: { options: { orderBy: { position: "asc" } } },
+  });
+  const buyerCheck = validateBuyerResponses(
+    publicBuyerFieldsFromRows(buyerFieldRows),
+    body.buyerResponses ?? []
+  );
+  if (!buyerCheck.ok) {
+    return NextResponse.json({ error: buyerCheck.error }, { status: 400 });
+  }
+  const buyerResponses = buyerCheck.responses;
   if (!storeItem.member?.stripeConnectAccountId?.trim()) {
     return NextResponse.json(
       { error: "Seller has not completed payment setup. This item cannot be added to cart yet." },
@@ -252,6 +267,7 @@ export async function POST(req: NextRequest) {
     variant: body.variant ?? null,
     fulfillmentType,
     resaleOfferId: null as string | null,
+    buyerResponses,
   };
   const existing = findMatchingCartLine(existingRows, incoming);
   const maxForThisLine = maxQuantityForCartLine(available, existingRows, {
@@ -278,6 +294,7 @@ export async function POST(req: NextRequest) {
     fulfillmentType: string;
     localDeliveryDetails: object | typeof Prisma.JsonNull;
     pickupDetails: object | typeof Prisma.JsonNull;
+    buyerResponses: object | typeof Prisma.JsonNull;
     variantId?: string;
   } = {
     quantity: existing
@@ -295,6 +312,7 @@ export async function POST(req: NextRequest) {
       : existing?.pickupDetails && fulfillmentType === "pickup"
         ? (existing.pickupDetails as object)
         : Prisma.JsonNull,
+    buyerResponses: buyerResponses.length > 0 ? buyerResponses : Prisma.JsonNull,
   };
 
   const cutover = await getCommerceFoundationCutoverState(prisma);

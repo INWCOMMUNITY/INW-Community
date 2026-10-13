@@ -6,12 +6,13 @@ vi.mock("database", async () => {
     ...actual,
     prisma: {
       etsyConnection: { findUnique: vi.fn() },
-      etsyListingLink: { findUnique: vi.fn() },
+      etsyListingLink: { findUnique: vi.fn(), findFirst: vi.fn() },
       etsyVariantMap: { findMany: vi.fn() },
       storeItem: { findFirst: vi.fn(), update: vi.fn() },
       storeVariant: { findFirst: vi.fn(), findUnique: vi.fn() },
       etsySyncJob: { findFirst: vi.fn() },
       inventoryState: { findMany: vi.fn() },
+      listingBuyerField: { findMany: vi.fn() },
     },
     markEtsyProductContentApplied: vi.fn(),
     markEtsyVariantContentApplied: vi.fn(),
@@ -77,6 +78,17 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.inventoryState.findMany).mockReset();
     vi.mocked(prisma.inventoryState.findMany).mockResolvedValue([]);
     vi.mocked(etsyConnectionRequest).mockReset();
+    vi.mocked(etsyConnectionRequest).mockResolvedValue({
+      ok: true,
+      class: "SUCCESS",
+      httpStatus: 200,
+      data: {},
+      message: "ok",
+      retryAfterMs: null,
+      rateLimit: null,
+    });
+    vi.mocked(prisma.listingBuyerField.findMany).mockReset();
+    vi.mocked(prisma.listingBuyerField.findMany).mockResolvedValue([] as never);
     vi.mocked(uploadEtsyListingPhotosFromUrls).mockReset();
     vi.mocked(markEtsyProductContentApplied).mockReset();
     vi.mocked(markEtsyVariantContentApplied).mockReset();

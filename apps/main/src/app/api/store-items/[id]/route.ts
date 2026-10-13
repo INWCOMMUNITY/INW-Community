@@ -7,8 +7,11 @@ import {
   applyFoundationSellerQuantitySets,
   endFoundationListing,
   markFoundationListingSold,
+  buyerFieldsDefinitionFingerprint,
   prisma,
   Prisma,
+  replaceListingBuyerFields,
+  validateListingBuyerFields,
   projectStoreItemQuantity,
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
@@ -127,7 +130,37 @@ const bodySchema = z.object({
     .array(z.object({ name: z.string(), value: z.string() }))
     .nullable()
     .optional(),
+  buyerFields: z.unknown().optional(),
 });
+
+async function applyBuyerFieldReplace(
+  tx: Prisma.TransactionClient,
+  storeItemId: string,
+  fields: Extract<ReturnType<typeof validateListingBuyerFields>, { ok: true }>["fields"]
+): Promise<boolean> {
+  const existing = await tx.listingBuyerField.findMany({
+    where: { storeItemId },
+    orderBy: { position: "asc" },
+    include: { options: { orderBy: { position: "asc" } } },
+  });
+  const before = existing.map((row) => ({
+    kind: row.kind,
+    title: row.title,
+    instructions: row.instructions,
+    required: row.required,
+    maxCharacters: row.maxCharacters,
+    maxFiles: row.maxFiles,
+    labelEachFile: row.labelEachFile,
+    etsyQuestionId: row.etsyQuestionId,
+    options: row.options.map((option) => ({
+      label: option.label,
+      etsyOptionId: option.etsyOptionId,
+    })),
+  }));
+  const changed = buyerFieldsDefinitionFingerprint(before) !== buyerFieldsDefinitionFingerprint(fields);
+  if (changed) await replaceListingBuyerFields(tx, storeItemId, fields);
+  return changed;
+}
 
 export async function GET(
   req: NextRequest,
@@ -141,6 +174,10 @@ export async function GET(
     include: {
       member: { select: { id: true, firstName: true, lastName: true } },
       business: { select: { id: true, name: true, slug: true } },
+      buyerFields: {
+        orderBy: { position: "asc" },
+        include: { options: { orderBy: { position: "asc" } } },
+      },
       storeVariants: {
         where: { status: "ACTIVE" },
         select: {
@@ -466,6 +503,11 @@ export async function PATCH(
     update.aspects =
       normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
   }
+  const buyerFieldsCheck =
+    data.buyerFields === undefined ? null : validateListingBuyerFields(data.buyerFields);
+  if (buyerFieldsCheck && !buyerFieldsCheck.ok) {
+    return NextResponse.json({ error: buyerFieldsCheck.error }, { status: 400 });
+  }
 
   const mergedStatus =
     data.status !== undefined ? data.status : existing.status;
@@ -695,11 +737,15 @@ export async function PATCH(
           memberId: ownerId,
           storeItemId: itemId,
         });
+        const personalizationChanged = buyerFieldsCheck?.ok
+          ? await applyBuyerFieldReplace(tx, itemId, buyerFieldsCheck.fields)
+          : false;
         await recordEtsyListingContentDesire(tx, {
           memberId: ownerId,
           storeItemId: itemId,
           before: contentBefore,
           after: afterSnapshot,
+          personalizationChanged,
         });
         await recordEtsyDirtyMappedVariantContentDesires(tx, {
           memberId: ownerId,
@@ -804,11 +850,15 @@ export async function PATCH(
       memberId: ownerId,
       storeItemId: itemId,
     });
+    const personalizationChanged = buyerFieldsCheck?.ok
+      ? await applyBuyerFieldReplace(tx, itemId, buyerFieldsCheck.fields)
+      : false;
     await recordEtsyListingContentDesire(tx, {
       memberId: ownerId,
       storeItemId: itemId,
       before: contentBefore,
       after: afterSnapshot,
+      personalizationChanged,
     });
     await recordEtsyDirtyMappedVariantContentDesires(tx, {
       memberId: ownerId,

@@ -34,6 +34,8 @@ import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { parseStoredAspects } from "@/lib/listing-limits";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+import { answersPayload, ListingBuyerAnswers, type BuyerAnswerDraft } from "@/components/store/ListingBuyerAnswers";
+import type { ListingBuyerFieldPublic } from "database";
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
 
@@ -81,6 +83,7 @@ interface StoreItem {
     fullDescription?: string | null;
   };
   soldAt?: string;
+  buyerFields?: ListingBuyerFieldPublic[];
 }
 
 function buyBoxFulfillmentSummary(
@@ -122,6 +125,7 @@ export function StorefrontListingContent({
   const [itemUnavailable, setItemUnavailable] = useState(initialUnavailable);
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
+  const [buyerDrafts, setBuyerDrafts] = useState<Record<string, BuyerAnswerDraft>>({});
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [loading, setLoading] = useState(!initialItem);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -377,11 +381,13 @@ export function StorefrontListingContent({
         fulfillmentType?: FulfillmentType;
         localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
         pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
+        buyerResponses?: unknown;
       } = {
         storeItemId: item.id,
         quantity,
         variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
         fulfillmentType,
+        buyerResponses: answersPayload(item.buyerFields ?? [], buyerDrafts),
       };
       if (fulfillmentType === "local_delivery" && localDeliveryForm && localDeliveryDetailsSaved) {
         body.localDeliveryDetails = {
@@ -448,6 +454,7 @@ export function StorefrontListingContent({
           quantity,
           variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
           fulfillmentType,
+          buyerResponses: answersPayload(item.buyerFields ?? [], buyerDrafts),
         },
       ];
       const body: {
@@ -971,6 +978,21 @@ export function StorefrontListingContent({
             )}
             {!itemUnavailable && (
               <>
+                <ListingBuyerAnswers
+                  fields={item.buyerFields ?? []}
+                  drafts={buyerDrafts}
+                  onChange={setBuyerDrafts}
+                  onUpload={async (file) => {
+                    const form = new FormData();
+                    form.set("file", file);
+                    const res = await fetch("/api/upload/buyer-file", { method: "POST", body: form });
+                    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+                    if (!res.ok || !data.url) {
+                      throw new Error(data.error ?? "Upload failed");
+                    }
+                    return data.url;
+                  }}
+                />
                 {perOptionStock && !allVariantsSelected ? (
                   <p className="text-sm text-gray-600 mt-6">
                     Select all options to see available quantity.

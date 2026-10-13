@@ -24,6 +24,13 @@ import {
   tagsEqual,
   type EtsyInboundAspect,
 } from "./listing-aspects";
+import {
+  buyerFieldsDefinitionFingerprint,
+  buyerFieldsFromEtsyQuestions,
+  replaceListingBuyerFields,
+  type EtsyPersonalizationQuestion,
+  type NormalizedListingBuyerField,
+} from "../listing-buyer-fields";
 
 export type EtsyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -43,6 +50,8 @@ export type EtsyRemoteListingObservation = {
   /** Etsy search tags. */
   tags?: string[] | null;
   tagsObserved?: boolean;
+  personalizationQuestions?: EtsyPersonalizationQuestion[] | null;
+  personalizationObserved?: boolean;
   variants: Array<{
     etsyProductId: string;
     etsyOfferingId: string;
@@ -339,6 +348,49 @@ export async function applyEtsyListingContentInbound(
       where: { id: storeItem.id },
       data: aspectPatch,
     });
+  }
+
+  // Skip while a local content edit is still waiting to push, so a poll cannot
+  // wipe custom options the seller just saved.
+  if (input.remote.personalizationObserved && !desireAhead) {
+    const mapped = buyerFieldsFromEtsyQuestions(input.remote.personalizationQuestions ?? []);
+    if (mapped.ok) {
+      const existing = await db.listingBuyerField.findMany({
+        where: { storeItemId: storeItem.id },
+        orderBy: { position: "asc" },
+        include: { options: { orderBy: { position: "asc" } } },
+      });
+      const localFields: NormalizedListingBuyerField[] = existing.map((row) => ({
+        kind: row.kind,
+        title: row.title,
+        instructions: row.instructions,
+        required: row.required,
+        maxCharacters: row.maxCharacters,
+        maxFiles: row.maxFiles,
+        labelEachFile: row.labelEachFile,
+        etsyQuestionId: row.etsyQuestionId,
+        options: row.options.map((option) => ({
+          label: option.label,
+          etsyOptionId: option.etsyOptionId,
+        })),
+      }));
+      const sameDefinition =
+        buyerFieldsDefinitionFingerprint(localFields) === buyerFieldsDefinitionFingerprint(mapped.fields);
+      const sameEtsyIds =
+        localFields.length === mapped.fields.length &&
+        localFields.every((field, index) => {
+          const remote = mapped.fields[index];
+          if (!remote) return false;
+          if ((field.etsyQuestionId ?? null) !== (remote.etsyQuestionId ?? null)) return false;
+          return field.options.every(
+            (option, optionIndex) =>
+              (option.etsyOptionId ?? null) === (remote.options[optionIndex]?.etsyOptionId ?? null)
+          );
+        });
+      if (!sameDefinition || !sameEtsyIds) {
+        await replaceListingBuyerFields(db, storeItem.id, mapped.fields);
+      }
+    }
   }
 
   if (productClass === "CONVERGED" || productClass === "REMOTE_ONLY") {

@@ -77,6 +77,8 @@ export async function recordEtsyListingContentDesire(
     storeItemId: string;
     before: EtsyListingContentSnapshot;
     after: EtsyListingContentSnapshot;
+    /** Custom-option edits still need an outbound personalization replace. */
+    personalizationChanged?: boolean;
   }
 ): Promise<RecordEtsyListingContentDesireResult> {
   const beforePhotos =
@@ -97,7 +99,8 @@ export async function recordEtsyListingContentDesire(
     input.before.priceCents !== input.after.priceCents ||
     (input.before.sku ?? null) !== (input.after.sku ?? null);
 
-  if (!productChanged && !variantChanged) {
+  const personalizationChanged = input.personalizationChanged === true;
+  if (!productChanged && !variantChanged && !personalizationChanged) {
     return { status: "SKIPPED", reason: "NO_CONTENT_CHANGE" };
   }
 
@@ -204,12 +207,13 @@ export async function recordEtsyListingContentDesire(
     sku: input.after.sku,
   });
 
-  const nextProductVersion = productChanged
+  const bumpProduct = productChanged || personalizationChanged;
+  const nextProductVersion = bumpProduct
     ? lockedListing.desiredProductContentVersion + 1
     : lockedListing.desiredProductContentVersion;
   const desiredAt = new Date();
 
-  if (productChanged) {
+  if (bumpProduct) {
     await db.etsyListingLink.update({
       where: { id: lockedListing.id },
       data: {

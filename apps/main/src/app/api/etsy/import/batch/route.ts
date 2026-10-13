@@ -10,7 +10,7 @@ import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-async function kickImportBatchWorker(times = 3): Promise<void> {
+async function kickImportBatchWorker(times = 8): Promise<void> {
   for (let i = 0; i < times; i += 1) {
     const ran = await runNextEtsySyncJob({
       workerId: `etsy-import-inline-${i}`,
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Start importing immediately so the progress bar moves without waiting for cron.
-  void kickImportBatchWorker(4).catch(() => undefined);
+  void kickImportBatchWorker(8).catch(() => undefined);
 
   return NextResponse.json({
     status: result.status,

@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "October 8, 2026";
+export const PRIVACY_LAST_UPDATED = "October 13, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -47,6 +47,7 @@ This information may include:
 ● Blog submissions, feed posts, comments, direct messages, group conversations, listings, event information
 ● NWC Requests and Support & contact: we store your name, email address, and message. On the mobile app you may also enter a short subject line. You may optionally provide a phone number so our team can follow up by call or text as well as by email. These submissions are saved in our administrative systems for support and follow-up.
 ● Marketplace order fulfillment details you enter at checkout for local pickup or local delivery (including contact and scheduling fields described above), stored with your order
+● Custom listing answers: text you type, an option you choose, and files you upload for a seller’s custom option. We store those with the cart line and the order and share them with the seller so they can fulfill the item. Files are stored with our hosting provider. When the listing is synced to Etsy, the same kind of answers on an Etsy receipt may be read from Etsy and shown to the seller.
 ● Address, jurisdiction, and transaction details shared with or derived for sales tax compliance providers (for example TaxJar) when we implement tax calculation and reporting for marketplace orders
 ● Any content you voluntarily provide
 

@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { accessTokenForConnection, ShopifyConnectError } from "./connect";
 import { SHOPIFY_ADMIN_API_VERSION } from "./constants";
 import { handleShopifyCreateListingJob } from "./create-listing";
+import { handleShopifyImportBatchJob } from "./import-batch";
 import { handleShopifyUpdateListingContentJob } from "./update-listing-content";
 import { handleShopifyProcessProviderEvidenceJob } from "./process-products-update";
 import { handleShopifyProjectInventoryJob } from "./project-inventory";
@@ -320,6 +321,7 @@ const defaultHandlers: Record<string, ShopifyJobHandler> = {
   PROJECT_INVENTORY: (claim) => handleShopifyProjectInventoryJob(claim),
   PUBLISH_LISTING: (claim) => handleShopifyPublishListingJob(claim),
   RECONCILE_LISTING: (claim) => handleShopifyReconcileListingJob(claim),
+  IMPORT_BATCH: (claim) => handleShopifyImportBatchJob(claim),
 };
 
 /**
@@ -331,12 +333,14 @@ export async function runNextShopifySyncJob(input?: {
   handlers?: Partial<Record<string, ShopifyJobHandler>>;
   leaseMs?: number;
   now?: Date;
+  kind?: string;
 }): Promise<{ claimed: false } | { claimed: true; jobId: string; finalized: boolean; result: ShopifyJobHandlerResult }> {
   const workerId = input?.workerId ?? `shopify-worker-${randomUUID()}`;
   const claim = await claimNextShopifySyncJob(prisma, {
     workerId,
     leaseMs: input?.leaseMs,
     now: input?.now,
+    kind: input?.kind,
   });
   if (!claim) return { claimed: false };
 

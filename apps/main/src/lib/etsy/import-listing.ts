@@ -11,6 +11,7 @@ import {
   EtsyMappingError,
 } from "database";
 import { fetchEtsyImportListingDetail, type EtsyImportCandidate } from "./import-discovery";
+import { importEtsyListingPersonalization } from "./personalization";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 
 export type ImportEtsyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
@@ -21,6 +22,7 @@ export type ImportEtsyListingResult =
       storeItemId: string;
       listingLinkId: string;
       etsyListingId: string;
+      personalizationWarning: string | null;
     }
   | {
       status: "ERROR";
@@ -105,6 +107,7 @@ export async function importEtsyListing(input: {
       storeItemId: begin.attempt.storeItemId,
       listingLinkId: begin.attempt.listingLinkId,
       etsyListingId: listingId,
+      personalizationWarning: null,
     };
   }
   if (begin.status === "IN_PROGRESS") {
@@ -305,11 +308,26 @@ export async function importEtsyListing(input: {
       };
     });
 
+    let personalizationWarning: string | null = null;
+    if (!created.already) {
+      personalizationWarning = await importEtsyListingPersonalization({
+        connectionId: connection.id,
+        memberId: input.memberId,
+        etsyListingId: listingId,
+        storeItemId: created.storeItemId,
+      })
+        .then((imported) => imported.warning)
+        .catch((error: unknown) =>
+          error instanceof Error ? error.message : "Could not import Etsy custom options."
+        );
+    }
+
     return {
       status: created.already ? "ALREADY_IMPORTED" : "IMPORTED",
       storeItemId: created.storeItemId,
       listingLinkId: created.listingLinkId,
       etsyListingId: listingId,
+      personalizationWarning,
     };
   } catch (error) {
     const code =

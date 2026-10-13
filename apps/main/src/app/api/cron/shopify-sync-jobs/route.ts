@@ -55,6 +55,20 @@ async function handle(req: NextRequest) {
   // Process more than a trickle per minute tick so multi-variant import/expand
   // bursts (evidence + PROJECT_INVENTORY × N) do not sit for many minutes.
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
+  // Bulk imports should keep moving even when outbound queues are busy.
+  for (let i = 0; i < 12; i += 1) {
+    const ran = await runNextShopifySyncJob({
+      workerId: `cron-shopify-import-${i}`,
+      kind: "IMPORT_BATCH",
+      leaseMs: 55_000,
+    });
+    if (!ran.claimed) break;
+    results.push({
+      jobId: ran.jobId,
+      finalized: ran.finalized,
+      outcome: ran.result.outcome,
+    });
+  }
   for (let i = 0; i < 25; i += 1) {
     const ran = await runNextShopifySyncJob({ workerId: `cron-shopify-${i}` });
     if (!ran.claimed) break;

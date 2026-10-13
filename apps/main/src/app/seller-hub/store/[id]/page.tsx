@@ -49,6 +49,10 @@ export default async function EditStoreItemPage({
         },
         orderBy: { createdAt: "asc" },
       },
+      buyerFields: {
+        orderBy: { position: "asc" },
+        include: { options: { orderBy: { position: "asc" } } },
+      },
     },
   });
   if (!item) {
@@ -115,6 +119,20 @@ export default async function EditStoreItemPage({
             etsyWhenMade: item.etsyWhenMade,
             etsyIsSupply: item.etsyIsSupply,
             etsyTaxonomyId: item.etsyTaxonomyId,
+            buyerFields: item.buyerFields.map((field) => ({
+              kind: field.kind,
+              title: field.title,
+              instructions: field.instructions,
+              required: field.required,
+              maxCharacters: field.maxCharacters,
+              maxFiles: field.maxFiles,
+              labelEachFile: field.labelEachFile,
+              etsyQuestionId: field.etsyQuestionId,
+              options: field.options.map((option) => ({
+                label: option.label,
+                etsyOptionId: option.etsyOptionId,
+              })),
+            })),
           }}
         />
       </div>

@@ -13,6 +13,7 @@ import {
   releaseReservation,
 } from "./commerce-foundation-inventory";
 import { resolveCheckoutVariant } from "./commerce-foundation-variant-resolution";
+import { buyerResponsesFingerprint } from "./listing-buyer-fields";
 
 const CHECKOUT_HOLD_MS = 25 * 60 * 1000;
 const REUSABLE_ATTEMPT_STATES: CheckoutAttemptState[] = ["CREATED", "SESSION_OPEN", "SESSION_UNKNOWN"];
@@ -29,6 +30,7 @@ export type FoundationCheckoutLineInput = {
   variantId?: string | null;
   fulfillmentType?: string | null;
   pickupDetails?: Prisma.InputJsonValue | null;
+  buyerResponses?: Prisma.InputJsonValue | null;
 };
 
 export type FoundationCheckoutSellerOrderInput = {
@@ -159,6 +161,7 @@ export function hashFoundationCart(
           String(line.quantity),
           canonicalFulfillmentType(line.fulfillmentType),
           String(line.priceCentsAtPurchase),
+          buyerResponsesFingerprint(line.buyerResponses),
           String(order.shippingCostCents),
           String(order.totalCents),
           destination,
@@ -369,6 +372,7 @@ export async function prepareFoundationCheckout(
             variantId: variant.id,
             fulfillmentType: line.fulfillmentType ?? null,
             pickupDetails: jsonOrNull(line.pickupDetails) as Prisma.InputJsonValue | undefined,
+            buyerResponses: jsonOrNull(line.buyerResponses) as Prisma.InputJsonValue | undefined,
           },
         });
         if (state.mode === "TRACKED_FINITE") {

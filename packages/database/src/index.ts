@@ -53,6 +53,7 @@ const prismaClient = (() => {
     typeof (existing as { shopifyVariantMap?: unknown }).shopifyVariantMap !== "undefined" &&
     typeof (existing as { shopifyProviderEvidence?: unknown }).shopifyProviderEvidence !== "undefined" &&
     typeof (existing as { shopifySyncJob?: unknown }).shopifySyncJob !== "undefined" &&
+    typeof (existing as { listingBuyerField?: unknown }).listingBuyerField !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
@@ -96,6 +97,30 @@ const prismaClient = (() => {
 
 export const prisma = prismaClient;
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
+
+export {
+  ETSY_PERSONALIZATION_PROPERTY_ID,
+  LISTING_BUYER_FIELD_MAX,
+  buyerFieldsDefinitionFingerprint,
+  buyerFieldsFromEtsyQuestions,
+  buyerResponsesFingerprint,
+  etsyPersonalizationWriteBody,
+  formatBuyerResponseLines,
+  parseStoredBuyerResponses,
+  publicBuyerFieldsFromRows,
+  replaceListingBuyerFields,
+  splitEtsyReceiptVariations,
+  validateBuyerResponses,
+  validateListingBuyerFields,
+} from "./listing-buyer-fields";
+export type {
+  BuyerFieldResponse,
+  EtsyPersonalizationAnswer,
+  EtsyPersonalizationQuestion,
+  ListingBuyerFieldInput,
+  ListingBuyerFieldPublic,
+  NormalizedListingBuyerField,
+} from "./listing-buyer-fields";
 
 export * from "@prisma/client";
 export {
@@ -665,6 +690,22 @@ export type {
 } from "./shopify/import-attempt";
 export { reconcileShopifyImportBootstrapSales } from "./shopify/import-bootstrap";
 export type { ReconcileShopifyImportBootstrapResult } from "./shopify/import-bootstrap";
+export {
+  appendShopifyImportBatchFailures,
+  SHOPIFY_IMPORT_BATCH_DEFAULT_ITEM_MS,
+  findActiveShopifyImportBatch,
+  nextShopifyImportBatchAvgItemMs,
+  parseShopifyImportBatchFailures,
+  parseShopifyImportBatchQueue,
+  resolveShopifyImportStockMode,
+  shopifyImportBatchDedupeKey,
+  shopifyImportBatchProgressView,
+} from "./shopify/import-batch";
+export type {
+  ShopifyImportBatchDb,
+  ShopifyImportBatchFailure,
+  ShopifyImportBatchProgressView,
+} from "./shopify/import-batch";
 export {
   clearShopifyProductContentConflict,
   clearShopifyVariantContentConflict,

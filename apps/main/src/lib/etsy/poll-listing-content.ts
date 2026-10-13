@@ -16,6 +16,7 @@ import {
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { optionsFromEtsyPropertyValues } from "./listing-variants";
+import { fetchEtsyListingPersonalization } from "./personalization";
 import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
@@ -194,6 +195,13 @@ async function fetchRemoteObservation(input: {
   const aspectsObserved = true;
   const tagsObserved = true;
   const tags = normalizeEtsyTags(listingRes.data.tags);
+  const personalization = await fetchEtsyListingPersonalization({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    etsyListingId: input.etsyListingId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
 
   const variants: EtsyRemoteListingObservation["variants"] = [];
   for (const product of inventoryRes.data.products ?? []) {
@@ -244,6 +252,8 @@ async function fetchRemoteObservation(input: {
       aspectsObserved,
       tags,
       tagsObserved,
+      personalizationQuestions: personalization.ok ? personalization.questions : null,
+      personalizationObserved: personalization.ok,
       variants,
     },
   };

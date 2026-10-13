@@ -10,6 +10,7 @@ import {
   sellerOrderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
 import type { FulfillmentStoreOrder } from "./types";
+import { formatBuyerResponseLines } from "@/lib/buyer-response-lines";
 
 type OrderCardProps = {
   order: FulfillmentStoreOrder;
@@ -182,6 +183,11 @@ export function OrderCardItemRows({ order }: { order: FulfillmentStoreOrder }) {
                 ? ` · $${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`
                 : ""}
             </p>
+            {formatBuyerResponseLines(oi.buyerResponses).map((line) => (
+              <p key={line} className="text-xs text-gray-700 break-all">
+                {line}
+              </p>
+            ))}
           </div>
         </li>
       ))}

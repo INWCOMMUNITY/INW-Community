@@ -47,6 +47,12 @@ import {
   type InventoryMode,
   type EditorSkuRow,
 } from "@/components/listing/ListingOptionsEditor";
+import { ListingBuyerFieldsEditor } from "@/components/listing/ListingBuyerFieldsEditor";
+import {
+  buyerFieldsFromExisting,
+  buyerFieldsToPayload,
+  type BuyerFieldDraft,
+} from "@/lib/listing-buyer-fields";
 import {
   parseInventoryTracking,
   rebuildMatrixFromAxes,
@@ -169,6 +175,7 @@ export default function ListItemScreen() {
   const [inStorePickupAvailable, setInStorePickupAvailable] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [inventoryMode, setInventoryMode] = useState<InventoryMode>("simple");
+  const [buyerFields, setBuyerFields] = useState<BuyerFieldDraft[]>([]);
   const [inventoryTracking, setInventoryTracking] = useState<InventoryTracking>("tracked");
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>([]);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>([]);
@@ -431,8 +438,10 @@ export default function ListItemScreen() {
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
         sku?: string | null;
+        buyerFields?: Parameters<typeof buyerFieldsFromExisting>[0];
       }>(`/api/store-items/${editId}`)
         .then((item) => {
+          setBuyerFields(buyerFieldsFromExisting(item.buyerFields));
           setTitle(item.title ?? "");
           setSku(item.sku ?? "");
           setDescription(item.description ?? "");
@@ -809,6 +818,7 @@ export default function ListItemScreen() {
       pickupTerms: inStorePickupAvailable && !useSellerProfilePickup ? pickupTerms.trim() || null : null,
       localDeliveryFeeCents: localFee,
       ...(condition === "used" ? { acceptOffers } : { acceptOffers: false }),
+      buyerFields: buyerFieldsToPayload(buyerFields),
     };
 
     setSubmitting(true);
@@ -1062,6 +1072,7 @@ export default function ListItemScreen() {
             autoCorrect={false}
           />
 
+          <ListingBuyerFieldsEditor fields={buyerFields} onChange={setBuyerFields} />
           <ListingOptionsEditor
             mode={inventoryMode}
             onModeChange={setInventoryMode}

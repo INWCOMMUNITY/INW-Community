@@ -21,6 +21,7 @@ import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "./apps-airport";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
+import { pushEtsyListingPersonalization } from "./personalization";
 import {
   buildEtsyInventoryProductsPayload,
   correlateEtsyProductsToStoreVariants,
@@ -834,6 +835,16 @@ async function finalizeEtsyListingActivation(input: {
   now?: Date;
 }): Promise<EtsyJobHandlerResult> {
   const { connection, storeItem, etsyListingId, how, packageFields } = input;
+  const pushPersonalization = () =>
+    pushEtsyListingPersonalization({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      shopId: connection.shopId,
+      etsyListingId,
+      storeItemId: storeItem.id,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
 
   if (!connection.defaultShippingProfileId) {
     const issueMessage =
@@ -863,6 +874,8 @@ async function finalizeEtsyListingActivation(input: {
         message: issueMessage,
       }).catch(() => undefined);
     }
+    const personalization = await pushPersonalization();
+    if (personalization) return personalization;
     return { outcome: "SUCCESS" };
   }
 
@@ -947,6 +960,8 @@ async function finalizeEtsyListingActivation(input: {
         message: issueMessage,
       }).catch(() => undefined);
     }
+    const personalization = await pushPersonalization();
+    if (personalization) return personalization;
     return { outcome: "SUCCESS" };
   }
 
@@ -993,6 +1008,8 @@ async function finalizeEtsyListingActivation(input: {
           issueMessage: null,
         },
       });
+      const personalization = await pushPersonalization();
+      if (personalization) return personalization;
       return { outcome: "SUCCESS" };
     }
   }
@@ -1035,5 +1052,7 @@ async function finalizeEtsyListingActivation(input: {
       message: issueMessage,
     }).catch(() => undefined);
   }
+  const personalization = await pushPersonalization();
+  if (personalization) return personalization;
   return { outcome: "SUCCESS" };
 }

@@ -35,7 +35,7 @@ async function handle(req: NextRequest) {
 
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
   // Bulk imports should keep moving even when outbound queues are busy.
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < 12; i += 1) {
     const ran = await runNextEtsySyncJob({
       workerId: `cron-etsy-import-${i}`,
       kind: "IMPORT_BATCH",

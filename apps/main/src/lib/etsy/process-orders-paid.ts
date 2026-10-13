@@ -1,6 +1,7 @@
 import {
   applyEtsyPaidOrderObservation,
   prisma,
+  splitEtsyReceiptVariations,
   type EtsyJobHandlerResult,
   type EtsyPaidOrderLineObservation,
   type EtsySyncJobClaim,
@@ -16,7 +17,14 @@ type ReceiptTransaction = {
   product_data?: { product_id?: number | string; offering_id?: number | string };
   quantity?: number;
   sku?: string | null;
-  variations?: Array<{ formatted_name?: string; formatted_value?: string; property_name?: string; values?: string[] }>;
+  variations?: Array<{
+    property_id?: number | string | null;
+    formatted_name?: string;
+    formatted_value?: string;
+    property_name?: string;
+    values?: string[];
+    question_id?: number | string | null;
+  }>;
 };
 
 type ReceiptPayload = {
@@ -152,23 +160,15 @@ export async function handleEtsyOrderPaidEvidence(input: {
     const offeringRaw = tx.offering_id ?? tx.product_data?.offering_id;
     const offeringId =
       offeringRaw != null && /^\d+$/.test(String(offeringRaw)) ? String(offeringRaw) : null;
-    const options: Record<string, string> = {};
-    for (const variation of tx.variations ?? []) {
-      const name = (variation.formatted_name || variation.property_name || "").trim();
-      const value = (
-        variation.formatted_value ||
-        (Array.isArray(variation.values) ? variation.values[0] : "") ||
-        ""
-      ).trim();
-      if (name && value) options[name] = value;
-    }
+    const split = splitEtsyReceiptVariations(tx.variations ?? []);
     lines.push({
       etsyReceiptId: receiptId,
       etsyTransactionId: transactionId,
       etsyListingId: listingId,
       etsyProductId: productId,
       etsyOfferingId: offeringId,
-      options: Object.keys(options).length > 0 ? options : null,
+      options: Object.keys(split.inventoryOptions).length > 0 ? split.inventoryOptions : null,
+      personalization: split.personalization.length > 0 ? split.personalization : null,
       paidQuantity: qty,
       triggeredAt: input.triggeredAt,
     });

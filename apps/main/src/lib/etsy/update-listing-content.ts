@@ -19,6 +19,7 @@ import {
   type EtsySyncJobClaim,
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
+import { pushEtsyListingPersonalization } from "./personalization";
 import type { EtsyFetch } from "./client";
 import { uploadEtsyListingPhotosFromUrls } from "./listing-images";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
@@ -709,6 +710,17 @@ export async function handleEtsyUpdateListingContentJob(
       now: deps.now,
     });
   }
+
+  const personalization = await pushEtsyListingPersonalization({
+    connectionId: connection.id,
+    memberId: connection.memberId,
+    shopId: connection.shopId,
+    etsyListingId: listing.etsyListingId,
+    storeItemId: storeItem.id,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+  });
+  if (personalization) return personalization;
 
   await reconcileEtsyListingHealthFromDb(prisma, {
     connectionId: connection.id,

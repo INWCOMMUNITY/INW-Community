@@ -41,6 +41,7 @@ interface CartItem {
   storeItemId: string;
   quantity: number;
   variant: unknown;
+  buyerResponses?: unknown;
   fulfillmentType?: string | null;
   localDeliveryDetails?: LocalDeliveryDetails | null;
   pickupDetails?: PickupDetails & { termsAcceptedAt?: string } | null;
@@ -261,6 +262,7 @@ export default function CartPage() {
           quantity: i.quantity,
           variant: i.variant ?? undefined,
           fulfillmentType: i.fulfillmentType ?? "ship",
+          buyerResponses: i.buyerResponses ?? undefined,
         })),
         localDeliveryDetails: localDeliveryDetailsForCheckout ?? undefined,
       });

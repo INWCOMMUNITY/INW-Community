@@ -22,6 +22,12 @@ import {
   serializeEditorMatrix,
   type EditorSkuRow,
 } from "@/components/listing/ListingVariantMatrixEditor";
+import {
+  buyerFieldsFromExisting,
+  buyerFieldsToPayload,
+  ListingBuyerFieldsEditor,
+  type BuyerFieldDraft,
+} from "@/components/listing/ListingBuyerFieldsEditor";
 import { buildProductHref } from "@/lib/product-referrer";
 import { ShareListingsToFeedPrompt } from "@/components/feed/ShareListingsToFeedPrompt";
 import { ListingEditorLayout } from "@/components/store-item/ListingEditorLayout";
@@ -118,6 +124,7 @@ interface StoreItemFormProps {
     etsyWhenMade?: string | null;
     etsyIsSupply?: boolean | null;
     etsyTaxonomyId?: number | null;
+    buyerFields?: Parameters<typeof buyerFieldsFromExisting>[0];
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -139,6 +146,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
+  const [buyerFields, setBuyerFields] = useState<BuyerFieldDraft[]>(() =>
+    buyerFieldsFromExisting(existing?.buyerFields)
+  );
   const [aspects, setAspects] = useState<ListingAspect[]>(() =>
     Array.isArray(existing?.aspects)
       ? existing.aspects.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
@@ -757,6 +767,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,
       aspects: cleanedAspects,
+      buyerFields: buyerFieldsToPayload(buyerFields),
       priceCents,
       status: "active",
       condition,
@@ -1239,6 +1250,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </button>
               )}
             </div>
+          </ListingFormSection>
+
+          <ListingFormSection
+            title="Custom options"
+            description="Text, choices, or files buyers fill in. These do not change stock."
+          >
+            <ListingBuyerFieldsEditor fields={buyerFields} onChange={setBuyerFields} />
           </ListingFormSection>
 
           {/* Pricing & Inventory */}

@@ -156,6 +156,7 @@ model Member {
   shopifyVariantMaps   ShopifyVariantMap[]
   shopifyOrderLineSaleFacts ShopifyOrderLineSaleFact[]
   shopifyListingImportAttempts ShopifyListingImportAttempt[]
+  shopifyImportBatches ShopifyImportBatch[]
   etsyConnections      EtsyConnection[]
   etsyOAuthStates      EtsyOAuthState[]
   etsyListingLinks     EtsyListingLink[]
@@ -256,6 +257,8 @@ model CartItem {
   storeItemId          String   @map("store_item_id")
   quantity             Int      @default(1)
   variant              Json?    // selected variant if applicable
+  /// Buyer custom-option answers. Does not affect inventory. Snapshot of listing fields.
+  buyerResponses       Json?    @map("buyer_responses")
   fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
   localDeliveryDetails Json?    @map("local_delivery_details")
   pickupDetails        Json?    @map("pickup_details") // { firstName, lastName, phone, note?, termsAcceptedAt }
@@ -1045,12 +1048,60 @@ model StoreItem {
   inventoryReservations InventoryReservation[]
   shopifyListingLinks ShopifyListingLink[]
   etsyListingLinks    EtsyListingLink[]
+  buyerFields         ListingBuyerField[]
 
   @@unique([id, memberId])
   @@index([status, endedAt])
   @@index([status, createdAt])
   @@index([memberId, status])
   @@index([category, status])
+}
+
+enum ListingBuyerFieldKind {
+  TEXT
+  DROPDOWN
+  FILE
+
+  @@map("listing_buyer_field_kind")
+}
+
+/// Buyer input collected at checkout. Not an inventory axis.
+model ListingBuyerField {
+  id             String                @id @default(cuid())
+  storeItemId    String                @map("store_item_id")
+  position       Int
+  kind           ListingBuyerFieldKind
+  title          String
+  instructions   String?               @db.Text
+  required       Boolean               @default(false)
+  maxCharacters  Int?                  @map("max_characters")
+  maxFiles       Int?                  @map("max_files")
+  labelEachFile  Boolean               @default(false) @map("label_each_file")
+  /// Etsy personalization question_id when synced. Optional on create; send back on update.
+  etsyQuestionId String?               @map("etsy_question_id")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  storeItem StoreItem                 @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  options   ListingBuyerFieldOption[]
+
+  @@unique([storeItemId, position])
+  @@index([storeItemId])
+  @@map("listing_buyer_field")
+}
+
+model ListingBuyerFieldOption {
+  id           String  @id @default(cuid())
+  fieldId      String  @map("field_id")
+  position     Int
+  label        String
+  etsyOptionId String? @map("etsy_option_id")
+
+  field ListingBuyerField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, position])
+  @@index([fieldId])
+  @@map("listing_buyer_field_option")
 }
 
 enum StoreVariantStatus {
@@ -1690,6 +1741,8 @@ model OrderItem {
   quantity             Int
   priceCentsAtPurchase Int      @map("price_cents_at_purchase")
   variant              Json?    // selected variant if applicable
+  /// Snapshot of buyer custom-option answers at checkout. Does not affect inventory.
+  buyerResponses       Json?    @map("buyer_responses")
   fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup
   pickupDetails        Json?    @map("pickup_details") // snapshot at checkout from cart
   createdAt            DateTime @default(now()) @map("created_at")
@@ -2225,6 +2278,7 @@ model ShopifyConnection {
   syncJobs         ShopifySyncJob[]
   orderLineSaleFacts ShopifyOrderLineSaleFact[]
   listingImportAttempts ShopifyListingImportAttempt[]
+  importBatches         ShopifyImportBatch[]
 
   /// Supports composite FKs from mapping rows so connection + member cannot drift.
   @@unique([id, memberId])
@@ -2561,8 +2615,62 @@ enum ShopifySyncJobKind {
   PROJECT_INVENTORY
   PUBLISH_LISTING
   RECONCILE_LISTING
+  IMPORT_BATCH
 
   @@map("shopify_sync_job_kind")
+}
+
+enum ShopifyImportBatchState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+
+  @@map("shopify_import_batch_state")
+}
+
+enum ShopifyImportStockModePolicy {
+  RECOMMENDED
+  PHYSICAL
+  MADE_TO_ORDER
+
+  @@map("shopify_import_stock_mode_policy")
+}
+
+/// Durable bulk import of Shopify products into INW for one connection generation.
+model ShopifyImportBatch {
+  id                 String                        @id @default(cuid())
+  shopifyConnectionId String                       @map("shopify_connection_id")
+  memberId           String                        @map("member_id")
+  state              ShopifyImportBatchState       @default(PENDING)
+  stockModePolicy    ShopifyImportStockModePolicy  @default(RECOMMENDED) @map("stock_mode_policy")
+  total              Int                           @default(0)
+  completed          Int                           @default(0)
+  failed             Int                           @default(0)
+  skipped            Int                           @default(0)
+  /// Opaque Shopify products query cursor for the next discover page.
+  discoverCursor     String?                       @map("discover_cursor")
+  discoverComplete   Boolean                       @default(false) @map("discover_complete")
+  /// Remaining shopifyProductId GIDs to import.
+  queueJson          Json                          @default("[]") @map("queue_json")
+  /// Recent failures: [{ shopifyProductId, message }]
+  failuresJson       Json                          @default("[]") @map("failures_json")
+  avgItemMs          Int?                          @map("avg_item_ms")
+  startedAt          DateTime?                     @map("started_at")
+  finishedAt         DateTime?                     @map("finished_at")
+  lastProgressAt     DateTime?                     @map("last_progress_at")
+  lastError          String?                       @map("last_error") @db.Text
+  cancelRequested    Boolean                       @default(false) @map("cancel_requested")
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+
+  connection ShopifyConnection @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member            @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@index([memberId, createdAt])
+  @@index([shopifyConnectionId, state])
+  @@map("shopify_import_batch")
 }
 
 /// Verified inbound Shopify webhook fact. Separate from canonical commerce state.
@@ -2834,6 +2942,8 @@ model EtsyListingLink {
   issueCode              String?                @map("issue_code")
   issueMessage           String?                @map("issue_message") @db.Text
   importSource           EtsyListingImportSource @default(NATIVE) @map("import_source")
+  /// False when an Etsy import could not read personalization. Empty local fields must not delete the remote questions.
+  personalizationAuthoritative Boolean         @default(true) @map("personalization_authoritative")
   importedAt             DateTime?              @map("imported_at")
   importBootstrapStartedAt DateTime?            @map("import_bootstrap_started_at")
   createdAt              DateTime               @default(now()) @map("created_at")
@@ -3045,6 +3155,8 @@ model EtsyOrderLineSaleFact {
   storeVariantId     String?                    @map("store_variant_id")
   storeItemId        String?                    @map("store_item_id")
   paidQuantity       Int                        @map("paid_quantity")
+  /// Buyer personalization answers from receipt variations (property_id 54). Not inventory.
+  personalizationJson Json?                     @map("personalization_json")
   appliedQuantity    Int                        @default(0) @map("applied_quantity")
   applyState         EtsyOrderLineSaleApplyState @default(PENDING) @map("apply_state")
   inventoryEventId   String?                    @map("inventory_event_id")

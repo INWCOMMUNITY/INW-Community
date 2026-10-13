@@ -12,14 +12,14 @@ import {
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
-import { discoverEtsyImportCandidates } from "./import-discovery";
+import { discoverEtsyImportCandidates, fetchEtsyImportListingDetail } from "./import-discovery";
 import { importEtsyListing } from "./import-listing";
 
 type EtsyImportStockModePolicy = "RECOMMENDED" | "PHYSICAL" | "MADE_TO_ORDER";
 
 const DISCOVER_PAGE_SIZE = 25;
-const MAX_ITEMS_PER_CLAIM = 2;
-const MAX_CLAIM_MS = 22_000;
+const MAX_ITEMS_PER_CLAIM = 3;
+const MAX_CLAIM_MS = 45_000;
 const MAX_FAILURES_DETAIL = 40;
 
 export type StartEtsyImportBatchResult =
@@ -79,16 +79,28 @@ export async function startEtsyImportBatch(input: {
     };
   }
 
-  const batch = await prisma.etsyImportBatch.create({
-    data: {
-      etsyConnectionId: connection.id,
-      memberId: input.memberId,
-      state: "PENDING",
-      stockModePolicy,
-      startedAt: new Date(),
-      lastProgressAt: new Date(),
-    },
-  });
+  let batch;
+  try {
+    batch = await prisma.etsyImportBatch.create({
+      data: {
+        etsyConnectionId: connection.id,
+        memberId: input.memberId,
+        state: "PENDING",
+        stockModePolicy,
+        startedAt: new Date(),
+        lastProgressAt: new Date(),
+      },
+    });
+  } catch (error) {
+    // Partial unique index: one PENDING/RUNNING batch per connection.
+    if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "P2002") {
+      const raced = await findActiveEtsyImportBatch(prisma, connection.id);
+      if (raced) {
+        return { status: "ALREADY_RUNNING", batch: etsyImportBatchProgressView(raced) };
+      }
+    }
+    throw error;
+  }
 
   await enqueueImportBatchJob({
     connectionId: connection.id,
@@ -159,7 +171,19 @@ export async function cancelEtsyImportBatch(input: {
     },
   });
 
-  // Nudge the worker so cancel is noticed quickly.
+  // Make the job claimable immediately even if it was waiting on RETRY_WAIT.
+  await prisma.etsySyncJob.updateMany({
+    where: {
+      etsyConnectionId: connection.id,
+      dedupeKey: etsyImportBatchDedupeKey(connection.id, updated.id),
+      state: { in: ["PENDING", "RETRY_WAIT"] },
+    },
+    data: {
+      state: "PENDING",
+      nextAttemptAt: new Date(),
+    },
+  });
+
   await enqueueImportBatchJob({
     connectionId: connection.id,
     batchId: updated.id,
@@ -326,7 +350,17 @@ export async function handleEtsyImportBatchJob(
 
     const etsyListingId = queue.shift()!;
     const itemStarted = Date.now();
-    const stockMode = resolveEtsyImportStockMode(batch.stockModePolicy, "PHYSICAL");
+    let recommended: "PHYSICAL" | "MADE_TO_ORDER" | null = "PHYSICAL";
+    if (batch.stockModePolicy === "RECOMMENDED") {
+      const detail = await fetchEtsyImportListingDetail({
+        memberId: batch.memberId,
+        etsyListingId,
+      }).catch(() => null);
+      if (detail?.status === "OK") {
+        recommended = detail.candidate.recommendedStockMode;
+      }
+    }
+    const stockMode = resolveEtsyImportStockMode(batch.stockModePolicy, recommended);
 
     try {
       const result = await importEtsyListing({
@@ -340,6 +374,14 @@ export async function handleEtsyImportBatchJob(
 
       if (result.status === "IMPORTED") {
         completed += 1;
+        if (result.personalizationWarning) {
+          failures = appendEtsyImportBatchFailures(failures, [
+            {
+              etsyListingId,
+              message: `PERSONALIZATION: ${result.personalizationWarning}`.slice(0, 400),
+            },
+          ]);
+        }
       } else if (result.status === "ALREADY_IMPORTED") {
         skipped += 1;
       } else if (result.status === "ERROR" && result.code === "IMPORT_IN_PROGRESS") {
@@ -424,12 +466,12 @@ export async function handleEtsyImportBatchJob(
     },
   });
 
-  // Continue on the same job via RETRY — enqueue while RUNNING is a no-op.
+  // Continue immediately so inline kick / cron loops can drain more listings.
   return {
     outcome: "RETRY",
     errorClass: "TRANSIENT",
     errorCode: "IMPORT_BATCH_CONTINUE",
     errorMessage: "Import batch still has work remaining",
-    retryAt: new Date(Date.now() + 250),
+    retryAt: new Date(),
   };
 }

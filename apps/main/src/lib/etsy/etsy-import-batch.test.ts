@@ -27,6 +27,7 @@ vi.mock("database", () => ({
 
 vi.mock("./import-discovery", () => ({
   discoverEtsyImportCandidates: vi.fn(),
+  fetchEtsyImportListingDetail: vi.fn(),
 }));
 
 vi.mock("./import-listing", () => ({
@@ -38,7 +39,10 @@ import {
   findActiveEtsyImportBatch,
   prisma,
 } from "database";
-import { discoverEtsyImportCandidates } from "./import-discovery";
+import {
+  discoverEtsyImportCandidates,
+  fetchEtsyImportListingDetail,
+} from "./import-discovery";
 import { importEtsyListing } from "./import-listing";
 import {
   handleEtsyImportBatchJob,
@@ -121,8 +125,13 @@ describe("handleEtsyImportBatchJob", () => {
     vi.mocked(prisma.etsyImportBatch.findUnique).mockReset();
     vi.mocked(prisma.etsyImportBatch.update).mockReset();
     vi.mocked(discoverEtsyImportCandidates).mockReset();
+    vi.mocked(fetchEtsyImportListingDetail).mockReset();
     vi.mocked(importEtsyListing).mockReset();
     vi.mocked(prisma.etsyImportBatch.update).mockResolvedValue({} as never);
+    vi.mocked(fetchEtsyImportListingDetail).mockResolvedValue({
+      status: "OK",
+      candidate: { recommendedStockMode: "PHYSICAL" },
+    } as never);
   });
 
   it("imports queued listings and completes when the queue drains", async () => {
@@ -150,12 +159,14 @@ describe("handleEtsyImportBatchJob", () => {
         storeItemId: "item-1",
         listingLinkId: "link-1",
         etsyListingId: "111",
+        personalizationWarning: null,
       })
       .mockResolvedValueOnce({
         status: "ALREADY_IMPORTED",
         storeItemId: "item-2",
         listingLinkId: "link-2",
         etsyListingId: "222",
+        personalizationWarning: null,
       });
 
     const result = await handleEtsyImportBatchJob(claim);
@@ -188,6 +199,7 @@ describe("handleEtsyImportBatchJob", () => {
       storeItemId: "item-9",
       listingLinkId: "link-9",
       etsyListingId: "999",
+      personalizationWarning: null,
     });
 
     const result = await handleEtsyImportBatchJob(claim);
@@ -238,6 +250,7 @@ describe("handleEtsyImportBatchJob", () => {
       storeItemId: "item-x",
       listingLinkId: "link-x",
       etsyListingId: "101",
+      personalizationWarning: null,
     });
 
     const result = await handleEtsyImportBatchJob(claim);

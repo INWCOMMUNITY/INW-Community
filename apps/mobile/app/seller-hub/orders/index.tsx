@@ -948,6 +948,7 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [apiCounts, setApiCounts] = useState<Partial<TabCounts> | null>(null);
+  const [etsyNotes, setEtsyNotes] = useState<Array<{ id: string; etsyReceiptId: string; personalizationJson: Array<{ name?: string; value?: string }> | null }>>([]);
 
   const loadedTabsRef = useRef(new Set<FulfillmentTabKey>());
   const skipFocusLoadRef = useRef(true);
@@ -1109,6 +1110,14 @@ export default function OrdersScreen() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    apiGet<{ sales?: Array<{ id: string; etsyReceiptId: string; personalizationJson: Array<{ name?: string; value?: string }> | null }> }>(
+      "/api/etsy/order-personalization"
+    )
+      .then((data) => setEtsyNotes(Array.isArray(data?.sales) ? data.sales : []))
+      .catch(() => setEtsyNotes([]));
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       if (skipFocusLoadRef.current) {
@@ -1138,6 +1147,21 @@ export default function OrdersScreen() {
   return (
     <View style={styles.hub}>
       <Text style={styles.hubIntro}>Manage ship, pickup, and local delivery in one place.</Text>
+      {etsyNotes.length > 0 ? (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <Text style={styles.sectionTitle}>Etsy custom options</Text>
+          {etsyNotes.map((sale) => (
+            <View key={sale.id} style={{ marginBottom: 8 }}>
+              <Text style={styles.date}>Receipt {sale.etsyReceiptId}</Text>
+              {(sale.personalizationJson ?? []).map((answer, index) => (
+                <Text key={`${sale.id}-${index}`} style={styles.pickupLine}>
+                  {answer.name || "Answer"}: {answer.value || "—"}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      ) : null}
       <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={displayCounts} />
       <View style={styles.tabStage}>
         {showContentLoader ? (

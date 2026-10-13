@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma, provisionNativeFoundationListing } from "database";
+import { prisma, Prisma, provisionNativeFoundationListing, replaceListingBuyerFields, validateListingBuyerFields } from "database";
 import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
@@ -595,6 +595,7 @@ const bodySchema = z.object({
     .array(z.object({ name: z.string(), value: z.string() }))
     .nullable()
     .optional(),
+  buyerFields: z.unknown().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -824,6 +825,11 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+    const buyerFieldsCheck =
+      data.buyerFields === undefined ? null : validateListingBuyerFields(data.buyerFields);
+    if (buyerFieldsCheck && !buyerFieldsCheck.ok) {
+      return NextResponse.json({ error: buyerFieldsCheck.error }, { status: 400 });
+    }
     const normalizedAspects = normalizeListingAspects(data.aspects);
     const aspectsForStorage = normalizedAspects;
     let shippingOptionId: string | null = null;
@@ -882,9 +888,15 @@ export async function POST(req: NextRequest) {
         ? await prisma.$transaction(async (tx) => {
             const created = await tx.storeItem.create({ data: createData });
             await provisionNativeFoundationListing(tx, created.id);
+            if (buyerFieldsCheck?.ok) {
+              await replaceListingBuyerFields(tx, created.id, buyerFieldsCheck.fields);
+            }
             return tx.storeItem.findUniqueOrThrow({ where: { id: created.id } });
           })
         : await prisma.storeItem.create({ data: createData });
+    if (writer.route !== "foundation" && buyerFieldsCheck?.ok) {
+      await replaceListingBuyerFields(prisma, item.id, buyerFieldsCheck.fields);
+    }
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");
     logSellerActivity(userId, "item_created", "store_item", item.id, {

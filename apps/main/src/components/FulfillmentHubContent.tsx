@@ -12,6 +12,7 @@ import { FulfillmentActionBar } from "@/components/fulfillment/FulfillmentAction
 import { FulfillmentTabBar } from "@/components/fulfillment/FulfillmentTabBar";
 import { HistoryOrderSection, ShippedOrderSection } from "@/components/fulfillment/HistoryOrderSection";
 import { OrderCard } from "@/components/fulfillment/OrderCard";
+import { EtsyPersonalizationNotes } from "@/components/EtsyPersonalizationNotes";
 import { OrderEmptyState } from "@/components/fulfillment/OrderEmptyState";
 import { PickupQueueSection, countPickupOrders } from "@/components/fulfillment/PickupQueueSection";
 import { ShippoConnectionBanner } from "@/components/fulfillment/ShippoConnectionBanner";
@@ -410,6 +411,7 @@ export function FulfillmentHubContent(props: {
         </Link>
         <h1 className="text-2xl font-bold mb-1">{props.title}</h1>
         <p className="text-sm text-gray-600 mb-4">Manage ship, pickup, and local delivery in one place.</p>
+        <EtsyPersonalizationNotes />
 
         <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={displayCounts} />
 

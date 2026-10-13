@@ -1,10 +1,13 @@
-/** Identity for cart lines: same listing + same options (+ same fulfillment) merge; different SKUs stay separate. */
+/** Identity for cart lines: same listing + same options (+ same fulfillment + same custom answers) merge; different SKUs stay separate. */
+
+import { buyerResponsesFingerprint } from "database";
 
 export type CartLineIdentity = {
   storeItemId: string;
   variant?: unknown;
   fulfillmentType?: string | null;
   resaleOfferId?: string | null;
+  buyerResponses?: unknown;
 };
 
 export type CartLineQty = CartLineIdentity & {
@@ -46,6 +49,7 @@ export function cartLinesAreSameItem(a: CartLineIdentity, b: CartLineIdentity): 
   if (a.storeItemId !== b.storeItemId) return false;
   if ((a.resaleOfferId ?? null) !== (b.resaleOfferId ?? null)) return false;
   if (cartFulfillmentKey(a.fulfillmentType) !== cartFulfillmentKey(b.fulfillmentType)) return false;
+  if (buyerResponsesFingerprint(a.buyerResponses) !== buyerResponsesFingerprint(b.buyerResponses)) return false;
   return cartVariantFingerprint(a.variant) === cartVariantFingerprint(b.variant);
 }
 
@@ -58,19 +62,26 @@ export function findMatchingCartLine<T extends CartLineIdentity>(lines: T[], tar
  */
 export function findCartRowForCheckoutLine<T extends CartLineIdentity>(
   lines: T[],
-  target: { storeItemId: string; variant?: unknown; fulfillmentType?: string | null }
+  target: {
+    storeItemId: string;
+    variant?: unknown;
+    fulfillmentType?: string | null;
+    buyerResponses?: unknown;
+  }
 ): T | undefined {
   const exact = lines.find(
     (line) =>
       line.storeItemId === target.storeItemId &&
       cartFulfillmentKey(line.fulfillmentType) === cartFulfillmentKey(target.fulfillmentType) &&
-      cartVariantFingerprint(line.variant) === cartVariantFingerprint(target.variant)
+      cartVariantFingerprint(line.variant) === cartVariantFingerprint(target.variant) &&
+      buyerResponsesFingerprint(line.buyerResponses) === buyerResponsesFingerprint(target.buyerResponses)
   );
   if (exact) return exact;
   return lines.find(
     (line) =>
       line.storeItemId === target.storeItemId &&
-      cartVariantFingerprint(line.variant) === cartVariantFingerprint(target.variant)
+      cartVariantFingerprint(line.variant) === cartVariantFingerprint(target.variant) &&
+      buyerResponsesFingerprint(line.buyerResponses) === buyerResponsesFingerprint(target.buyerResponses)
   );
 }
 

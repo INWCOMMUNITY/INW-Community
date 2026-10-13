@@ -5,6 +5,7 @@ export interface FulfillmentOrderItem {
   quantity: number;
   priceCentsAtPurchase?: number;
   fulfillmentType?: string | null;
+  buyerResponses?: unknown;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 

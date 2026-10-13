@@ -24,8 +24,10 @@ export type EtsyPaidOrderLineObservation = {
   etsyListingId: string | null;
   etsyProductId: string | null;
   etsyOfferingId: string | null;
-  /** Variation labels from the receipt when offering id is absent. */
+  /** Variation labels from the receipt when offering id is absent. Personalization is excluded. */
   options?: Record<string, string> | null;
+  /** property_id 54 answers. Not used for variant matching. */
+  personalization?: Array<{ questionId: string | null; name: string; value: string }> | null;
   paidQuantity: number;
   /** When set, sales at/before this cutoff ack without deducting (import opening stock). */
   importBootstrapStartedAt?: Date | null;
@@ -199,6 +201,10 @@ export async function applyEtsyPaidOrderLineSale(
             etsyProductId: input.line.etsyProductId,
             etsyOfferingId: input.line.etsyOfferingId,
             paidQuantity: input.line.paidQuantity,
+            personalizationJson:
+              input.line.personalization && input.line.personalization.length > 0
+                ? (input.line.personalization as Prisma.InputJsonValue)
+                : undefined,
             evidenceId: input.evidenceId,
             applyState: "PENDING",
           },
@@ -241,6 +247,13 @@ export async function applyEtsyPaidOrderLineSale(
         }
         fact = raced;
       }
+    }
+
+    if (input.line.personalization?.length && fact.personalizationJson == null) {
+      fact = await tx.etsyOrderLineSaleFact.update({
+        where: { id: fact.id },
+        data: { personalizationJson: input.line.personalization as Prisma.InputJsonValue },
+      });
     }
 
     if (isPreBootstrap(input.line)) {

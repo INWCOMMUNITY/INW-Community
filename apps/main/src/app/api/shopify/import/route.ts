@@ -72,5 +72,6 @@ export async function POST(req: NextRequest) {
     listingLinkId: result.listingLinkId,
     shopifyProductId: result.shopifyProductId,
     bootstrap: result.bootstrap,
+    incompatibleMetafields: result.incompatibleMetafields,
   });
 }

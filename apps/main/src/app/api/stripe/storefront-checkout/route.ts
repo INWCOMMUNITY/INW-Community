@@ -9,6 +9,8 @@ import {
   prepareFoundationCheckout,
   prisma,
   Prisma,
+  publicBuyerFieldsFromRows,
+  validateBuyerResponses,
   stripeCheckoutRequestOptions,
 } from "database";
 import {
@@ -77,7 +79,13 @@ export async function POST(req: NextRequest) {
   const stripe = createMarketplaceStripe();
 
   let body: {
-    items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];
+    items: {
+      storeItemId: string;
+      quantity: number;
+      variant?: unknown;
+      fulfillmentType?: string;
+      buyerResponses?: unknown;
+    }[];
     shippingCostCents?: number;
     shippingAddress?: { street: string; aptOrSuite?: string; city: string; state: string; zip: string };
     localDeliveryDetails?: {
@@ -188,6 +196,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: ld.error }, { status: 400 });
     }
     normalizedLocalDelivery = ld.details;
+  }
+
+  const buyerFieldRows = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: { in: items.map((item) => item.storeItemId) } },
+    orderBy: { position: "asc" },
+    include: { options: { orderBy: { position: "asc" } } },
+  });
+  const buyerFieldsByItem = new Map<string, typeof buyerFieldRows>();
+  for (const row of buyerFieldRows) {
+    const list = buyerFieldsByItem.get(row.storeItemId) ?? [];
+    list.push(row);
+    buyerFieldsByItem.set(row.storeItemId, list);
   }
 
   const cartDbItems = await prisma.cartItem.findMany({
@@ -304,6 +324,7 @@ export async function POST(req: NextRequest) {
       variantId?: string | null;
       fulfillmentType?: string;
       pickupDetails?: object;
+      buyerResponses?: unknown;
     }[] = [];
     const hasShippedInThisOrder = sellerItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
     const hasLocalDeliveryInThisOrder = sellerItems.some((i) => i.fulfillmentType === "local_delivery");
@@ -311,6 +332,14 @@ export async function POST(req: NextRequest) {
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
       const cartRow = findCartRowForCheckoutLine(cartDbItems, item);
+      const answerCheck = validateBuyerResponses(
+        publicBuyerFieldsFromRows(buyerFieldsByItem.get(item.storeItemId) ?? []),
+        item.buyerResponses ?? cartRow?.buyerResponses ?? []
+      );
+      if (!answerCheck.ok) {
+        return NextResponse.json({ error: answerCheck.error }, { status: 400 });
+      }
+      const buyerResponses = answerCheck.responses;
       const listPriceCents = getSkuPriceCents(storeItem, item.variant);
       const { unitPriceCents: priceCents, resaleOfferId } = resolvedPriceForCartLine(
         { priceCents: listPriceCents },
@@ -361,6 +390,7 @@ export async function POST(req: NextRequest) {
           fulfillmentType === "pickup" && cartRow?.pickupDetails
             ? (cartRow.pickupDetails as object)
             : undefined,
+        buyerResponses,
       });
     }
 
@@ -428,6 +458,7 @@ export async function POST(req: NextRequest) {
             variant: oi.variant == null ? Prisma.JsonNull : (oi.variant as object),
             fulfillmentType: oi.fulfillmentType ?? null,
             pickupDetails: oi.pickupDetails ? (oi.pickupDetails as object) : Prisma.JsonNull,
+            buyerResponses: oi.buyerResponses ? (oi.buyerResponses as object) : Prisma.JsonNull,
           },
         });
       }
@@ -450,6 +481,7 @@ export async function POST(req: NextRequest) {
           variantId: oi.variantId ?? null,
           fulfillmentType: oi.fulfillmentType ?? null,
           pickupDetails: oi.pickupDetails ?? null,
+          buyerResponses: oi.buyerResponses ?? null,
         })),
       });
     }

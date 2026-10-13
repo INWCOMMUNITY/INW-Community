@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "October 8, 2026";
+export const TERMS_LAST_UPDATED = "October 13, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -410,6 +410,8 @@ You may disconnect a marketplace at any time from Seller Hub. When disconnecting
 NWC is not responsible for any consequences of connecting, disconnecting, pausing sync, or deleting or keeping listings when you disconnect a third-party platform, including incorrect inventory counts, oversells or undersells, duplicate listings, order or fulfillment problems, tax or accounting issues, lost sales, or any other effect on your business or inventory tracking. You are solely responsible for verifying stock and sales on every channel you use after any disconnect or sync change.
 
 Connection credentials (access tokens) are stored encrypted and used only to provide the sync feature.
+
+Sellers may add custom options on a listing (a text answer, a list of choices, or a file the buyer uploads). Those answers do not change inventory. The buyer’s text, chosen option, and uploaded files are collected so the seller can fulfill the order, and they are shared with the seller. When a listing is synced to Etsy, those questions and the buyer’s answers on an Etsy receipt may be read from or written to Etsy.
 
 21. CONTACT INFORMATION
 For questions, cancellations, concerns, or reports:

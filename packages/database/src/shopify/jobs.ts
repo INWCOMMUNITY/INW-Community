@@ -210,7 +210,7 @@ export async function reopenShopifySyncJob(
  */
 export async function claimNextShopifySyncJob(
   db: PrismaClient,
-  input: { workerId: string; leaseMs?: number; now?: Date }
+  input: { workerId: string; leaseMs?: number; now?: Date; kind?: string }
 ): Promise<ShopifySyncJobClaim | null> {
   const now = input.now ?? new Date();
   const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS;
@@ -222,6 +222,7 @@ export async function claimNextShopifySyncJob(
       SELECT id
       FROM shopify_sync_job
       WHERE next_attempt_at <= ${now}
+        AND (${input.kind ?? ""} = '' OR kind = CAST(${input.kind ?? "RECONCILE_LISTING"} AS shopify_sync_job_kind))
         AND (
           state = CAST('PENDING' AS shopify_sync_job_state)
           OR state = CAST('RETRY_WAIT' AS shopify_sync_job_state)
@@ -231,7 +232,18 @@ export async function claimNextShopifySyncJob(
             AND lease_expires_at < ${now}
           )
         )
-      ORDER BY next_attempt_at ASC
+      ORDER BY
+        CASE kind
+          WHEN CAST('IMPORT_BATCH' AS shopify_sync_job_kind) THEN 0
+          WHEN CAST('UPDATE_LISTING_CONTENT' AS shopify_sync_job_kind) THEN 1
+          WHEN CAST('PROJECT_INVENTORY' AS shopify_sync_job_kind) THEN 1
+          WHEN CAST('CREATE_LISTING' AS shopify_sync_job_kind) THEN 1
+          WHEN CAST('PUBLISH_LISTING' AS shopify_sync_job_kind) THEN 1
+          WHEN CAST('PROCESS_PROVIDER_EVIDENCE' AS shopify_sync_job_kind) THEN 2
+          WHEN CAST('RECONCILE_LISTING' AS shopify_sync_job_kind) THEN 3
+          ELSE 4
+        END,
+        next_attempt_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     `;

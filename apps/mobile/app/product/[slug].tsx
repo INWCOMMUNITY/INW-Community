@@ -20,7 +20,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
+import * as ImagePicker from "expo-image-picker";
+import type { PublicBuyerField } from "@/lib/listing-buyer-fields";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import {
@@ -69,6 +71,7 @@ interface StoreItem {
   quantity: number;
   inventoryTracking?: string | null;
   variants?: unknown;
+  buyerFields?: PublicBuyerField[];
   shippingDisabled?: boolean;
   localDeliveryAvailable?: boolean;
   inStorePickupAvailable?: boolean;
@@ -162,6 +165,9 @@ export default function ProductScreen() {
   const [error, setError] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
+  const [buyerAnswers, setBuyerAnswers] = useState<
+    Record<string, { text?: string; optionLabel?: string; files?: Array<{ url: string; label?: string | null }> }>
+  >({});
   const [photoIndex, setPhotoIndex] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -502,6 +508,12 @@ export default function ProductScreen() {
       quantity,
       variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
       fulfillmentType,
+      buyerResponses: (item.buyerFields ?? []).map((field) => ({
+        fieldId: field.id,
+        text: buyerAnswers[field.id]?.text ?? "",
+        optionLabel: buyerAnswers[field.id]?.optionLabel ?? "",
+        files: buyerAnswers[field.id]?.files ?? [],
+      })),
     };
     if (fulfillmentType === "local_delivery" && localDeliveryForm) {
       payload.localDeliveryDetails = localDeliveryForm;
@@ -859,6 +871,77 @@ export default function ProductScreen() {
                   <Text style={styles.priceAlertBtnText}>Price Alert</Text>
                 </Pressable>
               )}
+            </View>
+          ) : null}
+
+          {(item.buyerFields ?? []).length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Custom options</Text>
+              {(item.buyerFields ?? []).map((field) => (
+                <View key={field.id} style={{ marginBottom: 10 }}>
+                  <Text style={styles.variantLabel}>
+                    {field.title}
+                    {field.required ? " *" : ""}
+                  </Text>
+                  {field.instructions ? <Text style={{ color: "#666", marginBottom: 4 }}>{field.instructions}</Text> : null}
+                  {field.kind === "TEXT" ? (
+                    <TextInput
+                      style={{ borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 8 }}
+                      value={buyerAnswers[field.id]?.text ?? ""}
+                      maxLength={field.maxCharacters ?? 1024}
+                      onChangeText={(text) =>
+                        setBuyerAnswers((prev) => ({ ...prev, [field.id]: { ...prev[field.id], text } }))
+                      }
+                    />
+                  ) : null}
+                  {field.kind === "DROPDOWN"
+                    ? field.options.map((option) => {
+                        const selected = buyerAnswers[field.id]?.optionLabel === option.label;
+                        return (
+                          <Pressable
+                            key={option.id}
+                            onPress={() =>
+                              setBuyerAnswers((prev) => ({
+                                ...prev,
+                                [field.id]: { ...prev[field.id], optionLabel: option.label },
+                              }))
+                            }
+                            style={{ paddingVertical: 6 }}
+                          >
+                            <Text>{selected ? "●" : "○"} {option.label}</Text>
+                          </Pressable>
+                        );
+                      })
+                    : null}
+                  {field.kind === "FILE" ? (
+                    <Pressable
+                      onPress={async () => {
+                        const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
+                        if (picked.canceled || !picked.assets[0]) return;
+                        const asset = picked.assets[0];
+                        const form = new FormData();
+                        form.append("file", {
+                          uri: asset.uri,
+                          name: asset.fileName ?? "upload.jpg",
+                          type: asset.mimeType ?? "image/jpeg",
+                        } as unknown as Blob);
+                        const uploaded = await apiUploadFile("/api/upload/buyer-file", form);
+                        setBuyerAnswers((prev) => ({
+                          ...prev,
+                          [field.id]: {
+                            ...prev[field.id],
+                            files: [...(prev[field.id]?.files ?? []), { url: uploaded.url }],
+                          },
+                        }));
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.earth }}>
+                        Upload image ({(buyerAnswers[field.id]?.files ?? []).length}/{field.maxFiles ?? 1})
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
             </View>
           ) : null}
 
