@@ -418,19 +418,7 @@ function parseFileAnswers(
   return { ok: true, files };
 }
 
-export function buyerResponsesFingerprint(raw: unknown): string {
-  const parsed = parseStoredBuyerResponses(raw);
-  const stable = parsed
-    .map((row) => ({
-      fieldId: row.fieldId,
-      kind: row.kind,
-      text: row.text ?? "",
-      optionLabel: row.optionLabel ?? "",
-      files: (row.files ?? []).map((file) => `${file.label ?? ""}:${file.url}`).sort(),
-    }))
-    .sort((a, b) => a.fieldId.localeCompare(b.fieldId));
-  return JSON.stringify(stable);
-}
+export { buyerResponsesFingerprint } from "./buyer-response-fingerprint";
 
 export function parseStoredBuyerResponses(raw: unknown): BuyerFieldResponse[] {
   if (!Array.isArray(raw)) return [];

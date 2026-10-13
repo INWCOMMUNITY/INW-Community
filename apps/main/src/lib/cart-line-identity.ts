@@ -1,6 +1,6 @@
 /** Identity for cart lines: same listing + same options (+ same fulfillment + same custom answers) merge; different SKUs stay separate. */
 
-import { buyerResponsesFingerprint } from "database";
+import { buyerResponsesFingerprint } from "database/src/buyer-response-fingerprint";
 
 export type CartLineIdentity = {
   storeItemId: string;
