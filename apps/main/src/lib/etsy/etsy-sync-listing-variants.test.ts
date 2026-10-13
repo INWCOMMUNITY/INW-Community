@@ -161,13 +161,6 @@ describe("Etsy variant add fans out to Shopify", () => {
         },
       ] as never)
       .mockResolvedValueOnce([
-        {
-          id: "sv-simple",
-          options: null,
-          createdAt: new Date("2020-01-01T00:00:00.000Z"),
-        },
-      ] as never)
-      .mockResolvedValueOnce([
         { id: "sv-s", options: { Size: "S" } },
         { id: "sv-m", options: { Size: "M" } },
       ] as never);
@@ -215,7 +208,7 @@ describe("Etsy variant add fans out to Shopify", () => {
     });
   });
 
-  it("does not retire a variant INW just added when Etsy still has the old matrix", async () => {
+  it("adopts an Etsy removal and sends it to Shopify only", async () => {
     const {
       prisma,
       recordEtsyListingVariantTopologyDesire,
@@ -243,7 +236,7 @@ describe("Etsy variant add fans out to Shopify", () => {
     };
     vi.mocked(prisma.storeVariant.findMany)
       .mockResolvedValueOnce([cotton, wool] as never)
-      .mockResolvedValueOnce([cotton, wool] as never);
+      .mockResolvedValueOnce([cotton] as never);
     etsyConnectionRequest.mockResolvedValue({
       ok: true,
       data: {
@@ -274,10 +267,10 @@ describe("Etsy variant add fans out to Shopify", () => {
       direction: "pull",
     });
 
-    expect(result).toMatchObject({ status: "NOOP", reason: "STALE_REMOTE_STRUCTURE" });
-    expect(applyFoundationSellerMatrixStructure).not.toHaveBeenCalled();
-    expect(recordShopifyListingVariantTopologyDesire).not.toHaveBeenCalled();
-    expect(recordEtsyListingVariantTopologyDesire).toHaveBeenCalledWith(prisma, {
+    expect(result).toMatchObject({ status: "PULLED", pairCount: 1 });
+    expect(applyFoundationSellerMatrixStructure).toHaveBeenCalled();
+    expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
+    expect(recordShopifyListingVariantTopologyDesire).toHaveBeenCalledWith(prisma, {
       memberId: "mem-1",
       storeItemId: "item-1",
     });
@@ -304,7 +297,6 @@ describe("Etsy variant add fans out to Shopify", () => {
       inventoryState: { mode: "TRACKED_FINITE", onHand: 2, reserved: 0 },
     };
     vi.mocked(prisma.storeVariant.findMany)
-      .mockResolvedValueOnce([wool] as never)
       .mockResolvedValueOnce([wool] as never)
       .mockResolvedValueOnce([
         {
@@ -379,5 +371,88 @@ describe("Etsy variant add fans out to Shopify", () => {
       memberId: "mem-1",
       storeItemId: "item-1",
     });
+  });
+
+  it("adopts an Etsy option removal when INW is missing Primary color", async () => {
+    const {
+      prisma,
+      recordEtsyListingVariantTopologyDesire,
+      recordShopifyListingVariantTopologyDesire,
+      applyFoundationSellerMatrixStructure,
+    } = await import("database");
+    const { pushStoreItemTopologyToShopifyNow } = await import("../shopify/reconcile-listing");
+    vi.mocked(recordEtsyListingVariantTopologyDesire).mockClear();
+    vi.mocked(recordShopifyListingVariantTopologyDesire).mockClear();
+    vi.mocked(applyFoundationSellerMatrixStructure).mockClear();
+    vi.mocked(pushStoreItemTopologyToShopifyNow).mockClear();
+    const withColor = {
+      id: "sv-color",
+      options: { Material: "Wool", "Primary color": "Red" },
+      priceCents: 400,
+      sku: null,
+      createdAt: new Date(),
+      inventoryState: { mode: "TRACKED_FINITE", onHand: 20, reserved: 0 },
+    };
+    const missingColor = {
+      id: "sv-plain",
+      options: { Material: "Wool" },
+      priceCents: 400,
+      sku: null,
+      createdAt: new Date(),
+      inventoryState: { mode: "TRACKED_FINITE", onHand: 16, reserved: 0 },
+    };
+    vi.mocked(prisma.storeVariant.findMany)
+      .mockResolvedValueOnce([withColor, missingColor] as never)
+      .mockResolvedValueOnce([
+        { id: "sv-wool", options: { Material: "Wool" } },
+        { id: "sv-cotton", options: { Material: "Cotton" } },
+      ] as never);
+    etsyConnectionRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        products: [
+          {
+            product_id: 31,
+            sku: "WOOL",
+            property_values: [{ property_id: 507, property_name: "Material", values: ["Wool"] }],
+            offerings: [{ offering_id: 301, quantity: 2, is_enabled: true, price: 4 }],
+          },
+          {
+            product_id: 32,
+            sku: "COTTON",
+            property_values: [{ property_id: 507, property_name: "Material", values: ["Cotton"] }],
+            offerings: [{ offering_id: 302, quantity: 5, is_enabled: true, price: 7 }],
+          },
+        ],
+      },
+    });
+
+    const result = await syncEtsyListingVariantTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      storeItemId: "item-1",
+      etsyListingId: "999",
+      taxonomyId: 1,
+      readinessStateId: 1,
+      inventoryTracking: "tracked",
+      direction: "pull",
+    });
+
+    expect(result).toMatchObject({ status: "PULLED", pairCount: 2 });
+    expect(applyFoundationSellerMatrixStructure).toHaveBeenCalled();
+    const applied = vi.mocked(applyFoundationSellerMatrixStructure).mock.calls[0]?.[1] as {
+      fanOut?: string;
+      matrixTargets: Array<{ options: Record<string, string>; targetOnHand: number }>;
+    };
+    expect(applied.fanOut).toBe("shopify");
+    expect(applied.matrixTargets.map((row) => row.options)).toEqual([
+      { Material: "Wool" },
+      { Material: "Cotton" },
+    ]);
+    expect(applied.matrixTargets.map((row) => row.targetOnHand)).toEqual([2, 5]);
+    expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
+    expect(recordShopifyListingVariantTopologyDesire).toHaveBeenCalled();
+    expect(pushStoreItemTopologyToShopifyNow).toHaveBeenCalled();
   });
 });

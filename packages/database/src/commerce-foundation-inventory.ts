@@ -507,6 +507,8 @@ export async function setTrackedOnHand(
     commandId: string;
     cause?: string;
     memberId?: string;
+    /** Which other channel receives this quantity. Default both, for an edit made in INW. */
+    fanOut?: "both" | "shopify" | "etsy";
   }
 ): Promise<{ changed: boolean; onHand: number; reserved: number; quantity: number }> {
   await lockCutoverShare(tx);
@@ -558,14 +560,19 @@ export async function setTrackedOnHand(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: args.targetOnHand, reserved: state.reserved });
-    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
-    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
+    const fanOut = args.fanOut ?? "both";
+    if (fanOut === "both" || fanOut === "shopify") {
+      await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+        memberId: state.memberId,
+        storeVariantId: state.variantId,
+      });
+    }
+    if (fanOut === "both" || fanOut === "etsy") {
+      await captureEtsyInventoryProjectionDesireAfterChange(tx, {
+        memberId: state.memberId,
+        storeVariantId: state.variantId,
+      });
+    }
   }
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   return {
