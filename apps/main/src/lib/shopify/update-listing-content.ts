@@ -427,16 +427,34 @@ export async function handleShopifyUpdateListingContentJob(
     payload.variantDesiredVersion === variantMap.desiredVariantContentVersion &&
     payload.variantDesiredVersion > variantMap.appliedVariantContentVersion;
 
-  // Fully superseded or already applied for both groups.
+  // Title and description can already match while custom options still need to be
+  // written. A buyer-field edit bumps the product version, then an inbound pass can
+  // mark that version applied before this job writes metafields. Still push them.
   if (
     (payload.productDesiredVersion < listing.desiredProductContentVersion ||
       payload.productDesiredVersion <= listing.appliedProductContentVersion) &&
     (payload.variantDesiredVersion < variantMap.desiredVariantContentVersion ||
       payload.variantDesiredVersion <= variantMap.appliedVariantContentVersion)
   ) {
+    const metafields = await pushShopifyBuyerMetafields({
+      connectionId: connection.id,
+      shopifyProductId: listing.shopifyProductId,
+      storeItemId: payload.storeItemId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (metafields) return metafields;
     return { outcome: "SUCCESS" };
   }
   if (!applyProduct && !applyVariant) {
+    const metafields = await pushShopifyBuyerMetafields({
+      connectionId: connection.id,
+      shopifyProductId: listing.shopifyProductId,
+      storeItemId: payload.storeItemId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (metafields) return metafields;
     return { outcome: "SUCCESS" };
   }
 

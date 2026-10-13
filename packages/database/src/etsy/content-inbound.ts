@@ -387,7 +387,11 @@ export async function applyEtsyListingContentInbound(
               (option.etsyOptionId ?? null) === (remote.options[optionIndex]?.etsyOptionId ?? null)
           );
         });
-      if (!sameDefinition || !sameEtsyIds) {
+      // A personalization GET that returns no questions must not delete options
+      // the seller still has on the listing. Clearing them is an explicit save,
+      // which pushes the delete. An empty poll used to wipe the edit form.
+      const remoteWouldWipe = mapped.fields.length === 0 && localFields.length > 0;
+      if (!remoteWouldWipe && (!sameDefinition || !sameEtsyIds)) {
         await replaceListingBuyerFields(db, storeItem.id, mapped.fields);
       }
     }

@@ -117,6 +117,38 @@ describe("INW custom options to Shopify metafields", () => {
       createDefinition: false,
     });
     expect(writes[1]?.validations[0]?.value).toBe(JSON.stringify(["Romans", "Calibri"]));
+    expect(writes[0]?.pin).toBe(true);
+    expect(writes[0]?.validations).toEqual([{ name: "max", value: "40" }]);
+  });
+
+  it("reuses a metafield by key when Shopify has no definition name", () => {
+    const writes = planShopifyBuyerMetafieldWrites(
+      [
+        {
+          kind: "TEXT",
+          title: "Engraving",
+          instructions: "Name to engrave",
+          maxCharacters: 40,
+          options: [],
+        },
+      ],
+      [
+        {
+          namespace: "custom",
+          key: "inw_engraving",
+          type: "single_line_text_field",
+          value: null,
+          name: null,
+        },
+      ]
+    );
+    expect(writes[0]).toMatchObject({
+      namespace: "custom",
+      key: "inw_engraving",
+      createDefinition: false,
+      value: "Name to engrave",
+      description: "Name to engrave",
+    });
   });
 
   it("keeps an imported text value when INW has no instructions", () => {

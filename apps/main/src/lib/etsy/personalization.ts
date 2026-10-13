@@ -178,6 +178,12 @@ export async function importEtsyListingPersonalization(input: {
     await markPersonalizationUnread(input.storeItemId);
     return { warning: mapped.error };
   }
+  if (mapped.fields.length === 0) {
+    const existingCount = await prisma.listingBuyerField.count({
+      where: { storeItemId: input.storeItemId },
+    });
+    if (existingCount > 0) return { warning: null };
+  }
   await replaceListingBuyerFields(prisma, input.storeItemId, mapped.fields);
   return { warning: null };
 }

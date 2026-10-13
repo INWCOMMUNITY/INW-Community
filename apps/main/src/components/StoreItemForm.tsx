@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getErrorMessage } from "@/lib/api-error";
@@ -149,6 +149,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [buyerFields, setBuyerFields] = useState<BuyerFieldDraft[]>(() =>
     buyerFieldsFromExisting(existing?.buyerFields)
   );
+  const listingDetailsDirty = useRef(false);
+  const [buyerFieldsReady, setBuyerFieldsReady] = useState(() => !existing?.id);
   const [aspects, setAspects] = useState<ListingAspect[]>(() =>
     Array.isArray(existing?.aspects)
       ? existing.aspects.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
@@ -204,6 +206,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
   const initialMatrix = initEditorFromVariants(existing?.variants, existing?.storeVariants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
+  const optionsEnabledRef = useRef(initialMatrix.optionsEnabled);
+  const [optionsConfirmed, setOptionsConfirmed] = useState(() => !existing?.id || initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>(initialMatrix.skus);
   const [pricesVary, setPricesVary] = useState(false);
@@ -253,6 +257,67 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const [successDetail, setSuccessDetail] = useState("");
+
+  useEffect(() => {
+    optionsEnabledRef.current = optionsEnabled;
+  }, [optionsEnabled]);
+
+  const existingBuyerKey = JSON.stringify(existing?.buyerFields ?? null);
+  useEffect(() => {
+    if (listingDetailsDirty.current) return;
+    const next = buyerFieldsFromExisting(existing?.buyerFields);
+    setBuyerFields((current) => (next.length === 0 && current.length > 0 ? current : next));
+  }, [existingBuyerKey, existing?.buyerFields]);
+
+  useEffect(() => {
+    const id = existing?.id;
+    if (!id) {
+      setBuyerFieldsReady(true);
+      setOptionsConfirmed(true);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/store-items/${id}`, { credentials: "include", cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then(
+        (
+          item: {
+            buyerFields?: Parameters<typeof buyerFieldsFromExisting>[0];
+            variants?: unknown;
+            storeVariants?: Array<{
+              id?: string;
+              options?: unknown;
+              priceCents?: number | null;
+              sku?: string | null;
+              quantity?: number | null;
+            }>;
+          } | null
+        ) => {
+          if (cancelled || !item) return;
+          if (!listingDetailsDirty.current) {
+            const nextFields = buyerFieldsFromExisting(item.buyerFields);
+            setBuyerFields((current) =>
+              nextFields.length === 0 && current.length > 0 ? current : nextFields
+            );
+            const matrix = initEditorFromVariants(item.variants, item.storeVariants);
+            if (!optionsEnabledRef.current && matrix.optionsEnabled) {
+              setOptionsEnabled(true);
+              setVariantAxes(matrix.axes);
+              setVariantSkus(matrix.skus);
+            }
+          }
+          setBuyerFieldsReady(true);
+          setOptionsConfirmed(true);
+        }
+      )
+      .catch(() => {
+        // Leave buyer fields and size/color options out of the next save so a
+        // failed reload cannot clear what is already stored.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [existing?.id]);
 
   useEffect(() => {
     fetch("/api/me/policies")
@@ -767,7 +832,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,
       aspects: cleanedAspects,
-      buyerFields: buyerFieldsToPayload(buyerFields),
+      ...(isEdit && !buyerFieldsReady ? {} : { buyerFields: buyerFieldsToPayload(buyerFields) }),
       priceCents,
       status: "active",
       condition,
@@ -777,10 +842,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         : enabledSkus
           ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
           : quantity,
-      variants:
-        optionsEnabled && enabledSkus
-          ? serializeVariantMatrix({ axes: variantAxes, skus: enabledSkus })
-          : null,
+      ...(isEdit && !optionsConfirmed
+        ? {}
+        : {
+            variants:
+              optionsEnabled && enabledSkus
+                ? serializeVariantMatrix({ axes: variantAxes, skus: enabledSkus })
+                : null,
+          }),
       shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
       shippingOptionId: shippingOptionId || null,
       shippingPolicy:
@@ -903,6 +972,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           .filter(Boolean)
           .join(" ")
       );
+      router.refresh();
       setShowSuccessModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -1256,7 +1326,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             title="Custom options"
             description="Text, choices, or files buyers fill in. These do not change stock."
           >
-            <ListingBuyerFieldsEditor fields={buyerFields} onChange={setBuyerFields} />
+            <ListingBuyerFieldsEditor
+              fields={buyerFields}
+              onChange={(next) => {
+                listingDetailsDirty.current = true;
+                setBuyerFields(next);
+              }}
+            />
           </ListingFormSection>
 
           {/* Pricing & Inventory */}
@@ -1291,12 +1367,18 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 inventoryTracking={inventoryTracking}
                 onInventoryTrackingChange={setInventoryTracking}
                 optionsEnabled={optionsEnabled}
-                onOptionsEnabledChange={setOptionsEnabled}
+                onOptionsEnabledChange={(enabled) => {
+                  listingDetailsDirty.current = true;
+                  setOptionsConfirmed(true);
+                  setOptionsEnabled(enabled);
+                }}
                 simpleQuantity={quantity}
                 onSimpleQuantityChange={setQuantity}
                 axes={variantAxes}
                 skus={variantSkus}
                 onChange={(nextAxes, nextSkus) => {
+                  listingDetailsDirty.current = true;
+                  setOptionsConfirmed(true);
                   setVariantAxes(nextAxes);
                   setVariantSkus(nextSkus);
                 }}

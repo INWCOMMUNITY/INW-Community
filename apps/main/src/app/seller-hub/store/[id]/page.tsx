@@ -6,6 +6,8 @@ import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { StoreItemForm } from "@/components/StoreItemForm";
 
+export const dynamic = "force-dynamic";
+
 export default async function EditStoreItemPage({
   params,
 }: {
@@ -78,6 +80,7 @@ export default async function EditStoreItemPage({
           </span>
         </h1>
         <StoreItemForm
+          key={item.id}
           existing={{
             id: item.id,
             slug: item.slug,

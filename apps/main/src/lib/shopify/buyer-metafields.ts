@@ -311,8 +311,11 @@ export type ShopifyBuyerMetafieldWrite = {
   key: string;
   type: string;
   name: string;
+  description: string | null;
   value: string | null;
   validations: Array<{ name: string; value: string }>;
+  /** Pinned definitions show on the product page in Shopify admin. */
+  pin: boolean;
   createDefinition: boolean;
 };
 
@@ -332,12 +335,26 @@ type RemoteBuyerMetafield = {
   name: string | null;
 };
 
-function slugMetafieldKey(title: string, position: number, used: Set<string>): string {
-  const slug = title
+function titleSlug(title: string): string {
+  return title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
+}
+
+function sameQuestion(row: RemoteBuyerMetafield, field: BuyerMetafieldSource): boolean {
+  const title = field.title.trim().toLowerCase();
+  const name = (row.name ?? "").trim().toLowerCase();
+  if (name && name === title) return true;
+  const slug = titleSlug(field.title);
+  if (slug.length < 2) return false;
+  const key = row.key.trim().toLowerCase();
+  return key === slug || key === `inw_${slug}`;
+}
+
+function slugMetafieldKey(title: string, position: number, used: Set<string>): string {
+  const slug = titleSlug(title);
   const base = `inw_${slug.length >= 2 ? slug : `option_${position + 1}`}`;
   let candidate = base.slice(0, 64);
   let n = 2;
@@ -390,7 +407,7 @@ export function planShopifyBuyerMetafieldWrites(
     const matchIndex = remote.findIndex((row, index) => {
       if (taken.has(index)) return false;
       if (row.namespace === SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE) return false;
-      if ((row.name ?? "").trim().toLowerCase() !== field.title.trim().toLowerCase()) return false;
+      if (!sameQuestion(row, field)) return false;
       return typeFits(field.kind, row.type);
     });
     const matched = matchIndex >= 0 ? remote[matchIndex] : null;
@@ -402,14 +419,19 @@ export function planShopifyBuyerMetafieldWrites(
     const validations =
       field.kind === "DROPDOWN"
         ? [{ name: "choices", value: JSON.stringify(labels) }]
-        : [];
+        : field.kind === "TEXT" && field.maxCharacters
+          ? [{ name: "max", value: String(field.maxCharacters) }]
+          : [];
+    const instructions = field.kind === "DROPDOWN" ? "" : (field.instructions?.trim() ?? "");
     return {
       namespace,
       key,
       type,
       name: field.title.trim().slice(0, 255),
+      description: instructions ? instructions.slice(0, 255) : null,
       value: shopifyBuyerMetafieldValue(field, matched?.value ?? null, type),
       validations,
+      pin: true,
       createDefinition: !matched,
     };
   });
@@ -510,72 +532,15 @@ export async function pushShopifyBuyerMetafields(input: {
     remote
   );
 
-  for (const write of writes) {
-    const definition = {
-      name: write.name,
-      namespace: write.namespace,
-      key: write.key,
-      ownerType: "PRODUCT",
-      ...(write.validations.length > 0 ? { validations: write.validations } : {}),
-    };
-    const saved = write.createDefinition
-      ? await executeShopifyAdminGraphql<{
-          metafieldDefinitionCreate: { userErrors: Array<{ message: string }> };
-        }>({
-          connectionId: input.connectionId,
-          operationType: "mutation",
-          operationName: "ShopifyBuyerMetafieldDefine",
-          fetchImpl: input.fetchImpl,
-          now: input.now,
-          document: `mutation ShopifyBuyerMetafieldDefine($definition: MetafieldDefinitionInput!) {
-            metafieldDefinitionCreate(definition: $definition) {
-              createdDefinition { id }
-              userErrors { field message code }
-            }
-          }`,
-          variables: {
-            definition: { ...definition, type: write.type },
-          },
-        })
-      : await executeShopifyAdminGraphql<{
-          metafieldDefinitionUpdate: { userErrors: Array<{ message: string }> };
-        }>({
-          connectionId: input.connectionId,
-          operationType: "mutation",
-          operationName: "ShopifyBuyerMetafieldUpdate",
-          fetchImpl: input.fetchImpl,
-          now: input.now,
-          document: `mutation ShopifyBuyerMetafieldUpdate($definition: MetafieldDefinitionUpdateInput!) {
-            metafieldDefinitionUpdate(definition: $definition) {
-              updatedDefinition { id }
-              userErrors { field message code }
-            }
-          }`,
-          variables: { definition },
-        });
-    if (!saved.ok) return metafieldFailure(saved);
-    const payload = saved.data as
-      | { metafieldDefinitionCreate?: { userErrors?: Array<{ message: string }> } }
-      | { metafieldDefinitionUpdate?: { userErrors?: Array<{ message: string }> } }
-      | null;
-    const errors =
-      (payload && "metafieldDefinitionCreate" in payload
-        ? payload.metafieldDefinitionCreate?.userErrors
-        : payload && "metafieldDefinitionUpdate" in payload
-          ? payload.metafieldDefinitionUpdate?.userErrors
-          : []) ?? [];
-    const taken =
-      write.createDefinition &&
-      errors.some((error) => /taken|already exists|in use/i.test(error.message));
-    if (errors.length > 0 && !taken) {
-      return {
-        outcome: "DEAD",
-        errorClass: "PERMANENT",
-        errorCode: "METAFIELD_DEFINITION",
-        errorMessage: errors[0]?.message ?? "Could not save the Shopify metafield definition",
-      };
-    }
-  }
+  const definitionError = await saveBuyerMetafieldDefinitions({
+    connectionId: input.connectionId,
+    writes: writes.filter((write) => write.createDefinition),
+    create: true,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+    execute: executeShopifyAdminGraphql,
+  });
+  if (definitionError) return definitionError;
 
   const metafields = writes
     .filter((write): write is ShopifyBuyerMetafieldWrite & { value: string } => Boolean(write.value))
@@ -586,7 +551,16 @@ export async function pushShopifyBuyerMetafields(input: {
       type: write.type,
       value: write.value,
     }));
-  if (metafields.length === 0) return null;
+  if (metafields.length === 0) {
+    return saveBuyerMetafieldDefinitions({
+      connectionId: input.connectionId,
+      writes: writes.filter((write) => !write.createDefinition),
+      create: false,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+      execute: executeShopifyAdminGraphql,
+    });
+  }
   const set = await executeShopifyAdminGraphql<{
     metafieldsSet: { userErrors: Array<{ message: string }> };
   }>({
@@ -612,6 +586,111 @@ export async function pushShopifyBuyerMetafields(input: {
       errorCode: "METAFIELD_SET",
       errorMessage: setErrors[0]?.message ?? "Could not fill Shopify metafields",
     };
+  }
+
+  // Values are written first. Definition updates (choice list, character limit, pin)
+  // follow so an existing value can already satisfy the new rules.
+  return saveBuyerMetafieldDefinitions({
+    connectionId: input.connectionId,
+    writes: writes.filter((write) => !write.createDefinition),
+    create: false,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+    execute: executeShopifyAdminGraphql,
+  });
+}
+
+function definitionBody(write: ShopifyBuyerMetafieldWrite, pin: boolean) {
+  return {
+    name: write.name,
+    namespace: write.namespace,
+    key: write.key,
+    ownerType: "PRODUCT",
+    pin,
+    ...(write.description ? { description: write.description } : {}),
+    ...(write.validations.length > 0 ? { validations: write.validations } : {}),
+  };
+}
+
+function definitionErrors(
+  data: unknown,
+  field: "metafieldDefinitionCreate" | "metafieldDefinitionUpdate"
+): Array<{ message: string; code?: string }> {
+  const payload = data as
+    | {
+        metafieldDefinitionCreate?: { userErrors?: Array<{ message: string; code?: string }> };
+        metafieldDefinitionUpdate?: { userErrors?: Array<{ message: string; code?: string }> };
+      }
+    | null;
+  return payload?.[field]?.userErrors ?? [];
+}
+
+function definitionAlreadyExists(errors: Array<{ message: string; code?: string }>): boolean {
+  return errors.some(
+    (error) =>
+      error.code === "TAKEN" ||
+      error.code === "PRESENT" ||
+      /taken|already exists|in use/i.test(error.message)
+  );
+}
+
+async function saveBuyerMetafieldDefinitions(input: {
+  connectionId: string;
+  writes: ShopifyBuyerMetafieldWrite[];
+  create: boolean;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+  execute: typeof import("./admin-graphql").executeShopifyAdminGraphql;
+}): Promise<Extract<ShopifyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> | null> {
+  for (const write of input.writes) {
+    const run = (pin: boolean) =>
+      input.create
+        ? input.execute<{ metafieldDefinitionCreate: { userErrors: Array<{ message: string; code?: string }> } }>({
+            connectionId: input.connectionId,
+            operationType: "mutation",
+            operationName: "ShopifyBuyerMetafieldDefine",
+            fetchImpl: input.fetchImpl,
+            now: input.now,
+            document: `mutation ShopifyBuyerMetafieldDefine($definition: MetafieldDefinitionInput!) {
+              metafieldDefinitionCreate(definition: $definition) {
+                createdDefinition { id }
+                userErrors { field message code }
+              }
+            }`,
+            variables: { definition: { ...definitionBody(write, pin), type: write.type } },
+          })
+        : input.execute<{ metafieldDefinitionUpdate: { userErrors: Array<{ message: string; code?: string }> } }>({
+            connectionId: input.connectionId,
+            operationType: "mutation",
+            operationName: "ShopifyBuyerMetafieldUpdate",
+            fetchImpl: input.fetchImpl,
+            now: input.now,
+            document: `mutation ShopifyBuyerMetafieldUpdate($definition: MetafieldDefinitionUpdateInput!) {
+              metafieldDefinitionUpdate(definition: $definition) {
+                updatedDefinition { id }
+                userErrors { field message code }
+              }
+            }`,
+            variables: { definition: definitionBody(write, pin) },
+          });
+
+    let saved = await run(write.pin);
+    if (!saved.ok) return metafieldFailure(saved);
+    const field = input.create ? "metafieldDefinitionCreate" : "metafieldDefinitionUpdate";
+    let errors = definitionErrors(saved.data, field);
+    if (write.pin && errors.some((error) => /pin/i.test(error.message))) {
+      saved = await run(false);
+      if (!saved.ok) return metafieldFailure(saved);
+      errors = definitionErrors(saved.data, field);
+    }
+    if (errors.length > 0 && !(input.create && definitionAlreadyExists(errors))) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "METAFIELD_DEFINITION",
+        errorMessage: errors[0]?.message ?? "Could not save the Shopify metafield definition",
+      };
+    }
   }
   return null;
 }
