@@ -8,26 +8,30 @@ vi.mock("./connection-request", () => ({
   etsyConnectionRequest: (...args: unknown[]) => etsyConnectionRequest(...args),
 }));
 
-vi.mock("../shopify/admin-graphql", () => ({
-  runNextShopifySyncJob: vi.fn(async () => ({ claimed: false })),
+vi.mock("../shopify/reconcile-listing", () => ({
+  pushStoreItemTopologyToShopifyNow: vi.fn(async () => undefined),
 }));
 
-vi.mock("database", () => ({
-  applyFoundationSellerCollapseToSimple: vi.fn(async () => ({})),
-  applyFoundationSellerMatrixStructure: vi.fn(async () => ({})),
-  captureEtsyInventoryProjectionDesire: vi.fn(async () => ({})),
-  etsyCentsFromMoney: vi.fn(() => 0),
-  replaceEtsyListingVariantMaps: vi.fn(async () => undefined),
-  recordEtsyListingVariantTopologyDesire: vi.fn(async () => ({ status: "RECORDED" })),
-  recordShopifyListingVariantTopologyDesire: vi.fn(async () => undefined),
-  STALE_MARKETPLACE_QTY_REVERT_MS: 10 * 60 * 1000,
-  prisma: {
-    etsyVariantMap: { findMany: vi.fn(async () => []) },
-    etsySyncJob: { findFirst: vi.fn(async () => null) },
-    storeVariant: { findMany: vi.fn() },
-    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})),
-  },
-}));
+vi.mock("database", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("database")>();
+  return {
+    applyFoundationSellerCollapseToSimple: vi.fn(async () => ({})),
+    applyFoundationSellerMatrixStructure: vi.fn(async () => ({})),
+    captureEtsyInventoryProjectionDesire: vi.fn(async () => ({})),
+    etsyCentsFromMoney: vi.fn(() => 0),
+    replaceEtsyListingVariantMaps: vi.fn(async () => undefined),
+    recordEtsyListingVariantTopologyDesire: vi.fn(async () => ({ status: "RECORDED" })),
+    recordShopifyListingVariantTopologyDesire: vi.fn(async () => undefined),
+    marketplaceTopologyMatchKey: actual.marketplaceTopologyMatchKey,
+    STALE_MARKETPLACE_QTY_REVERT_MS: 10 * 60 * 1000,
+    prisma: {
+      etsyVariantMap: { findMany: vi.fn(async () => []) },
+      etsySyncJob: { findFirst: vi.fn(async () => null) },
+      storeVariant: { findMany: vi.fn() },
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})),
+    },
+  };
+});
 
 import {
   localVariantComboKeys,
@@ -140,10 +144,10 @@ describe("Etsy variant add fans out to Shopify", () => {
   it("adopts a new Etsy size into INW and records a Shopify topology push", async () => {
     const { prisma, recordShopifyListingVariantTopologyDesire, applyFoundationSellerMatrixStructure } =
       await import("database");
-    const { runNextShopifySyncJob } = await import("../shopify/admin-graphql");
+    const { pushStoreItemTopologyToShopifyNow } = await import("../shopify/reconcile-listing");
     vi.mocked(recordShopifyListingVariantTopologyDesire).mockClear();
     vi.mocked(applyFoundationSellerMatrixStructure).mockClear();
-    vi.mocked(runNextShopifySyncJob).mockClear();
+    vi.mocked(pushStoreItemTopologyToShopifyNow).mockClear();
     vi.mocked(prisma.storeVariant.findMany)
       .mockResolvedValueOnce([
         {
@@ -204,7 +208,10 @@ describe("Etsy variant add fans out to Shopify", () => {
       memberId: "mem-1",
       storeItemId: "item-1",
     });
-    expect(runNextShopifySyncJob).toHaveBeenCalled();
+    expect(pushStoreItemTopologyToShopifyNow).toHaveBeenCalledWith({
+      memberId: "mem-1",
+      storeItemId: "item-1",
+    });
   });
 
   it("does not retire a variant INW just added when Etsy still has the old matrix", async () => {

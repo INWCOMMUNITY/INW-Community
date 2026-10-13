@@ -573,6 +573,11 @@ export {
 } from "./etsy/listing-health";
 export type { EtsyHealthDb, EtsyListingHealthSnapshot } from "./etsy/listing-health";
 export {
+  canonicalMarketplaceAxisName,
+  marketplaceTopologyMatchKey,
+  normalizeMarketplaceTopologyMatchKey,
+} from "./marketplace-option-aliases";
+export {
   assertShopifyInventoryItemGid,
   assertShopifyLineItemGid,
   assertShopifyOrderGid,

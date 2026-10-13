@@ -344,23 +344,31 @@ export async function projectStoreItemVariantsMatrix(
   }
   // Rebuild from ACTIVE optioned variants only. Keeping unmatched JSON rows
   // resurrected retired axes (Materials, Color, …) after a structure replace.
-  const axes = [...axisNames].sort((a, b) => a.localeCompare(b)).map((name) => {
-    const prev = existingAxes.find((axis) => String(axis.name ?? "") === name);
-    const photosByValue =
-      prev?.photosByValue && typeof prev.photosByValue === "object" && !Array.isArray(prev.photosByValue)
-        ? prev.photosByValue
-        : undefined;
-    return {
-      name,
-      values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
-      ...(photosByValue ? { photosByValue } : {}),
-    };
-  });
+  const axes = [...axisNames]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => {
+      const prev = existingAxes.find((axis) => String(axis.name ?? "") === name);
+      const photosByValue =
+        prev?.photosByValue && typeof prev.photosByValue === "object" && !Array.isArray(prev.photosByValue)
+          ? prev.photosByValue
+          : undefined;
+      return {
+        name,
+        values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
+        ...(photosByValue ? { photosByValue } : {}),
+      };
+    })
+    .filter((axis) => axis.values.length >= 2);
+  const droppedAxes = new Set(
+    [...axisNames].filter((name) => !axes.some((axis) => axis.name === name))
+  );
   const skus = live.map((row) => {
+    const options = { ...row.options };
+    for (const name of droppedAxes) delete options[name];
     const photos =
       photosById.get(row.storeVariantId) ?? photosByCombo.get(optionComboKey(row.options));
     return {
-      options: row.options,
+      options,
       quantity: row.quantity,
       priceCents: row.priceCents,
       storeVariantId: row.storeVariantId,
@@ -379,6 +387,17 @@ export async function projectStoreItemVariantsMatrix(
 
   const positivePrices = [...prices].filter((p) => Number.isFinite(p) && p > 0);
   const facadePrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null;
+
+  if (axes.length === 0) {
+    await tx.storeItem.update({
+      where: { id: storeItemId },
+      data: {
+        variants: Prisma.JsonNull,
+        ...(facadePrice != null ? { priceCents: facadePrice } : {}),
+      },
+    });
+    return;
+  }
 
   await tx.storeItem.update({
     where: { id: storeItemId },

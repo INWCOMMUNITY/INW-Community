@@ -353,25 +353,69 @@ export function optionValuesKey(options: Record<string, string>): string {
     .join("\u0001");
 }
 
+function skuOptionValue(options: Record<string, string>, axisName: string): string {
+  const direct = options[axisName];
+  if (direct != null && String(direct).trim()) return String(direct).trim();
+  const found = Object.entries(options).find(
+    ([name]) => name.trim().toLowerCase() === axisName.trim().toLowerCase()
+  );
+  return found ? String(found[1] ?? "").trim() : "";
+}
+
+/**
+ * Axes a buyer still has to pick. A value that no remaining variant uses is omitted.
+ * An axis with only one value left (every variant is Wool) is not a choice.
+ */
+export function buyerFacingAxes(matrix: VariantMatrix): VariantAxisDef[] {
+  return matrix.axes
+    .map((axis) => {
+      const values: string[] = [];
+      const seen = new Set<string>();
+      for (const sku of matrix.skus) {
+        const value = skuOptionValue(sku.options, axis.name);
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        values.push(value);
+      }
+      return { ...axis, values };
+    })
+    .filter((axis) => axis.name.trim() && axis.values.length >= 2);
+}
+
 export function findSkuRow(
   matrix: VariantMatrix,
   selection: Record<string, string> | null | undefined
 ): VariantSkuRow | null {
+  const facing = buyerFacingAxes(matrix);
+  if (facing.length === 0) return matrix.skus[0] ?? null;
   if (!selection || typeof selection !== "object") return null;
   const sel: Record<string, string> = {};
   for (const [k, v] of Object.entries(selection)) {
     if (v != null && String(v).trim()) sel[k] = String(v).trim();
   }
   if (Object.keys(sel).length === 0) return null;
-  return matrix.skus.find((row) => optionsEqual(row.options, sel)) ?? null;
+  return (
+    matrix.skus.find((row) =>
+      facing.every((axis) => {
+        const want =
+          sel[axis.name] ??
+          Object.entries(sel).find(([name]) => name.trim().toLowerCase() === axis.name.trim().toLowerCase())?.[1];
+        if (!want?.trim()) return false;
+        return skuOptionValue(row.options, axis.name).toLowerCase() === want.trim().toLowerCase();
+      })
+    ) ?? null
+  );
 }
 
 export function allMatrixAxesSelected(
   matrix: VariantMatrix,
   selection: Record<string, string>
 ): boolean {
-  if (matrix.axes.length === 0) return true;
-  return matrix.axes.every((axis) => {
+  const axes = buyerFacingAxes(matrix);
+  if (axes.length === 0) return true;
+  return axes.every((axis) => {
     const name = axis.name.trim();
     if (!name) return true;
     const sel =

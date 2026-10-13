@@ -7,6 +7,7 @@ import {
   markEtsyListingContentPollComplete,
   normalizeEtsyTags,
   prisma,
+  marketplaceTopologyMatchKey,
   reconcileEtsyListingHealthFromDb,
   type EtsyJobHandlerResult,
   type EtsyRemoteListingObservation,
@@ -15,7 +16,6 @@ import {
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { optionsFromEtsyPropertyValues } from "./listing-variants";
-import { skuSelectionKey } from "@/lib/listing-variant-matrix";
 import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
@@ -372,14 +372,14 @@ export async function handleEtsyPollListingContentJob(
           raw && typeof raw === "object" && !Array.isArray(raw)
             ? (raw as Record<string, string>)
             : {};
-        return skuSelectionKey(opts);
+        return marketplaceTopologyMatchKey(opts);
       })
       .filter((key) => key.length > 0)
       .sort();
     const remoteComboKeys = [
       ...new Set(
         fetched.remote.variants
-          .map((v) => skuSelectionKey(v.options ?? {}))
+          .map((v) => marketplaceTopologyMatchKey(v.options ?? {}))
           .filter((key) => key.length > 0)
       ),
     ].sort();

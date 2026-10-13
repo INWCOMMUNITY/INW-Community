@@ -8,6 +8,7 @@ import {
   captureEtsyInventoryProjectionDesire,
   etsyCentsFromMoney,
   prisma,
+  marketplaceTopologyMatchKey,
   recordEtsyListingVariantTopologyDesire,
   recordShopifyListingVariantTopologyDesire,
   replaceEtsyListingVariantMaps,
@@ -67,6 +68,25 @@ function classifyFailure(
     errorCode: apiClass || "PROVIDER_ERROR",
     errorMessage: message?.slice(0, 400) || "Etsy variant topology sync failed permanently",
   };
+}
+
+function topologyMatchKeysFromLocal(variants: EtsyStoreVariantRow[]): string[] {
+  const keys: string[] = [];
+  for (const variant of variants) {
+    const opts = parseStoreVariantOptions(variant.options);
+    if (!opts) return [];
+    const key = marketplaceTopologyMatchKey(opts);
+    if (!key) return [];
+    keys.push(key);
+  }
+  return keys.sort();
+}
+
+function topologyMatchKeysFromRemote(products: EtsyRemoteInventoryProduct[]): string[] {
+  return products
+    .map((product) => marketplaceTopologyMatchKey(optionsFromEtsyPropertyValues(product.property_values)))
+    .filter((key) => key.length > 0)
+    .sort();
 }
 
 export function localVariantComboKeys(variants: EtsyStoreVariantRow[]): string[] {
@@ -243,10 +263,10 @@ async function remoteStructureWouldDropRecentInwVariant(input: {
     })
     .map((row) => parseStoreVariantOptions(row.options))
     .filter((opts): opts is Record<string, string> => Boolean(opts && Object.keys(opts).length > 0))
-    .map((opts) => skuSelectionKey(opts));
+    .map((opts) => marketplaceTopologyMatchKey(opts));
   if (recentOptionKeys.length < 1) return false;
   if (input.optioned.length === 0) return true;
-  const remoteKeys = new Set(input.optioned.map((row) => skuSelectionKey(row.options)));
+  const remoteKeys = new Set(input.optioned.map((row) => marketplaceTopologyMatchKey(row.options)));
   return recentOptionKeys.some((key) => !remoteKeys.has(key));
 }
 
@@ -261,16 +281,13 @@ async function fanOutAdoptedEtsyTopologyToShopify(
   try {
     await recordShopifyListingVariantTopologyDesire(prisma, { memberId, storeItemId });
   } catch {
-    return;
+    // The inline push below still sends the variant. Cron retries the queued job.
   }
   try {
-    const { runNextShopifySyncJob } = await import("../shopify/admin-graphql");
-    for (let i = 0; i < 8; i += 1) {
-      const ran = await runNextShopifySyncJob({ workerId: `etsy-topology-${i}` });
-      if (!ran.claimed) break;
-    }
+    const { pushStoreItemTopologyToShopifyNow } = await import("../shopify/reconcile-listing");
+    await pushStoreItemTopologyToShopifyNow({ memberId, storeItemId });
   } catch {
-    // Cron still runs the Shopify reconcile.
+    // The reconcile job queued above retries the Shopify create.
   }
 }
 
@@ -421,6 +438,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
     remote: input.remoteProducts,
   });
   if (!correlation.ok) {
+    await fanOutAdoptedEtsyTopologyToShopify(input.memberId, input.storeItemId);
     return {
       outcome: "DEAD",
       errorClass: "PERMANENT",
@@ -699,7 +717,7 @@ export async function syncEtsyListingVariantTopology(input: {
     return { status: "PUSHED", pairCount: 1 };
   }
 
-  const localKeys = localVariantComboKeys(variantRows);
+  const localKeys = topologyMatchKeysFromLocal(variantRows);
   if (localKeys.length !== variantRows.length) {
     return {
       outcome: "DEAD",
@@ -728,7 +746,7 @@ export async function syncEtsyListingVariantTopology(input: {
   }
 
   const remoteProducts = inventoryRes.data.products;
-  const remoteKeys = remoteProductComboKeys(remoteProducts);
+  const remoteKeys = topologyMatchKeysFromRemote(remoteProducts);
   const mapsOk = mapsMatchLocalCombos({ maps, variants: variantRows });
   const combosMatch = sameKeySet(localKeys, remoteKeys);
   const hasDeprecatedProperties = inventoryHasDeprecatedEtsyProperties(remoteProducts);

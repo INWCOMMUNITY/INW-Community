@@ -37,6 +37,7 @@ import {
   decrementOptionQuantity,
   getAvailableQuantity,
   getSkuPriceCents,
+  listingVariantDisplayAxes,
   sumOptionQuantities,
 } from "./store-item-variants";
 
@@ -821,5 +822,35 @@ describe("variant price draft", () => {
     expect(variantQtyDraftToNumber("12")).toBe(12);
     expect(variantQtyToEditable(0)).toBe("");
     expect(variantQtyToEditable(12)).toBe("12");
+  });
+});
+
+describe("removed variant leftover options", () => {
+  const variants = {
+    axes: [
+      { name: "Materials", values: ["Cotton", "Wool"] },
+      { name: "Primary color", values: ["Red", "Brown"] },
+      { name: "Size", values: ["Small", "Medium", "Large"] },
+    ],
+    skus: [
+      { options: { Materials: "Wool", "Primary color": "Red", Size: "Small" }, quantity: 4, priceCents: 700 },
+      { options: { Materials: "Wool", "Primary color": "Brown", Size: "Medium" }, quantity: 2, priceCents: 300 },
+      { options: { Materials: "Wool", "Primary color": "Red", Size: "Large" }, quantity: 1, priceCents: 700 },
+    ],
+  };
+
+  it("hides an axis that only has one value left, and values no remaining variant uses", () => {
+    expect(listingVariantDisplayAxes(variants)).toEqual([
+      { name: "Primary color", options: ["Red", "Brown"] },
+      { name: "Size", options: ["Small", "Medium", "Large"] },
+    ]);
+  });
+
+  it("matches price and quantity without the leftover option", () => {
+    const item = { variants, quantity: 7, inventoryTracking: "tracked", priceCents: 700 };
+    expect(
+      getAvailableQuantity(item, { "Primary color": "Red", Size: "Small" })
+    ).toBe(4);
+    expect(getSkuPriceCents(item, { "Primary color": "Brown", Size: "Medium" })).toBe(300);
   });
 });

@@ -20,6 +20,74 @@ import { notifyShopifyListingIssueOnce } from "./listing-issue-notify";
 import { syncShopifyListingTopology } from "./sync-listing-topology";
 import { readRemoteProductForInbound } from "./process-products-update";
 
+/** Push the current INW matrix onto Shopify now. Used when Etsy just added a variant. */
+export async function pushStoreItemTopologyToShopifyNow(input: {
+  memberId: string;
+  storeItemId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<void> {
+  const connection = await prisma.shopifyConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) return;
+  const listing = await prisma.shopifyListingLink.findFirst({
+    where: { shopifyConnectionId: connection.id, storeItemId: input.storeItemId },
+    select: { id: true, shopifyProductId: true, memberId: true, storeItemId: true },
+  });
+  if (!listing) return;
+  const [allStoreVariants, variantMaps] = await Promise.all([
+    prisma.storeVariant.findMany({
+      where: { storeItemId: listing.storeItemId, memberId: listing.memberId, status: "ACTIVE" },
+      select: { id: true, options: true, priceCents: true, sku: true },
+    }),
+    prisma.shopifyVariantMap.findMany({
+      where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+      select: { storeVariantId: true, shopifyVariantId: true },
+    }),
+  ]);
+  const mapByStoreVariant = new Map(
+    variantMaps.map((row) => [row.storeVariantId, row.shopifyVariantId] as const)
+  );
+  const localTopology = allStoreVariants.map((sv) => {
+    const optsJson =
+      typeof sv.options === "string"
+        ? (JSON.parse(sv.options) as Record<string, string>)
+        : ((sv.options ?? {}) as Record<string, string>);
+    return {
+      storeVariantId: sv.id,
+      selectedOptions: Object.entries(optsJson).map(([name, value]) => ({
+        name,
+        value: String(value),
+      })),
+      priceCents: sv.priceCents,
+      sku: sv.sku,
+      shopifyVariantId: mapByStoreVariant.get(sv.id) ?? null,
+    };
+  });
+  const activeIds = new Set(allStoreVariants.map((sv) => sv.id));
+  const removedVariants = variantMaps
+    .filter((map) => !activeIds.has(map.storeVariantId))
+    .map((map) => ({
+      storeVariantId: map.storeVariantId,
+      shopifyVariantId: map.shopifyVariantId,
+    }));
+  await syncShopifyListingTopology({
+    connectionId: connection.id,
+    memberId: listing.memberId,
+    listingLinkId: listing.id,
+    productId: listing.shopifyProductId,
+    storeItemId: listing.storeItemId,
+    localVariants: localTopology,
+    removedVariants,
+    pushTopology: true,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+}
+
 function parseReconcilePayload(
   payload: unknown
 ): { listingLinkId: string; storeItemId: string; pushTopology: boolean } | null {

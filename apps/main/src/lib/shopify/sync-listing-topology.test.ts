@@ -65,11 +65,80 @@ vi.mock("database", async () => {
   };
 });
 
-import { planShopifyTopologyDiff } from "database";
+import { marketplaceTopologyMatchKey, planShopifyTopologyDiff } from "database";
 import {
+  alignLocalOptionsToShopifyAxes,
   readShopifyProductTopology,
   syncShopifyListingTopology,
 } from "./sync-listing-topology";
+
+describe("align Etsy option names onto Shopify axes", () => {
+  it("creates a Primary color variant as Shopify Color", () => {
+    const aligned = alignLocalOptionsToShopifyAxes(
+      [
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [
+            { name: "Primary color", value: "Red" },
+            { name: "Materials", value: "Wool" },
+          ],
+          priceCents: 700,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-brown",
+          selectedOptions: [
+            { name: "Primary color", value: "Brown" },
+            { name: "Materials", value: "Wool" },
+          ],
+          priceCents: 700,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+      [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Material", value: "Wool" },
+          ],
+          priceCents: 700,
+          sku: null,
+          available: 4,
+          tracked: true,
+        },
+      ]
+    );
+    expect(aligned[1]?.selectedOptions).toEqual([
+      { name: "Color", value: "Brown" },
+      { name: "Material", value: "Wool" },
+    ]);
+  });
+
+  it("treats Primary color and Materials as the same axes as Color and Material", () => {
+    expect(
+      marketplaceTopologyMatchKey({
+        "Primary color": "Brown",
+        Materials: "Wool",
+        Size: "Small",
+      })
+    ).toBe(
+      marketplaceTopologyMatchKey({
+        Color: "Brown",
+        Material: "Wool",
+        Size: "Small",
+      })
+    );
+    expect(
+      marketplaceTopologyMatchKey({ Color: "Brown", Material: "Wool", Size: "Small" })
+    ).not.toBe(
+      marketplaceTopologyMatchKey({ Color: "Red", Material: "Wool", Size: "Small" })
+    );
+  });
+});
 
 describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
   beforeEach(async () => {
@@ -867,6 +936,147 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
     const variables = (createCall?.[0] as { variables?: { variants?: Array<{ optionValues?: unknown }> } })
       .variables;
     expect(JSON.stringify(variables)).toContain("Blue");
+    const { recordEtsyListingVariantTopologyDesire } = await import("database");
+    expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
+  });
+
+  it("creates an Etsy-named variant on the Shopify options that already exist", async () => {
+    executeShopifyAdminGraphql.mockImplementation(async (call: { operationName?: string }) => {
+      if (call.operationName === "ShopifyProductTopologyRead") {
+        return {
+          ok: true,
+          data: {
+            product: {
+              options: [
+                {
+                  id: "gid://shopify/ProductOption/color",
+                  name: "Color",
+                  position: 1,
+                  optionValues: [{ id: "ov-red", name: "Red", hasVariants: true }],
+                },
+                {
+                  id: "gid://shopify/ProductOption/material",
+                  name: "Material",
+                  position: 2,
+                  optionValues: [{ id: "ov-wool", name: "Wool", hasVariants: true }],
+                },
+                {
+                  id: "gid://shopify/ProductOption/size",
+                  name: "Size",
+                  position: 3,
+                  optionValues: [{ id: "ov-small", name: "Small", hasVariants: true }],
+                },
+              ],
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/1",
+                    price: "7.00",
+                    sku: null,
+                    selectedOptions: [
+                      { name: "Color", value: "Red" },
+                      { name: "Material", value: "Wool" },
+                      { name: "Size", value: "Small" },
+                    ],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/1" },
+                    inventoryQuantity: 4,
+                  },
+                ],
+              },
+            },
+          },
+        };
+      }
+      if (call.operationName === "ShopifyProductOptionAddValues") {
+        return { ok: true, data: { productOptionUpdate: { userErrors: [] } } };
+      }
+      if (call.operationName === "ShopifyProductVariantsBulkCreate") {
+        return {
+          ok: true,
+          data: {
+            productVariantsBulkCreate: {
+              productVariants: [
+                {
+                  id: "gid://shopify/ProductVariant/2",
+                  selectedOptions: [
+                    { name: "Color", value: "Brown" },
+                    { name: "Material", value: "Wool" },
+                    { name: "Size", value: "Small" },
+                  ],
+                  inventoryItem: { id: "gid://shopify/InventoryItem/2" },
+                },
+              ],
+              userErrors: [],
+            },
+          },
+        };
+      }
+      return {
+        ok: false,
+        class: "GRAPHQL_PERMANENT",
+        message: call.operationName ?? "unexpected",
+        outcomeUnknown: false,
+      };
+    });
+
+    const result = await syncShopifyListingTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      productId: "gid://shopify/Product/1",
+      storeItemId: "item-1",
+      localVariants: [
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [
+            { name: "Primary color", value: "Red" },
+            { name: "Materials", value: "Wool" },
+            { name: "Size", value: "Small" },
+          ],
+          priceCents: 700,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-brown",
+          selectedOptions: [
+            { name: "Primary color", value: "Brown" },
+            { name: "Materials", value: "Wool" },
+            { name: "Size", value: "Small" },
+          ],
+          priceCents: 700,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+      pushTopology: true,
+    });
+
+    expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+    const operationNames = executeShopifyAdminGraphql.mock.calls.map(
+      (call) => (call[0] as { operationName?: string }).operationName
+    );
+    expect(operationNames).not.toContain("ShopifyProductOptionsCreate");
+    expect(operationNames).toContain("ShopifyProductOptionAddValues");
+    expect(operationNames).toContain("ShopifyProductVariantsBulkCreate");
+    const addCall = executeShopifyAdminGraphql.mock.calls.find(
+      (call) =>
+        (call[0] as { operationName?: string }).operationName === "ShopifyProductOptionAddValues"
+    );
+    expect((addCall?.[0] as { variables?: unknown }).variables).toEqual({
+      productId: "gid://shopify/Product/1",
+      option: { id: "gid://shopify/ProductOption/color" },
+      optionValuesToAdd: [{ name: "Brown" }],
+    });
+    const createCall = executeShopifyAdminGraphql.mock.calls.find(
+      (call) =>
+        (call[0] as { operationName?: string }).operationName ===
+        "ShopifyProductVariantsBulkCreate"
+    );
+    const created = JSON.stringify((createCall?.[0] as { variables?: unknown }).variables);
+    expect(created).toContain("Brown");
+    expect(created).not.toContain("Primary color");
+    expect(created).not.toContain("Materials");
     const { recordEtsyListingVariantTopologyDesire } = await import("database");
     expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
   });

@@ -8,19 +8,19 @@ import type {
 } from "@prisma/client";
 import { enqueueEtsySyncJob } from "./jobs";
 import { etsyVariantContentFingerprint } from "./content-fingerprint";
+import {
+  marketplaceTopologyMatchKey,
+  normalizeMarketplaceTopologyMatchKey,
+} from "../marketplace-option-aliases";
 
 function comboKeyOf(raw: unknown): string {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
-  const options = raw as Record<string, unknown>;
-  return Object.keys(options)
-    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
-    .map((key) => {
-      const name = key.trim().toLowerCase();
-      const value = String(options[key] ?? "").trim().toLowerCase();
-      return name && value ? `${name}=${value}` : "";
-    })
-    .filter(Boolean)
-    .join("|");
+  const options: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value == null) continue;
+    options[key] = String(value);
+  }
+  return marketplaceTopologyMatchKey(options);
 }
 
 export type EtsyHealthDb = PrismaClient | Prisma.TransactionClient;
@@ -333,7 +333,9 @@ export async function reconcileEtsyListingHealthFromDb(
     .map((v) => comboKeyOf(v.options))
     .filter((key) => key.length > 0)
     .sort();
-  const remoteComboKeys = input.remoteComboKeys ? [...input.remoteComboKeys].sort() : null;
+  const remoteComboKeys = input.remoteComboKeys
+    ? input.remoteComboKeys.map(normalizeMarketplaceTopologyMatchKey).filter((key) => key.length > 0).sort()
+    : null;
   const mappedOfferingIds = new Set(variantMaps.map((m) => m.etsyOfferingId));
   const unmappedRemote =
     input.remoteOfferings?.filter(

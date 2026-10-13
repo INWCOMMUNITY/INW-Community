@@ -10,6 +10,7 @@ import {
   recordEtsyListingVariantTopologyDesire,
   shopifyCentsFromMoneyString,
   STALE_MARKETPLACE_QTY_REVERT_MS,
+  canonicalMarketplaceAxisName,
   shopifySelectedOptionsToInwOptions,
   shopifyTopologyToInwMatrix,
   type ShopifyTopologyDiffPlan,
@@ -49,6 +50,50 @@ async function fanOutAdoptedShopifyTopologyToEtsy(
   } catch {
     // Cron still runs the versioned RECONCILE_LISTING.
   }
+}
+
+/**
+ * Etsy stores "Primary color" / "Materials" while the Shopify product still has
+ * "Color" / "Material". Creating a variant under the Etsy name adds a fourth
+ * option and Shopify rejects it, so the new variant never leaves INW.
+ */
+export function alignLocalOptionsToShopifyAxes(
+  localVariants: ShopifyTopologyLocalVariant[],
+  remoteSnaps: ShopifyRemoteVariantSnap[]
+): ShopifyTopologyLocalVariant[] {
+  const remoteNameByAlias = new Map<string, string>();
+  for (const snap of remoteSnaps) {
+    for (const opt of snap.selectedOptions) {
+      if (!opt.name.trim() || opt.name.trim().toLowerCase() === "title") continue;
+      const alias = canonicalMarketplaceAxisName(opt.name);
+      if (!remoteNameByAlias.has(alias)) remoteNameByAlias.set(alias, opt.name.trim());
+    }
+  }
+  const remoteByGid = new Map(remoteSnaps.map((row) => [row.shopifyVariantId, row]));
+  const localNameToShopify = new Map<string, string>();
+  for (const local of localVariants) {
+    const gid = local.shopifyVariantId?.trim();
+    if (!gid) continue;
+    const remote = remoteByGid.get(gid);
+    if (!remote) continue;
+    for (const opt of local.selectedOptions) {
+      const value = opt.value.trim().toLowerCase();
+      if (!value) continue;
+      const match = remote.selectedOptions.find((row) => row.value.trim().toLowerCase() === value);
+      if (!match?.name.trim()) continue;
+      localNameToShopify.set(opt.name.trim().toLowerCase(), match.name.trim());
+    }
+  }
+  return localVariants.map((local) => ({
+    ...local,
+    selectedOptions: local.selectedOptions.map((opt) => {
+      const fromSibling = localNameToShopify.get(opt.name.trim().toLowerCase());
+      if (fromSibling) return { ...opt, name: fromSibling };
+      const fromAlias = remoteNameByAlias.get(canonicalMarketplaceAxisName(opt.name));
+      if (fromAlias) return { ...opt, name: fromAlias };
+      return opt;
+    }),
+  }));
 }
 
 function optionRecord(raw: unknown): Record<string, string> {
@@ -1204,6 +1249,10 @@ export async function syncShopifyListingTopology(input: {
   if (!remoteRead.ok) return remoteRead;
 
   const remoteSnaps = toRemoteSnaps(remoteRead.topology);
+  input = {
+    ...input,
+    localVariants: alignLocalOptionsToShopifyAxes(input.localVariants, remoteSnaps),
+  };
   const remoteIsDefaultTitle =
     remoteSnaps.length > 0 &&
     remoteSnaps.every((row) => isShopifyDefaultTitleOnly(row.selectedOptions));
