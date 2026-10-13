@@ -68,6 +68,7 @@ vi.mock("database", async () => {
 import { marketplaceTopologyMatchKey, planShopifyTopologyDiff } from "database";
 import {
   alignLocalOptionsToShopifyAxes,
+  fillSingleValueShopifyOptions,
   readShopifyProductTopology,
   syncShopifyListingTopology,
 } from "./sync-listing-topology";
@@ -137,6 +138,87 @@ describe("align Etsy option names onto Shopify axes", () => {
     ).not.toBe(
       marketplaceTopologyMatchKey({ Color: "Red", Material: "Wool", Size: "Small" })
     );
+  });
+});
+
+describe("fill a single shared Shopify option onto a new variant", () => {
+  const remote = [
+    {
+      shopifyVariantId: "gid://shopify/ProductVariant/1",
+      shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+      selectedOptions: [
+        { name: "Color", value: "Red" },
+        { name: "Material", value: "Wool" },
+        { name: "Size", value: "Small" },
+      ],
+      priceCents: 700,
+      sku: null,
+      available: 4,
+      tracked: true,
+    },
+  ];
+
+  it("copies Wool when that is the only Material", () => {
+    const filled = fillSingleValueShopifyOptions(
+      [
+        {
+          storeVariantId: "sv-brown",
+          selectedOptions: [
+            { name: "Color", value: "Brown" },
+            { name: "Size", value: "Small" },
+          ],
+          priceCents: 700,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+      remote
+    );
+    expect(filled[0]?.selectedOptions).toEqual([
+      { name: "Color", value: "Brown" },
+      { name: "Size", value: "Small" },
+      { name: "Material", value: "Wool" },
+    ]);
+  });
+
+  it("does not guess a Material when Shopify has more than one", () => {
+    const filled = fillSingleValueShopifyOptions(
+      [
+        {
+          storeVariantId: "sv-brown",
+          selectedOptions: [
+            { name: "Color", value: "Brown" },
+            { name: "Size", value: "Small" },
+          ],
+          priceCents: 700,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+      [
+        {
+          ...remote[0]!,
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Material", value: "Wool" },
+            { name: "Size", value: "Small" },
+          ],
+        },
+        {
+          ...remote[0]!,
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Material", value: "Cotton" },
+            { name: "Size", value: "Small" },
+          ],
+        },
+      ]
+    );
+    expect(filled[0]?.selectedOptions).toEqual([
+      { name: "Color", value: "Brown" },
+      { name: "Size", value: "Small" },
+    ]);
   });
 });
 
@@ -1041,7 +1123,6 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
           storeVariantId: "sv-brown",
           selectedOptions: [
             { name: "Primary color", value: "Brown" },
-            { name: "Materials", value: "Wool" },
             { name: "Size", value: "Small" },
           ],
           priceCents: 700,
@@ -1067,16 +1148,26 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
       productId: "gid://shopify/Product/1",
       option: { id: "gid://shopify/ProductOption/color" },
       optionValuesToAdd: [{ name: "Brown" }],
+      variantStrategy: "LEAVE_AS_IS",
     });
     const createCall = executeShopifyAdminGraphql.mock.calls.find(
       (call) =>
         (call[0] as { operationName?: string }).operationName ===
         "ShopifyProductVariantsBulkCreate"
     );
-    const created = JSON.stringify((createCall?.[0] as { variables?: unknown }).variables);
-    expect(created).toContain("Brown");
-    expect(created).not.toContain("Primary color");
-    expect(created).not.toContain("Materials");
+    expect((createCall?.[0] as { variables?: unknown }).variables).toEqual({
+      productId: "gid://shopify/Product/1",
+      variants: [
+        {
+          optionValues: [
+            { optionName: "Color", name: "Brown" },
+            { optionName: "Material", name: "Wool" },
+            { optionName: "Size", name: "Small" },
+          ],
+          price: "7.00",
+        },
+      ],
+    });
     const { recordEtsyListingVariantTopologyDesire } = await import("database");
     expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
   });

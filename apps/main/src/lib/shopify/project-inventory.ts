@@ -508,14 +508,17 @@ export async function handleShopifyProjectInventoryJob(
   }
 
   // Listing-scoped inventory pause (S9). Does not block S7 sale ingestion.
+  // A desire that is not applied yet is a seller or INW quantity push. Write it.
   const listingHealth = await prisma.shopifyListingLink.findUnique({
     where: { id: variantMap.shopifyListingLinkId },
     select: { inventoryHealth: true },
   });
+  const desireUnapplied = variantMap.inventoryDesiredVersion > variantMap.inventoryAppliedVersion;
   if (
-    listingHealth?.inventoryHealth === "PAUSED" ||
-    variantMap.inventoryDriftState === "REMOTE_DRIFT" ||
-    variantMap.inventoryDriftState === "WAITING_RECONCILIATION"
+    !desireUnapplied &&
+    (listingHealth?.inventoryHealth === "PAUSED" ||
+      variantMap.inventoryDriftState === "REMOTE_DRIFT" ||
+      variantMap.inventoryDriftState === "WAITING_RECONCILIATION")
   ) {
     return { outcome: "SUCCESS" };
   }

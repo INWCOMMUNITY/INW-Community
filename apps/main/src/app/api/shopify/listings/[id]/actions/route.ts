@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
@@ -9,6 +10,22 @@ import {
 export const dynamic = "force-dynamic";
 
 const ACTIONS = new Set<ShopifyListingAction>(["retry", "reconnect", "unpublish", "remove"]);
+
+function kickShopifySyncJobs() {
+  waitUntil(
+    (async () => {
+      try {
+        const { runNextShopifySyncJob } = await import("@/lib/shopify/admin-graphql");
+        for (let i = 0; i < 16; i += 1) {
+          const ran = await runNextShopifySyncJob({ workerId: `shopify-action-inline-${i}` });
+          if (!ran.claimed) break;
+        }
+      } catch {
+        // Cron still runs the queued quantity push.
+      }
+    })()
+  );
+}
 
 export async function POST(
   req: NextRequest,
@@ -50,6 +67,9 @@ export async function POST(
       { error: result.error, code: result.code },
       { status: result.status }
     );
+  }
+  if (action === "retry" || action === "reconnect") {
+    kickShopifySyncJobs();
   }
   return NextResponse.json({ ok: true, message: result.message ?? null });
 }

@@ -96,6 +96,43 @@ export function alignLocalOptionsToShopifyAxes(
   }));
 }
 
+/**
+ * Shopify rejects a new variant that omits an option the product already has.
+ * A single shared value (Materials: only Wool) is safe to copy onto that variant.
+ * Several values are not guessed.
+ */
+export function fillSingleValueShopifyOptions(
+  localVariants: ShopifyTopologyLocalVariant[],
+  remoteSnaps: ShopifyRemoteVariantSnap[]
+): ShopifyTopologyLocalVariant[] {
+  const valuesByAxis = new Map<string, { name: string; values: Set<string> }>();
+  for (const snap of remoteSnaps) {
+    for (const opt of snap.selectedOptions) {
+      const axisName = opt.name.trim();
+      if (!axisName || axisName.toLowerCase() === "title") continue;
+      const alias = canonicalMarketplaceAxisName(axisName);
+      if (!alias) continue;
+      const slot = valuesByAxis.get(alias) ?? { name: axisName, values: new Set<string>() };
+      const value = opt.value.trim();
+      if (value) slot.values.add(value);
+      valuesByAxis.set(alias, slot);
+    }
+  }
+  return localVariants.map((local) => {
+    const present = new Set(
+      local.selectedOptions.map((opt) => canonicalMarketplaceAxisName(opt.name)).filter(Boolean)
+    );
+    const selectedOptions = [...local.selectedOptions];
+    for (const [alias, slot] of valuesByAxis) {
+      if (present.has(alias) || slot.values.size !== 1) continue;
+      const value = [...slot.values][0];
+      if (!value) continue;
+      selectedOptions.push({ name: slot.name, value });
+    }
+    return { ...local, selectedOptions };
+  });
+}
+
 function optionRecord(raw: unknown): Record<string, string> {
   if (typeof raw === "string") {
     try {
@@ -464,8 +501,8 @@ async function productOptionAddValues(input: {
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyProductOptionAddValues",
-    document: `mutation ShopifyProductOptionAddValues($productId: ID!, $option: OptionUpdateInput!, $optionValuesToAdd: [OptionValueCreateInput!]) {
-      productOptionUpdate(productId: $productId, option: $option, optionValuesToAdd: $optionValuesToAdd) {
+    document: `mutation ShopifyProductOptionAddValues($productId: ID!, $option: OptionUpdateInput!, $optionValuesToAdd: [OptionValueCreateInput!], $variantStrategy: ProductOptionUpdateVariantStrategy) {
+      productOptionUpdate(productId: $productId, option: $option, optionValuesToAdd: $optionValuesToAdd, variantStrategy: $variantStrategy) {
         userErrors { field message code }
       }
     }`,
@@ -473,6 +510,8 @@ async function productOptionAddValues(input: {
       productId: input.productId,
       option: { id: input.optionId },
       optionValuesToAdd: input.values,
+      // Add the value only. The following bulk create adds the one missing variant.
+      variantStrategy: "LEAVE_AS_IS",
     },
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -1251,7 +1290,10 @@ export async function syncShopifyListingTopology(input: {
   const remoteSnaps = toRemoteSnaps(remoteRead.topology);
   input = {
     ...input,
-    localVariants: alignLocalOptionsToShopifyAxes(input.localVariants, remoteSnaps),
+    localVariants: fillSingleValueShopifyOptions(
+      alignLocalOptionsToShopifyAxes(input.localVariants, remoteSnaps),
+      remoteSnaps
+    ),
   };
   const remoteIsDefaultTitle =
     remoteSnaps.length > 0 &&
@@ -1788,11 +1830,18 @@ export async function syncShopifyListingTopology(input: {
   }
 
   if (plan.createVariants.length > 0) {
+    const optionRank = new Map(
+      topologyForCreate.options.map((option, index) => [option.name.trim(), index] as const)
+    );
     const created = await productVariantsBulkCreate({
       connectionId: input.connectionId,
       productId: input.productId,
       variants: plan.createVariants.map((v) => ({
-        optionValues: v.optionValues,
+        optionValues: [...v.optionValues].sort(
+          (a, b) =>
+            (optionRank.get(a.optionName) ?? optionRank.size) -
+            (optionRank.get(b.optionName) ?? optionRank.size)
+        ),
         price: centsToShopifyMoney(v.priceCents),
         ...(v.sku ? { sku: v.sku } : {}),
       })),
