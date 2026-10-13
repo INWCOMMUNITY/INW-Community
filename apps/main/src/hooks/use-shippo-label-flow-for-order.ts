@@ -8,6 +8,7 @@ import {
   openLabelPdfUrls,
   uniqueHttpUrls,
   buildOrderDetailsFromOrder,
+  parcelFromOrderItems,
   resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
   type ElementsTransactionPayload,
@@ -120,6 +121,7 @@ export function useShippoLabelFlowForOrder(options: {
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
   /** Ship-to used for the open Shippo session; saved on the order when the label is recorded. */
   const lastShipToSnapshotRef = useRef<ReturnType<typeof resolvePostalShipToAddress>>(null);
+  const lastParcelRef = useRef<ReturnType<typeof parcelFromOrderItems>>(null);
   const labelFlowOrderIdRef = useRef<string>("");
   const labelSaveHandlingRef = useRef(false);
   const labelKindRef = useRef<"outbound" | "return" | "replacement">("outbound");
@@ -189,6 +191,7 @@ export function useShippoLabelFlowForOrder(options: {
         return;
       }
       lastShipToSnapshotRef.current = resolvePostalShipToAddress(order);
+      lastParcelRef.current = parcelFromOrderItems(order);
       setElementsError(null);
       setElementsLoading(true);
       shippoOrderIdFromCreatedRef.current = null;
@@ -247,11 +250,12 @@ export function useShippoLabelFlowForOrder(options: {
               setPurchasedLabelUrls(purchasedLabelUrlsRef.current);
             }
             const firstTx = txs[0];
+            const parcel = lastParcelRef.current;
             const payload = transactionToLabelFromElementsPayload(firstTx, {
-              weightOz: 16,
-              lengthIn: 12,
-              widthIn: 12,
-              heightIn: 12,
+              weightOz: parcel?.weightOz ?? 16,
+              lengthIn: parcel?.lengthIn ?? 12,
+              widthIn: parcel?.widthIn ?? 12,
+              heightIn: parcel?.heightIn ?? 12,
             });
             const shippoOrderId =
               firstTx.order_id?.trim() || shippoOrderIdFromCreatedRef.current?.trim() || null;

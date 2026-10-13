@@ -458,6 +458,22 @@ export type {
   EtsyVariantMappingInput,
 } from "./etsy/import-mapping";
 export {
+  appendEtsyImportBatchFailures,
+  ETSY_IMPORT_BATCH_DEFAULT_ITEM_MS,
+  etsyImportBatchDedupeKey,
+  etsyImportBatchProgressView,
+  findActiveEtsyImportBatch,
+  nextEtsyImportBatchAvgItemMs,
+  parseEtsyImportBatchFailures,
+  parseEtsyImportBatchQueue,
+  resolveEtsyImportStockMode,
+} from "./etsy/import-batch";
+export type {
+  EtsyImportBatchDb,
+  EtsyImportBatchFailure,
+  EtsyImportBatchProgressView,
+} from "./etsy/import-batch";
+export {
   etsyCentsFromMoney,
   etsyMoneyFromCents,
   etsyProductContentFingerprint,

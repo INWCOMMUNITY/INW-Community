@@ -112,7 +112,8 @@ export async function enqueueEtsySyncJob(
           (existing.state === "SUCCEEDED" &&
             (input.kind === "UPDATE_LISTING_CONTENT" ||
               input.kind === "PROJECT_INVENTORY" ||
-              input.kind === "CREATE_LISTING"))
+              input.kind === "CREATE_LISTING" ||
+              input.kind === "IMPORT_BATCH"))
         ) {
           return db.etsySyncJob.update({
             where: { id: existing.id },

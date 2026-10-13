@@ -582,6 +582,10 @@ select option:checked {
   background-color: #c99d5f !important;
 }
 
+.card-action-btn-tan {
+  background-color: var(--color-section-alt) !important;
+}
+
 .card-action-btn-earth {
   background-color: var(--color-earth) !important;
 }
@@ -595,12 +599,24 @@ select option:checked {
   transition: color 0.2s ease !important;
 }
 
+.card-action-btn-tan .card-action-icon {
+  color: var(--color-earth) !important;
+}
+
 .card-action-btn:hover .card-action-icon {
   color: var(--color-primary) !important;
 }
 
 .card-action-btn-honey:hover .card-action-icon {
   color: #c99d5f !important;
+}
+
+.card-action-btn-tan:hover {
+  background-color: #f5d9a8 !important;
+}
+
+.card-action-btn-tan:hover .card-action-icon {
+  color: var(--color-earth) !important;
 }
 
 .card-action-btn-earth:hover .card-action-icon {

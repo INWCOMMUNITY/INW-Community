@@ -6,10 +6,12 @@ import {
   buildOrderDetailsFromOrder,
   collectLabelUrlsFromTransactions,
   openLabelPdfUrls,
+  parcelFromOrderItems,
   resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
   uniqueHttpUrls,
   type ElementsTransactionPayload,
+  type OrderForElements,
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
 import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
@@ -23,6 +25,24 @@ const DEFAULT_WEIGHT_OZ = 16;
 const DEFAULT_LENGTH_IN = 12;
 const DEFAULT_WIDTH_IN = 12;
 const DEFAULT_HEIGHT_IN = 12;
+
+function combinedParcelForOrders(orders: OrderForElements[]) {
+  return parcelFromOrderItems({
+    id: "bulk",
+    shippingAddress: null,
+    buyer: { firstName: "", lastName: "" },
+    items: orders.flatMap((o) =>
+      o.items.map((item) => ({
+        storeItem: {
+          title: item.storeItem?.title ?? "Item",
+          shippingOption: item.storeItem?.shippingOption,
+        },
+        quantity: item.quantity,
+        priceCentsAtPurchase: item.priceCentsAtPurchase,
+      }))
+    ),
+  });
+}
 
 interface ShippoElementsAPI {
   init: (opts: { token: string; org: string; theme?: ShippoElementsTheme }) => void;
@@ -149,6 +169,7 @@ export function useShippoBulkLabelFlow(options: {
   const elementsListenersRef = useRef(false);
   const currentElementsOrderIdsRef = useRef<string[]>([]);
   const currentShipToSnapshotRef = useRef<ReturnType<typeof resolvePostalShipToAddress>>(null);
+  const currentParcelRef = useRef<ReturnType<typeof parcelFromOrderItems>>(null);
   const shippoOrderIdsRef = useRef<string[]>([]);
   const buyerGroupsRef = useRef<StoreOrderForBulkLabel[][]>([]);
   const groupIndexRef = useRef(0);
@@ -235,6 +256,7 @@ export function useShippoBulkLabelFlow(options: {
     }
     bulkFlowActiveRef.current = true;
     currentShipToSnapshotRef.current = resolvePostalShipToAddress(nextGroup[0]);
+    currentParcelRef.current = combinedParcelForOrders(nextGroup);
     shippo.labelPurchase(`#${cid}`, orderDetails);
   }, []);
 
@@ -331,11 +353,12 @@ export function useShippoBulkLabelFlow(options: {
             setPurchasedLabelUrls(nextUrls);
           }
           const firstTx = txs[0] as ElementsTransactionPayload;
+          const parcel = currentParcelRef.current;
           const payload = transactionToLabelFromElementsPayload(firstTx, {
-            weightOz: DEFAULT_WEIGHT_OZ,
-            lengthIn: DEFAULT_LENGTH_IN,
-            widthIn: DEFAULT_WIDTH_IN,
-            heightIn: DEFAULT_HEIGHT_IN,
+            weightOz: parcel?.weightOz ?? DEFAULT_WEIGHT_OZ,
+            lengthIn: parcel?.lengthIn ?? DEFAULT_LENGTH_IN,
+            widthIn: parcel?.widthIn ?? DEFAULT_WIDTH_IN,
+            heightIn: parcel?.heightIn ?? DEFAULT_HEIGHT_IN,
           });
           const shippoOrderId =
             firstTx.order_id?.trim() || shippoOrderIdsRef.current[0]?.trim() || null;
@@ -436,6 +459,7 @@ export function useShippoBulkLabelFlow(options: {
       }
       bulkFlowActiveRef.current = true;
       currentShipToSnapshotRef.current = resolvePostalShipToAddress(first[0]);
+      currentParcelRef.current = combinedParcelForOrders(first);
       shippo.labelPurchase(`#${containerIdRef.current}`, orderDetails);
     } catch {
       setElementsError("Connection failed.");

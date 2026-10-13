@@ -93,8 +93,11 @@ export async function notifyEtsySyncJobDeadOnce(input: {
   const storeItemId = storeItemIdFromPayload(input.claim.payload);
   if (!storeItemId) return { created: false };
 
-  // Evidence jobs have no seller-facing listing context.
-  if (input.claim.kind === "PROCESS_PROVIDER_EVIDENCE") {
+  // Evidence / bulk-import jobs have no per-listing seller alert context.
+  if (
+    input.claim.kind === "PROCESS_PROVIDER_EVIDENCE" ||
+    input.claim.kind === "IMPORT_BATCH"
+  ) {
     return { created: false };
   }
 
@@ -113,9 +116,10 @@ export async function notifyEtsySyncJobDeadOnce(input: {
     `Etsy ${input.claim.kind.replace(/_/g, " ").toLowerCase()} failed`
   ).slice(0, 500);
 
-  // Internal Etsy write lock — jobs retry; never surface raw 409 copy to sellers.
+  // Internal Etsy write lock / batch continue — jobs retry; never surface to sellers.
   if (
     isEtsyListingBusyConflict(message) ||
+    input.result.errorCode === "IMPORT_BATCH_CONTINUE" ||
     input.result.errorClass === "TRANSIENT" ||
     input.result.errorClass === "THROTTLED" ||
     input.result.errorClass === "NETWORK"

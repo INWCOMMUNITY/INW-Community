@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import {
+  APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   formatEtsyCents,
@@ -24,6 +25,44 @@ type Candidate = {
 };
 
 type StockMode = "PHYSICAL" | "MADE_TO_ORDER";
+type StockModePolicy = "RECOMMENDED" | "PHYSICAL" | "MADE_TO_ORDER";
+
+type BatchProgress = {
+  id: string;
+  state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  stockModePolicy: StockModePolicy;
+  total: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+  processed: number;
+  remaining: number;
+  discoverComplete: boolean;
+  scanning: boolean;
+  percent: number | null;
+  avgItemMs: number | null;
+  etaSeconds: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastProgressAt: string | null;
+  lastError: string | null;
+  cancelRequested: boolean;
+  failures: Array<{ etsyListingId: string; message: string }>;
+};
+
+function formatEta(seconds: number | null): string {
+  if (seconds == null) return "Calculating…";
+  if (seconds < 60) return `About ${seconds}s remaining`;
+  const mins = Math.ceil(seconds / 60);
+  if (mins < 60) return `About ${mins} min remaining`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem > 0 ? `About ${hrs}h ${rem}m remaining` : `About ${hrs}h remaining`;
+}
+
+function batchIsActive(batch: BatchProgress | null): boolean {
+  return batch != null && (batch.state === "PENDING" || batch.state === "RUNNING");
+}
 
 export default function AppsAirportEtsyImportPage() {
   const router = useRouter();
@@ -41,6 +80,21 @@ export default function AppsAirportEtsyImportPage() {
   const [importing, setImporting] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [step, setStep] = useState<"discover" | "review">("discover");
+  const [bulkPolicy, setBulkPolicy] = useState<StockModePolicy>("RECOMMENDED");
+  const [bulkStarting, setBulkStarting] = useState(false);
+  const [bulkCancelling, setBulkCancelling] = useState(false);
+  const [batch, setBatch] = useState<BatchProgress | null>(null);
+
+  const loadBatch = useCallback(async () => {
+    try {
+      const response = await fetch("/api/etsy/import/batch", { credentials: "include" });
+      if (!response.ok) return;
+      const body = (await response.json()) as { batch?: BatchProgress | null };
+      setBatch(body.batch ?? null);
+    } catch {
+      /* ignore poll errors */
+    }
+  }, []);
 
   const load = useCallback(async (nextOffset = 0, append = false) => {
     setLoading(true);
@@ -93,7 +147,23 @@ export default function AppsAirportEtsyImportPage() {
 
   useEffect(() => {
     void load(0, false);
-  }, [load]);
+    void loadBatch();
+  }, [load, loadBatch]);
+
+  useEffect(() => {
+    if (!batchIsActive(batch)) return;
+    const id = window.setInterval(() => {
+      void loadBatch();
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [batch, loadBatch]);
+
+  useEffect(() => {
+    if (!batch) return;
+    if (batch.state === "COMPLETED" || batch.state === "CANCELLED") {
+      void load(0, false);
+    }
+  }, [batch, load]);
 
   async function openReview(candidate: Candidate) {
     setError(null);
@@ -182,6 +252,70 @@ export default function AppsAirportEtsyImportPage() {
     }
   }
 
+  async function onImportAll() {
+    setBulkStarting(true);
+    setError(null);
+    setConnectionError(null);
+    try {
+      const response = await fetch("/api/etsy/import/batch", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stockModePolicy: bulkPolicy }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        code?: string;
+        batch?: BatchProgress;
+        status?: string;
+      };
+      if (!response.ok || !body.batch) {
+        if (body.code === "UNAUTHORIZED" || body.code === "CONNECTION_REQUIRED") {
+          setConnectionError(body.error ?? "Reconnect Etsy, then try again.");
+        } else {
+          setError(body.error ?? "Could not start bulk import.");
+        }
+        return;
+      }
+      setBatch(body.batch);
+    } catch {
+      setError("Could not start bulk import.");
+    } finally {
+      setBulkStarting(false);
+    }
+  }
+
+  async function onCancelBulk() {
+    setBulkCancelling(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/etsy/import/batch/cancel", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        batch?: BatchProgress;
+      };
+      if (!response.ok) {
+        setError(body.error ?? "Could not cancel import.");
+        return;
+      }
+      if (body.batch) setBatch(body.batch);
+      else void loadBatch();
+    } catch {
+      setError("Could not cancel import.");
+    } finally {
+      setBulkCancelling(false);
+    }
+  }
+
+  const activeBulk = batchIsActive(batch);
+  const estimateCount =
+    etsyReportedCount != null
+      ? Math.max(0, etsyReportedCount - alreadyLinkedCount)
+      : candidates.length;
+
   return (
     <AppsAirportChrome
       title="Import from Etsy"
@@ -206,11 +340,152 @@ export default function AppsAirportEtsyImportPage() {
       ) : null}
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
 
+      {batch ? (
+        <div className="mb-6 rounded-[10px] border border-neutral-200 bg-neutral-50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+                {batch.state === "COMPLETED"
+                  ? "Import complete"
+                  : batch.state === "CANCELLED"
+                    ? "Import cancelled"
+                    : batch.state === "FAILED"
+                      ? "Import stopped"
+                      : batch.scanning
+                        ? "Scanning your Etsy shop…"
+                        : "Importing from Etsy…"}
+              </p>
+              <p className="mt-1 text-sm text-neutral-600">
+                {batch.scanning
+                  ? "Finding active listings that are not linked yet."
+                  : `${batch.processed} of ${batch.total || "…"} processed · ${batch.completed} imported · ${batch.skipped} already linked · ${batch.failed} failed`}
+              </p>
+              {activeBulk ? (
+                <p className="mt-1 text-sm text-neutral-600">
+                  {formatEta(batch.etaSeconds)}. You can leave this page — import continues in the
+                  background.
+                </p>
+              ) : null}
+              {batch.lastError && activeBulk ? (
+                <p className="mt-1 text-sm text-amber-800">{batch.lastError}</p>
+              ) : null}
+              {batch.state === "FAILED" && batch.lastError ? (
+                <p className="mt-1 text-sm text-red-700">{batch.lastError}</p>
+              ) : null}
+            </div>
+            {activeBulk ? (
+              <button
+                type="button"
+                className="btn border border-gray-300 bg-white hover:bg-gray-50 text-sm"
+                style={{ color: "var(--color-heading)" }}
+                disabled={bulkCancelling || batch.cancelRequested}
+                onClick={() => void onCancelBulk()}
+              >
+                {batch.cancelRequested || bulkCancelling ? "Cancelling…" : "Cancel import"}
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-neutral-200">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${
+                  batch.scanning
+                    ? 8
+                    : batch.percent != null
+                      ? batch.percent
+                      : activeBulk
+                        ? 12
+                        : 100
+                }%`,
+                background: "var(--color-primary)",
+              }}
+            />
+          </div>
+          {batch.failures.length > 0 ? (
+            <div className="mt-3 max-h-36 overflow-y-auto text-xs text-neutral-700">
+              <p className="font-semibold text-neutral-800 mb-1">Recent failures</p>
+              <ul className="space-y-1">
+                {batch.failures.slice(-8).map((f) => (
+                  <li key={`${f.etsyListingId}-${f.message.slice(0, 24)}`}>
+                    #{f.etsyListingId}: {f.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {(batch.state === "COMPLETED" || batch.state === "CANCELLED") && (
+            <p className="mt-3 text-sm">
+              <Link
+                href={APPS_AIRPORT_ETSY_LISTINGS_PATH}
+                className="underline font-medium"
+                style={{ color: "var(--color-primary)" }}
+                prefetch={false}
+              >
+                View linked listings
+              </Link>
+            </p>
+          )}
+        </div>
+      ) : null}
+
       {step === "discover" ? (
         <>
+          <div className="mb-6 rounded-[10px] border border-neutral-200 p-4">
+            <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+              Import all active listings
+            </p>
+            <p className="mt-1 text-sm text-neutral-600">
+              Import every active Etsy listing that is not already linked
+              {estimateCount > 0 ? ` (about ${estimateCount} on this shop)` : ""}. This can take a
+              while for large shops; progress and time remaining appear above.
+            </p>
+            <fieldset className="mt-3 space-y-2" disabled={activeBulk || bulkStarting}>
+              <legend className="sr-only">Stock mode for bulk import</legend>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="bulkPolicy"
+                  checked={bulkPolicy === "RECOMMENDED"}
+                  onChange={() => setBulkPolicy("RECOMMENDED")}
+                />
+                <span className="text-sm">Recommended per listing (usually physical stock)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="bulkPolicy"
+                  checked={bulkPolicy === "PHYSICAL"}
+                  onChange={() => setBulkPolicy("PHYSICAL")}
+                />
+                <span className="text-sm">All physical stock (tracked quantity)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="bulkPolicy"
+                  checked={bulkPolicy === "MADE_TO_ORDER"}
+                  onChange={() => setBulkPolicy("MADE_TO_ORDER")}
+                />
+                <span className="text-sm">All made to order</span>
+              </label>
+            </fieldset>
+            <button
+              type="button"
+              className="btn mt-4"
+              disabled={activeBulk || bulkStarting || Boolean(connectionError)}
+              onClick={() => void onImportAll()}
+            >
+              {bulkStarting
+                ? "Starting…"
+                : activeBulk
+                  ? "Import running…"
+                  : "Import all active listings"}
+            </button>
+          </div>
+
           <p className="mb-4 text-sm text-neutral-600">
-            Showing active Etsy listings that are not linked to INW yet. Select one to review stock
-            mode and import.
+            Or review one listing at a time to choose stock mode before importing.
           </p>
           {shopName || etsyReportedCount != null ? (
             <p className="mb-3 text-sm text-neutral-600">
@@ -264,7 +539,7 @@ export default function AppsAirportEtsyImportPage() {
                         <button
                           type="button"
                           className="btn"
-                          disabled={reviewLoading}
+                          disabled={reviewLoading || activeBulk}
                           onClick={() => void openReview(candidate)}
                         >
                           Review
@@ -350,7 +625,7 @@ export default function AppsAirportEtsyImportPage() {
                 <button
                   type="button"
                   className="btn"
-                  disabled={importing || !stockMode}
+                  disabled={importing || !stockMode || activeBulk}
                   onClick={() => void onImport()}
                 >
                   {importing ? "Importing…" : "Import to INW"}

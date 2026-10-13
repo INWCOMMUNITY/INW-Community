@@ -8,6 +8,7 @@ import {
   type EtsySyncJobClaim,
 } from "database";
 import { handleEtsyCreateListingJob } from "./create-listing";
+import { handleEtsyImportBatchJob } from "./import-batch";
 import { handleEtsyProcessProviderEvidenceJob } from "./process-provider-evidence";
 import { handleEtsyPollListingContentJob } from "./poll-listing-content";
 import { handleEtsyProjectInventoryJob } from "./project-inventory";
@@ -24,6 +25,7 @@ const DEFAULT_HANDLERS: Record<string, EtsyJobHandler> = {
   PROJECT_INVENTORY: handleEtsyProjectInventoryJob,
   RECONCILE_LISTING: handleEtsyReconcileListingJob,
   CREATE_LISTING: handleEtsyCreateListingJob,
+  IMPORT_BATCH: handleEtsyImportBatchJob,
 };
 
 /**

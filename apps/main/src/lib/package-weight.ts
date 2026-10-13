@@ -77,7 +77,7 @@ export function isPackageComplete(p: PackageFields | null | undefined): p is Pac
   );
 }
 
-/** Imported eBay/Etsy options are usable without package measurements. */
+/** Imported Etsy/Shopify options are usable without package measurements. */
 export function shippingOptionNeedsMeasurements(opt: {
   source?: string | null;
   complete: boolean;

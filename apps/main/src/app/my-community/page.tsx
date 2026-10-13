@@ -20,6 +20,7 @@ const PROFILE_BUTTONS = [
   { href: "/my-community/events", label: "My Events", icon: "calendar-outline" },
   { href: "/my-community/coupons", label: "My Coupons", icon: "pricetag-outline" },
   { href: "/my-community/wantlist", label: "My Wishlist", icon: "heart-outline" },
+  { href: "/my-community/collections", label: "My Collections", icon: "bookmark-outline" },
   { href: "/my-community/orders", label: "My Orders", icon: "receipt-outline" },
 ] as const;
 

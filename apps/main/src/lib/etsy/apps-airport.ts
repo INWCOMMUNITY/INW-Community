@@ -213,10 +213,8 @@ export function resolveEtsySyncProgress(input: {
   } | null;
 }): EtsySyncProgressStep {
   if (input.enqueueStatus === "already_mapped") return "already_mapped";
-  if (
-    input.listing?.readiness === "READY_TO_PUBLISH" &&
-    etsyListingIsPubliclyViewable(input.listing.remoteListingState)
-  ) {
+  // Buyer-live on Etsy wins over Airport health / dead jobs (same idea as My Items chip).
+  if (etsyListingIsPubliclyViewable(input.listing?.remoteListingState)) {
     return "live";
   }
   if (
@@ -231,6 +229,7 @@ export function resolveEtsySyncProgress(input: {
     if (remote === "draft" || input.listing.readiness === "SYNCING") return "activating";
     return "activating";
   }
+  if (input.jobState === "SUCCEEDED") return "activating";
   if (input.jobState === "RUNNING") return "creating";
   if (input.jobState === "PENDING" || input.jobState === "RETRY_WAIT") return "queued";
   if (input.enqueueStatus === "queued") return "creating";

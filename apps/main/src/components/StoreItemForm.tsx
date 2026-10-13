@@ -1636,8 +1636,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                         })()}
                         <p className="text-xs text-gray-500 mt-0.5">
                           Used for Shippo labels.{" "}
-                          <Link href="/seller-hub/shipping-options" className="underline">
-                            Manage shipping options
+                          <Link href="/seller-hub/shipping-setup" className="underline">
+                            Manage shipping
                           </Link>
                         </p>
                       </div>

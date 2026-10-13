@@ -34,6 +34,20 @@ describe("Shippo package from listing options", () => {
     expect(details?.line_items[0]?.quantity).toBe(2);
   });
 
+  it("prefills Shippo parcels from listing shipping-option dimensions", () => {
+    const details = buildOrderDetailsFromOrder(makeOrder());
+    expect(details?.parcels).toEqual([
+      {
+        length: "10",
+        width: "6",
+        height: "4",
+        distance_unit: "in",
+        weight: "16",
+        mass_unit: "oz",
+      },
+    ]);
+  });
+
   it("falls back to 16 oz when the option is incomplete", () => {
     const details = buildOrderDetailsFromOrder(
       makeOrder({
