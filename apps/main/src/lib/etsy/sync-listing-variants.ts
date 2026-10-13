@@ -12,7 +12,6 @@ import {
   recordEtsyListingVariantTopologyDesire,
   recordShopifyListingVariantTopologyDesire,
   replaceEtsyListingVariantMaps,
-  STALE_MARKETPLACE_QTY_REVERT_MS,
   type EtsyJobHandlerResult,
 } from "database";
 import { optionValuesKey, skuSelectionKey } from "@/lib/listing-variant-matrix";
@@ -243,41 +242,6 @@ export async function etsySellerTopologyPushPending(listingLinkId: string): Prom
 }
 
 /**
- * A slow Etsy read of the old matrix must not retire a variant INW just added
- * (Shopify add, then a poll that is only missing that variant). Push INW out.
- * An Etsy edit that adds a combination is newer: adopt it instead of writing INW back.
- */
-async function remoteStructureWouldDropRecentInwVariant(input: {
-  storeItemId: string;
-  memberId: string;
-  optioned: Array<{ options: Record<string, string> }>;
-}): Promise<boolean> {
-  const cutoff = Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS;
-  const active = await prisma.storeVariant.findMany({
-    where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
-    select: { options: true, createdAt: true },
-  });
-  const inwKeys = new Set<string>();
-  const recentOptionKeys: string[] = [];
-  for (const row of active) {
-    const opts = parseStoreVariantOptions(row.options);
-    if (!opts || Object.keys(opts).length === 0) continue;
-    const key = marketplaceTopologyMatchKey(opts);
-    if (!key) continue;
-    inwKeys.add(key);
-    const createdMs = row.createdAt instanceof Date ? row.createdAt.getTime() : NaN;
-    if (Number.isFinite(createdMs) && createdMs >= cutoff) recentOptionKeys.push(key);
-  }
-  if (recentOptionKeys.length < 1) return false;
-  if (input.optioned.length === 0) return true;
-  const remoteKeys = new Set(input.optioned.map((row) => marketplaceTopologyMatchKey(row.options)));
-  const missingRecent = recentOptionKeys.some((key) => !remoteKeys.has(key));
-  if (!missingRecent) return false;
-  const remoteAddsCombination = [...remoteKeys].some((key) => key.length > 0 && !inwKeys.has(key));
-  return !remoteAddsCombination;
-}
-
-/**
  * Etsy structure landed in INW. Push that matrix to Shopify only.
  * Do not record an Etsy topology desire — that would push the change back to its source.
  */
@@ -328,24 +292,6 @@ async function pullRemoteTopologyIntoFoundation(input: {
     })
     .filter((row) => Object.keys(row.options).length > 0);
 
-  if (
-    await remoteStructureWouldDropRecentInwVariant({
-      storeItemId: input.storeItemId,
-      memberId: input.memberId,
-      optioned: optioned.map((row) => ({ options: row.options })),
-    })
-  ) {
-    try {
-      await recordEtsyListingVariantTopologyDesire(prisma, {
-        memberId: input.memberId,
-        storeItemId: input.storeItemId,
-      });
-    } catch {
-      // The next Reload Sync or cron pass can still push the INW matrix.
-    }
-    return { status: "NOOP", reason: "STALE_REMOTE_STRUCTURE" };
-  }
-
   try {
     if (optioned.length === 0) {
       const product = input.remoteProducts[0];
@@ -363,6 +309,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
           simpleTarget: quantity,
           priceCents: offeringPriceCents(offering?.price),
           sku: typeof product?.sku === "string" ? product.sku : null,
+          fanOut: "shopify",
         })
       );
     } else {
@@ -378,6 +325,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
             priceCents: row.priceCents,
             sku: row.sku,
           })),
+          fanOut: "shopify",
         })
       );
     }
@@ -536,12 +484,36 @@ async function syncEtsyListingVariantTopologyInner(input: {
 
   const gate = validateEtsyExportVariants({ variants: variantRows });
   if (!gate.ok) {
-    return {
-      outcome: "DEAD",
-      errorClass: "PERMANENT",
-      errorCode: "UNSUPPORTED_VARIANTS",
-      errorMessage: gate.message,
-    };
+    // Push still refuses a broken matrix. A pull must read Etsy and adopt it,
+    // or the "missing Primary color" error blocks the edit that would fix INW.
+    if (input.direction === "push") {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "UNSUPPORTED_VARIANTS",
+        errorMessage: gate.message,
+      };
+    }
+    const inventoryRes = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "GET",
+      path: `/listings/${encodeURIComponent(input.etsyListingId)}/inventory`,
+      query: { max_variations_supported: 3 },
+      maxAttempts: 3,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!inventoryRes.ok || !inventoryRes.data?.products) {
+      return classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs, inventoryRes.message);
+    }
+    return pullRemoteTopologyIntoFoundation({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      listingLinkId: input.listingLinkId,
+      storeItemId: input.storeItemId,
+      remoteProducts: inventoryRes.data.products,
+    });
   }
   if (!gate.multi) {
     // Local is simple/single. If Etsy still has variations, push collapse — never NOOP

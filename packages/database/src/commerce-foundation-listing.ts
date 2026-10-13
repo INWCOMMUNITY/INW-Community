@@ -320,6 +320,8 @@ export async function applyFoundationSellerCollapseToSimple(
     simpleTarget: number;
     priceCents?: number;
     sku?: string | null;
+    /** Etsy collapse is sent to Shopify. Shopify collapse is sent to Etsy. INW sends both. */
+    fanOut?: "both" | "shopify" | "etsy";
   }
 ): Promise<{ survivorVariantId: string; retired: number; structureChanged: boolean }> {
   await lockCutoverShare(tx);
@@ -424,6 +426,7 @@ export async function applyFoundationSellerCollapseToSimple(
     targetOnHand: args.simpleTarget,
     commandId: `${args.commandId}:${survivor.id}`,
     memberId: args.memberId,
+    fanOut: args.fanOut ?? "both",
   });
 
   await tx.storeItem.update({
@@ -450,6 +453,8 @@ export async function applyFoundationSellerMatrixStructure(
     memberId: string;
     commandId: string;
     matrixTargets: FoundationMatrixSkuTarget[];
+    /** Etsy structure is sent to Shopify. Shopify structure is sent to Etsy. INW sends both. */
+    fanOut?: "both" | "shopify" | "etsy";
   }
 ): Promise<{ created: number; retired: number; reactivated: number; structureChanged: boolean }> {
   await lockCutoverShare(tx);
@@ -641,6 +646,7 @@ export async function applyFoundationSellerMatrixStructure(
         targetOnHand: onHand,
         commandId: `${args.commandId}:${row.id}`,
         memberId: args.memberId,
+        fanOut: args.fanOut ?? "both",
       });
     }
   }

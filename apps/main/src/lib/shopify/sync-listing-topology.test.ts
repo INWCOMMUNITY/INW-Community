@@ -1877,4 +1877,49 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
     );
     expect(operationNames).toContain("ShopifyCreateListingProductSet");
   });
+
+  it("does not put a minutes-old Etsy removal back onto INW or Etsy", async () => {
+    const { recordEtsyListingVariantTopologyDesire } = await import("database");
+    vi.mocked(recordEtsyListingVariantTopologyDesire).mockClear();
+    vi.mocked(prisma.storeVariant.updateMany).mockClear();
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      {
+        id: "sv-recent",
+        options: { Material: "Wool", "Primary color": "Red" },
+        priceCents: 400,
+        sku: null,
+        createdAt: new Date(),
+      },
+    ] as never);
+    executeShopifyAdminGraphql.mockResolvedValue({
+      ok: false,
+      class: "GRAPHQL_PERMANENT",
+      message: "stop after the restore decision",
+      outcomeUnknown: false,
+    });
+
+    const result = await syncShopifyListingTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      productId: "gid://shopify/Product/9",
+      storeItemId: "item-1",
+      localVariants: [
+        {
+          storeVariantId: "sv-wool",
+          selectedOptions: [{ name: "Material", value: "Wool" }],
+          priceCents: 400,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      removedVariants: [
+        { storeVariantId: "sv-recent", shopifyVariantId: "gid://shopify/ProductVariant/2" },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(prisma.storeVariant.updateMany).not.toHaveBeenCalled();
+    expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
+  });
 });
