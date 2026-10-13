@@ -4,6 +4,7 @@ import {
   validateListingBuyerFields,
   type ListingBuyerFieldInput,
   type NormalizedListingBuyerField,
+  type ShopifyJobHandlerResult,
 } from "database";
 import type { ShopifyFetch, ShopifyGraphqlResult } from "./admin-graphql";
 import {
@@ -301,4 +302,316 @@ export async function importShopifyBuyerMetafields(input: {
     await replaceListingBuyerFields(prisma, input.storeItemId, classified.buyerFields);
   }
   return { incompatible: classified.incompatible };
+}
+
+const BUYER_METAFIELD_NAMESPACE = "custom";
+
+export type ShopifyBuyerMetafieldWrite = {
+  namespace: string;
+  key: string;
+  type: string;
+  name: string;
+  value: string | null;
+  validations: Array<{ name: string; value: string }>;
+  createDefinition: boolean;
+};
+
+type BuyerMetafieldSource = {
+  kind: "TEXT" | "DROPDOWN" | "FILE";
+  title: string;
+  instructions: string | null;
+  maxCharacters: number | null;
+  options: string[];
+};
+
+type RemoteBuyerMetafield = {
+  namespace: string;
+  key: string;
+  type: string;
+  value: string | null;
+  name: string | null;
+};
+
+function slugMetafieldKey(title: string, position: number, used: Set<string>): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  const base = `inw_${slug.length >= 2 ? slug : `option_${position + 1}`}`;
+  let candidate = base.slice(0, 64);
+  let n = 2;
+  while (used.has(`${BUYER_METAFIELD_NAMESPACE}:${candidate}`)) {
+    candidate = `${base.slice(0, 58)}_${n}`.slice(0, 64);
+    n += 1;
+  }
+  used.add(`${BUYER_METAFIELD_NAMESPACE}:${candidate}`);
+  return candidate;
+}
+
+function typeFits(kind: BuyerMetafieldSource["kind"], type: string): boolean {
+  if (kind === "TEXT") return type === "single_line_text_field" || type === "multi_line_text_field";
+  if (kind === "DROPDOWN") return type === "single_line_text_field";
+  return type === "file_reference" || type === "list.file_reference";
+}
+
+function desiredType(field: BuyerMetafieldSource): string {
+  if (field.kind === "FILE") return "file_reference";
+  if (field.kind === "DROPDOWN") return "single_line_text_field";
+  return (field.maxCharacters ?? 256) > 255 ? "multi_line_text_field" : "single_line_text_field";
+}
+
+/** Value written onto the Shopify product. File questions only create the definition. */
+export function shopifyBuyerMetafieldValue(
+  field: BuyerMetafieldSource,
+  remoteValue: string | null,
+  type: string
+): string | null {
+  if (field.kind === "FILE") return null;
+  if (field.kind === "DROPDOWN") {
+    const labels = field.options.map((label) => label.trim()).filter(Boolean);
+    if (remoteValue && labels.includes(remoteValue)) return remoteValue;
+    return labels[0] ?? null;
+  }
+  const instructions = field.instructions?.trim() ?? "";
+  const limit = field.maxCharacters ?? (type === "single_line_text_field" ? 255 : 5000);
+  const raw = instructions || remoteValue?.trim() || field.title;
+  const text = type === "single_line_text_field" ? raw.replace(/\s+/g, " ").trim() : raw;
+  return text.slice(0, Math.max(1, limit));
+}
+
+export function planShopifyBuyerMetafieldWrites(
+  fields: BuyerMetafieldSource[],
+  remote: RemoteBuyerMetafield[]
+): ShopifyBuyerMetafieldWrite[] {
+  const used = new Set(remote.map((row) => `${row.namespace}:${row.key}`));
+  const taken = new Set<number>();
+  return fields.map((field, position) => {
+    const matchIndex = remote.findIndex((row, index) => {
+      if (taken.has(index)) return false;
+      if (row.namespace === SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE) return false;
+      if ((row.name ?? "").trim().toLowerCase() !== field.title.trim().toLowerCase()) return false;
+      return typeFits(field.kind, row.type);
+    });
+    const matched = matchIndex >= 0 ? remote[matchIndex] : null;
+    if (matchIndex >= 0) taken.add(matchIndex);
+    const type = matched ? matched.type : desiredType(field);
+    const namespace = matched?.namespace || BUYER_METAFIELD_NAMESPACE;
+    const key = matched?.key || slugMetafieldKey(field.title, position, used);
+    const labels = field.options.map((label) => label.trim()).filter(Boolean);
+    const validations =
+      field.kind === "DROPDOWN"
+        ? [{ name: "choices", value: JSON.stringify(labels) }]
+        : [];
+    return {
+      namespace,
+      key,
+      type,
+      name: field.title.trim().slice(0, 255),
+      value: shopifyBuyerMetafieldValue(field, matched?.value ?? null, type),
+      validations,
+      createDefinition: !matched,
+    };
+  });
+}
+
+function metafieldFailure(result: {
+  class: string;
+  message: string;
+}): Extract<ShopifyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> {
+  const transient =
+    result.class === "THROTTLED" ||
+    result.class === "TRANSIENT_PROVIDER" ||
+    result.class === "NETWORK_UNKNOWN";
+  if (transient) {
+    return {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
+      errorCode: result.class,
+      errorMessage: result.message,
+    };
+  }
+  return {
+    outcome: "DEAD",
+    errorClass: "PERMANENT",
+    errorCode: result.class || "METAFIELD_WRITE",
+    errorMessage: result.message,
+  };
+}
+
+/** Write INW custom options onto the Shopify product as metafields. */
+export async function pushShopifyBuyerMetafields(input: {
+  connectionId: string;
+  shopifyProductId: string;
+  storeItemId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<Extract<ShopifyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> | null> {
+  const rows = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: input.storeItemId },
+    orderBy: { position: "asc" },
+    include: { options: { orderBy: { position: "asc" } } },
+  });
+  if (rows.length === 0) return null;
+
+  const { executeShopifyAdminGraphql } = await import("./admin-graphql");
+  const read = await executeShopifyAdminGraphql<{
+    product: {
+      metafields: {
+        nodes: Array<{
+          namespace: string;
+          key: string;
+          type: string;
+          value: string | null;
+          definition: { name: string | null } | null;
+        }>;
+      } | null;
+    } | null;
+  }>({
+    connectionId: input.connectionId,
+    operationType: "query",
+    operationName: "ShopifyBuyerMetafieldRead",
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+    document: `query ShopifyBuyerMetafieldRead($id: ID!) {
+      product(id: $id) {
+        metafields(first: 50) {
+          nodes { namespace key type value definition { name } }
+        }
+      }
+    }`,
+    variables: { id: input.shopifyProductId },
+  });
+  if (!read.ok) return metafieldFailure(read);
+  if (!read.data?.product) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "METAFIELD_READ",
+      errorMessage: "Shopify product was not found",
+    };
+  }
+
+  const remote = (read.data.product.metafields?.nodes ?? []).map((node) => ({
+    namespace: node.namespace,
+    key: node.key,
+    type: node.type,
+    value: node.value,
+    name: node.definition?.name ?? null,
+  }));
+  const writes = planShopifyBuyerMetafieldWrites(
+    rows.map((row) => ({
+      kind: row.kind,
+      title: row.title,
+      instructions: row.instructions,
+      maxCharacters: row.maxCharacters,
+      options: row.options.map((option) => option.label),
+    })),
+    remote
+  );
+
+  for (const write of writes) {
+    const definition = {
+      name: write.name,
+      namespace: write.namespace,
+      key: write.key,
+      ownerType: "PRODUCT",
+      ...(write.validations.length > 0 ? { validations: write.validations } : {}),
+    };
+    const saved = write.createDefinition
+      ? await executeShopifyAdminGraphql<{
+          metafieldDefinitionCreate: { userErrors: Array<{ message: string }> };
+        }>({
+          connectionId: input.connectionId,
+          operationType: "mutation",
+          operationName: "ShopifyBuyerMetafieldDefine",
+          fetchImpl: input.fetchImpl,
+          now: input.now,
+          document: `mutation ShopifyBuyerMetafieldDefine($definition: MetafieldDefinitionInput!) {
+            metafieldDefinitionCreate(definition: $definition) {
+              createdDefinition { id }
+              userErrors { field message code }
+            }
+          }`,
+          variables: {
+            definition: { ...definition, type: write.type },
+          },
+        })
+      : await executeShopifyAdminGraphql<{
+          metafieldDefinitionUpdate: { userErrors: Array<{ message: string }> };
+        }>({
+          connectionId: input.connectionId,
+          operationType: "mutation",
+          operationName: "ShopifyBuyerMetafieldUpdate",
+          fetchImpl: input.fetchImpl,
+          now: input.now,
+          document: `mutation ShopifyBuyerMetafieldUpdate($definition: MetafieldDefinitionUpdateInput!) {
+            metafieldDefinitionUpdate(definition: $definition) {
+              updatedDefinition { id }
+              userErrors { field message code }
+            }
+          }`,
+          variables: { definition },
+        });
+    if (!saved.ok) return metafieldFailure(saved);
+    const payload = saved.data as
+      | { metafieldDefinitionCreate?: { userErrors?: Array<{ message: string }> } }
+      | { metafieldDefinitionUpdate?: { userErrors?: Array<{ message: string }> } }
+      | null;
+    const errors =
+      (payload && "metafieldDefinitionCreate" in payload
+        ? payload.metafieldDefinitionCreate?.userErrors
+        : payload && "metafieldDefinitionUpdate" in payload
+          ? payload.metafieldDefinitionUpdate?.userErrors
+          : []) ?? [];
+    const taken =
+      write.createDefinition &&
+      errors.some((error) => /taken|already exists|in use/i.test(error.message));
+    if (errors.length > 0 && !taken) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "METAFIELD_DEFINITION",
+        errorMessage: errors[0]?.message ?? "Could not save the Shopify metafield definition",
+      };
+    }
+  }
+
+  const metafields = writes
+    .filter((write): write is ShopifyBuyerMetafieldWrite & { value: string } => Boolean(write.value))
+    .map((write) => ({
+      ownerId: input.shopifyProductId,
+      namespace: write.namespace,
+      key: write.key,
+      type: write.type,
+      value: write.value,
+    }));
+  if (metafields.length === 0) return null;
+  const set = await executeShopifyAdminGraphql<{
+    metafieldsSet: { userErrors: Array<{ message: string }> };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyBuyerMetafieldsSet",
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+    document: `mutation ShopifyBuyerMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { id }
+        userErrors { field message code }
+      }
+    }`,
+    variables: { metafields },
+  });
+  if (!set.ok) return metafieldFailure(set);
+  const setErrors = set.data?.metafieldsSet?.userErrors ?? [];
+  if (setErrors.length > 0) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "METAFIELD_SET",
+      errorMessage: setErrors[0]?.message ?? "Could not fill Shopify metafields",
+    };
+  }
+  return null;
 }

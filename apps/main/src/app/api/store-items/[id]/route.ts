@@ -727,19 +727,20 @@ export async function PATCH(
           sku: projected.sku,
           photos: projected.photos,
         };
+        const personalizationChanged = buyerFieldsCheck?.ok
+          ? await applyBuyerFieldReplace(tx, itemId, buyerFieldsCheck.fields)
+          : false;
         await recordShopifyListingContentDesire(tx, {
           memberId: ownerId,
           storeItemId: itemId,
           before: contentBefore,
           after: afterSnapshot,
+          personalizationChanged,
         });
         await recordShopifyDirtyMappedVariantContentDesires(tx, {
           memberId: ownerId,
           storeItemId: itemId,
         });
-        const personalizationChanged = buyerFieldsCheck?.ok
-          ? await applyBuyerFieldReplace(tx, itemId, buyerFieldsCheck.fields)
-          : false;
         await recordEtsyListingContentDesire(tx, {
           memberId: ownerId,
           storeItemId: itemId,
@@ -840,19 +841,20 @@ export async function PATCH(
       sku: updated.sku,
       photos: updated.photos,
     };
+    const personalizationChanged = buyerFieldsCheck?.ok
+      ? await applyBuyerFieldReplace(tx, itemId, buyerFieldsCheck.fields)
+      : false;
     await recordShopifyListingContentDesire(tx, {
       memberId: ownerId,
       storeItemId: itemId,
       before: contentBefore,
       after: afterSnapshot,
+      personalizationChanged,
     });
     await recordShopifyDirtyMappedVariantContentDesires(tx, {
       memberId: ownerId,
       storeItemId: itemId,
     });
-    const personalizationChanged = buyerFieldsCheck?.ok
-      ? await applyBuyerFieldReplace(tx, itemId, buyerFieldsCheck.fields)
-      : false;
     await recordEtsyListingContentDesire(tx, {
       memberId: ownerId,
       storeItemId: itemId,

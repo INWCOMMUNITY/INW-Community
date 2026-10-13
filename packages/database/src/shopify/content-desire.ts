@@ -77,6 +77,8 @@ export async function recordShopifyListingContentDesire(
     storeItemId: string;
     before: ShopifyListingContentSnapshot;
     after: ShopifyListingContentSnapshot;
+    /** Buyer custom options changed. Bumps product desire so metafields are written. */
+    personalizationChanged?: boolean;
   }
 ): Promise<RecordShopifyListingContentDesireResult> {
   const beforePhotos =
@@ -97,8 +99,9 @@ export async function recordShopifyListingContentDesire(
   const variantChanged =
     input.before.priceCents !== input.after.priceCents ||
     (input.before.sku ?? null) !== (input.after.sku ?? null);
+  const personalizationChanged = input.personalizationChanged === true;
 
-  if (!productChanged && !variantChanged) {
+  if (!productChanged && !variantChanged && !personalizationChanged) {
     return { status: "SKIPPED", reason: "NO_CONTENT_CHANGE" };
   }
 
@@ -193,7 +196,8 @@ export async function recordShopifyListingContentDesire(
     sku: input.after.sku,
   });
 
-  const nextProductVersion = productChanged
+  const bumpProduct = productChanged || personalizationChanged;
+  const nextProductVersion = bumpProduct
     ? lockedListing.desiredProductContentVersion + 1
     : lockedListing.desiredProductContentVersion;
   const nextVariantVersion = variantChanged
@@ -201,7 +205,7 @@ export async function recordShopifyListingContentDesire(
     : variantMap.desiredVariantContentVersion;
   const desiredAt = new Date();
 
-  if (productChanged) {
+  if (bumpProduct) {
     await db.shopifyListingLink.update({
       where: { id: lockedListing.id },
       data: {

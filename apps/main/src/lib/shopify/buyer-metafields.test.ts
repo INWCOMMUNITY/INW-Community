@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyShopifyProductMetafields } from "./buyer-metafields";
+import {
+  classifyShopifyProductMetafields,
+  planShopifyBuyerMetafieldWrites,
+  shopifyBuyerMetafieldValue,
+} from "./buyer-metafields";
 
 describe("Shopify metafields to INW custom options", () => {
   it("maps Etsy equivalents: text, choice list, and one file", () => {
@@ -79,5 +83,49 @@ describe("Shopify metafields to INW custom options", () => {
     ]);
     expect(result.buyerFields).toEqual([]);
     expect(result.incompatible).toHaveLength(1);
+  });
+});
+
+describe("INW custom options to Shopify metafields", () => {
+  it("fills a new text question and reuses a matching Shopify metafield", () => {
+    const writes = planShopifyBuyerMetafieldWrites(
+      [
+        { kind: "TEXT", title: "Engraving", instructions: "Name to engrave", maxCharacters: 40, options: [] },
+        { kind: "DROPDOWN", title: "Font Choice", instructions: null, maxCharacters: null, options: ["Romans", "Calibri"] },
+      ],
+      [
+        {
+          namespace: "custom",
+          key: "font",
+          type: "single_line_text_field",
+          value: "Calibri",
+          name: "Font Choice",
+        },
+      ]
+    );
+    expect(writes[0]).toMatchObject({
+      namespace: "custom",
+      key: "inw_engraving",
+      type: "single_line_text_field",
+      value: "Name to engrave",
+      createDefinition: true,
+    });
+    expect(writes[1]).toMatchObject({
+      namespace: "custom",
+      key: "font",
+      value: "Calibri",
+      createDefinition: false,
+    });
+    expect(writes[1]?.validations[0]?.value).toBe(JSON.stringify(["Romans", "Calibri"]));
+  });
+
+  it("keeps an imported text value when INW has no instructions", () => {
+    expect(
+      shopifyBuyerMetafieldValue(
+        { kind: "TEXT", title: "Material", instructions: null, maxCharacters: 40, options: [] },
+        "Cotton",
+        "single_line_text_field"
+      )
+    ).toBe("Cotton");
   });
 });

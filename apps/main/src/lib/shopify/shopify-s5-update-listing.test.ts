@@ -21,6 +21,7 @@ vi.mock("database", async () => {
         updateMany: vi.fn(),
       },
       storeItem: { findFirst: vi.fn() },
+      listingBuyerField: { findMany: vi.fn().mockResolvedValue([]) },
       storeVariant: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     },
     markShopifyProductContentApplied: vi.fn(),

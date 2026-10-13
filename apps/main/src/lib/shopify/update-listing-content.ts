@@ -20,6 +20,7 @@ import {
   syncShopifyListingMedia,
   syncShopifyVariantMediaAssociations,
 } from "./sync-listing-media";
+import { pushShopifyBuyerMetafields } from "./buyer-metafields";
 
 function parseUpdatePayload(payload: unknown): {
   storeItemId: string;
@@ -929,5 +930,14 @@ export async function handleShopifyUpdateListingContentJob(
 
   if (pendingRetry) return failureResult(pendingRetry);
   if (pendingDead) return failureResult(pendingDead);
+
+  const metafields = await pushShopifyBuyerMetafields({
+    connectionId: connection.id,
+    shopifyProductId: listing.shopifyProductId,
+    storeItemId: payload.storeItemId,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+  });
+  if (metafields) return metafields;
   return { outcome: "SUCCESS" };
 }

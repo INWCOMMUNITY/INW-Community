@@ -17,6 +17,7 @@ import type { ShopifyFetch } from "./admin-graphql";
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { centsToShopifyMoney } from "./listing-export-id";
 import { ensureShopifyListingExportMetafieldDefinition } from "./listing-metafield";
+import { pushShopifyBuyerMetafields } from "./buyer-metafields";
 import {
   lookupShopifyListingProductByCustomId,
   lookupShopifyListingVariantsByCustomId,
@@ -309,6 +310,25 @@ async function persistCreateListingMapping(input: {
   return { outcome: "SUCCESS" };
 }
 
+async function finishCreateListing(input: {
+  connectionId: string;
+  storeItemId: string;
+  shopifyProductId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+  persisted: ShopifyJobHandlerResult;
+}): Promise<ShopifyJobHandlerResult> {
+  if (input.persisted.outcome !== "SUCCESS") return input.persisted;
+  const metafields = await pushShopifyBuyerMetafields({
+    connectionId: input.connectionId,
+    shopifyProductId: input.shopifyProductId,
+    storeItemId: input.storeItemId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  return metafields ?? input.persisted;
+}
+
 async function persistMultiVariantCreateListingMapping(input: {
   memberId: string;
   connectionId: string;
@@ -472,7 +492,14 @@ export async function handleShopifyCreateListingJob(
     storeItemId: payload.storeItemId,
   });
   if (existing.status === "MAPPED") {
-    return { outcome: "SUCCESS" };
+    return finishCreateListing({
+      connectionId: connection.id,
+      storeItemId: payload.storeItemId,
+      shopifyProductId: existing.listingLink.shopifyProductId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+      persisted: { outcome: "SUCCESS" },
+    });
   }
   if (existing.status === "CONNECTION_INACTIVE") {
     return {
@@ -581,14 +608,21 @@ export async function handleShopifyCreateListingJob(
             };
       }
     }
-    return persistCreateListingMapping({
-      memberId: connection.memberId,
+    return finishCreateListing({
       connectionId: connection.id,
       storeItemId: storeItem.id,
-      storeVariantId: variant.id,
-      productId: discovered.product.productId,
-      variantId: discovered.product.variantId,
-      inventoryItemId: discovered.product.inventoryItemId,
+      shopifyProductId: discovered.product.productId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+      persisted: await persistCreateListingMapping({
+        memberId: connection.memberId,
+        connectionId: connection.id,
+        storeItemId: storeItem.id,
+        storeVariantId: variant.id,
+        productId: discovered.product.productId,
+        variantId: discovered.product.variantId,
+        inventoryItemId: discovered.product.inventoryItemId,
+      }),
     });
   }
 
@@ -616,14 +650,21 @@ export async function handleShopifyCreateListingJob(
       : { outcome: "DEAD", errorClass: remote.errorClass, errorCode: remote.errorCode, errorMessage: remote.errorMessage };
   }
 
-  return persistCreateListingMapping({
-    memberId: connection.memberId,
+  return finishCreateListing({
     connectionId: connection.id,
     storeItemId: storeItem.id,
-    storeVariantId: variant.id,
-    productId: remote.productId,
-    variantId: remote.variantId,
-    inventoryItemId: remote.inventoryItemId,
+    shopifyProductId: remote.productId,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+    persisted: await persistCreateListingMapping({
+      memberId: connection.memberId,
+      connectionId: connection.id,
+      storeItemId: storeItem.id,
+      storeVariantId: variant.id,
+      productId: remote.productId,
+      variantId: remote.variantId,
+      inventoryItemId: remote.inventoryItemId,
+    }),
   });
 }
 
@@ -770,12 +811,19 @@ async function handleMultiVariantCreate(ctx: {
           }
         }
       }
-      return persistMultiVariantCreateListingMapping({
-        memberId: connection.memberId,
+      return finishCreateListing({
         connectionId: connection.id,
         storeItemId: storeItem.id,
-        pairs: recovered.pairs,
-        productId: discovered.product.productId,
+        shopifyProductId: discovered.product.productId,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+        persisted: await persistMultiVariantCreateListingMapping({
+          memberId: connection.memberId,
+          connectionId: connection.id,
+          storeItemId: storeItem.id,
+          pairs: recovered.pairs,
+          productId: discovered.product.productId,
+        }),
       });
     }
     // The disconnected product is still on Shopify. Rewrite it from current INW
@@ -825,12 +873,19 @@ async function handleMultiVariantCreate(ctx: {
         errorMessage: afterRewrite.message,
       };
     }
-    return persistMultiVariantCreateListingMapping({
-      memberId: connection.memberId,
+    return finishCreateListing({
       connectionId: connection.id,
       storeItemId: storeItem.id,
-      pairs: afterRewrite.pairs,
-      productId: rewritten.productId,
+      shopifyProductId: rewritten.productId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+      persisted: await persistMultiVariantCreateListingMapping({
+        memberId: connection.memberId,
+        connectionId: connection.id,
+        storeItemId: storeItem.id,
+        pairs: afterRewrite.pairs,
+        productId: rewritten.productId,
+      }),
     });
   }
 
@@ -873,11 +928,18 @@ async function handleMultiVariantCreate(ctx: {
     };
   }
 
-  return persistMultiVariantCreateListingMapping({
-    memberId: connection.memberId,
+  return finishCreateListing({
     connectionId: connection.id,
     storeItemId: storeItem.id,
-    pairs: correlation.pairs,
-    productId: remote.productId,
+    shopifyProductId: remote.productId,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+    persisted: await persistMultiVariantCreateListingMapping({
+      memberId: connection.memberId,
+      connectionId: connection.id,
+      storeItemId: storeItem.id,
+      pairs: correlation.pairs,
+      productId: remote.productId,
+    }),
   });
 }
