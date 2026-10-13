@@ -225,17 +225,25 @@ describe("Etsy variant add fans out to Shopify", () => {
     vi.mocked(recordEtsyListingVariantTopologyDesire).mockClear();
     vi.mocked(recordShopifyListingVariantTopologyDesire).mockClear();
     vi.mocked(applyFoundationSellerMatrixStructure).mockClear();
+    const cotton = {
+      id: "sv-cotton",
+      options: { Material: "Cotton", Size: "Small", "Primary color": "Red" },
+      priceCents: 700,
+      sku: null,
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      inventoryState: { mode: "TRACKED_FINITE", onHand: 5, reserved: 0 },
+    };
     const wool = {
       id: "sv-wool",
       options: { Material: "Wool", Size: "Small", "Primary color": "Red" },
-      priceCents: 700,
+      priceCents: 400,
       sku: null,
       createdAt: new Date(),
-      inventoryState: { mode: "TRACKED_FINITE", onHand: 7, reserved: 0 },
+      inventoryState: { mode: "TRACKED_FINITE", onHand: 2, reserved: 0 },
     };
     vi.mocked(prisma.storeVariant.findMany)
-      .mockResolvedValueOnce([wool] as never)
-      .mockResolvedValueOnce([wool] as never);
+      .mockResolvedValueOnce([cotton, wool] as never)
+      .mockResolvedValueOnce([cotton, wool] as never);
     etsyConnectionRequest.mockResolvedValue({
       ok: true,
       data: {
@@ -248,17 +256,7 @@ describe("Etsy variant add fans out to Shopify", () => {
               { property_id: 514, property_name: "Primary color", values: ["Red"] },
               { property_id: 516, property_name: "Size", values: ["Small"] },
             ],
-            offerings: [{ offering_id: 101, quantity: 7, is_enabled: true, price: 7 }],
-          },
-          {
-            product_id: 12,
-            sku: "COTTON-BROWN",
-            property_values: [
-              { property_id: 513, property_name: "Material", values: ["Cotton"] },
-              { property_id: 514, property_name: "Primary color", values: ["Brown"] },
-              { property_id: 516, property_name: "Size", values: ["Small"] },
-            ],
-            offerings: [{ offering_id: 102, quantity: 7, is_enabled: true, price: 7 }],
+            offerings: [{ offering_id: 101, quantity: 5, is_enabled: true, price: 7 }],
           },
         ],
       },
@@ -280,6 +278,104 @@ describe("Etsy variant add fans out to Shopify", () => {
     expect(applyFoundationSellerMatrixStructure).not.toHaveBeenCalled();
     expect(recordShopifyListingVariantTopologyDesire).not.toHaveBeenCalled();
     expect(recordEtsyListingVariantTopologyDesire).toHaveBeenCalledWith(prisma, {
+      memberId: "mem-1",
+      storeItemId: "item-1",
+    });
+  });
+
+  it("adopts an Etsy Secondary color add instead of writing the old INW matrix back", async () => {
+    const {
+      prisma,
+      recordEtsyListingVariantTopologyDesire,
+      recordShopifyListingVariantTopologyDesire,
+      applyFoundationSellerMatrixStructure,
+    } = await import("database");
+    const { pushStoreItemTopologyToShopifyNow } = await import("../shopify/reconcile-listing");
+    vi.mocked(recordEtsyListingVariantTopologyDesire).mockClear();
+    vi.mocked(recordShopifyListingVariantTopologyDesire).mockClear();
+    vi.mocked(applyFoundationSellerMatrixStructure).mockClear();
+    vi.mocked(pushStoreItemTopologyToShopifyNow).mockClear();
+    const wool = {
+      id: "sv-wool",
+      options: { Material: "Wool", Size: "Small", "Primary color": "Red" },
+      priceCents: 400,
+      sku: null,
+      createdAt: new Date(),
+      inventoryState: { mode: "TRACKED_FINITE", onHand: 2, reserved: 0 },
+    };
+    vi.mocked(prisma.storeVariant.findMany)
+      .mockResolvedValueOnce([wool] as never)
+      .mockResolvedValueOnce([wool] as never)
+      .mockResolvedValueOnce([
+        {
+          id: "sv-navy",
+          options: {
+            Material: "Wool",
+            Size: "Small",
+            "Primary color": "Red",
+            "Secondary color": "Navy",
+          },
+        },
+        {
+          id: "sv-gold",
+          options: {
+            Material: "Wool",
+            Size: "Small",
+            "Primary color": "Red",
+            "Secondary color": "Gold",
+          },
+        },
+      ] as never);
+    etsyConnectionRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        products: [
+          {
+            product_id: 21,
+            sku: "NAVY",
+            property_values: [
+              { property_id: 507, property_name: "Material", values: ["Wool"] },
+              { property_id: 200, property_name: "Primary color", values: ["Red"] },
+              { property_id: 513, property_name: "Size", values: ["Small"] },
+              { property_id: 514, property_name: "Secondary color", values: ["Navy"] },
+            ],
+            offerings: [{ offering_id: 201, quantity: 2, is_enabled: true, price: 4 }],
+          },
+          {
+            product_id: 22,
+            sku: "GOLD",
+            property_values: [
+              { property_id: 507, property_name: "Material", values: ["Wool"] },
+              { property_id: 200, property_name: "Primary color", values: ["Red"] },
+              { property_id: 513, property_name: "Size", values: ["Small"] },
+              { property_id: 514, property_name: "Secondary color", values: ["Gold"] },
+            ],
+            offerings: [{ offering_id: 202, quantity: 2, is_enabled: true, price: 4 }],
+          },
+        ],
+      },
+    });
+
+    const result = await syncEtsyListingVariantTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      storeItemId: "item-1",
+      etsyListingId: "999",
+      taxonomyId: 1,
+      readinessStateId: 1,
+      inventoryTracking: "tracked",
+      direction: "pull",
+    });
+
+    expect(result).toMatchObject({ status: "PULLED", pairCount: 2 });
+    expect(applyFoundationSellerMatrixStructure).toHaveBeenCalled();
+    expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
+    expect(recordShopifyListingVariantTopologyDesire).toHaveBeenCalledWith(prisma, {
+      memberId: "mem-1",
+      storeItemId: "item-1",
+    });
+    expect(pushStoreItemTopologyToShopifyNow).toHaveBeenCalledWith({
       memberId: "mem-1",
       storeItemId: "item-1",
     });

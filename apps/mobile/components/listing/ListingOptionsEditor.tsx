@@ -733,7 +733,7 @@ export function ListingOptionsEditor({
               </Text>
               <ChannelNotes notes={channelNotes} />
               {draftAxes.map((axis, ai) => (
-                <View key={`${axis.name}-${ai}`} style={styles.axisCard}>
+                <View key={ai} style={styles.axisCard}>
                   <View style={styles.presetRow}>
                     {presets.map((preset) => (
                       <Pressable
@@ -755,6 +755,26 @@ export function ListingOptionsEditor({
                         </Text>
                       </Pressable>
                     ))}
+                    <Pressable
+                      style={[
+                        styles.presetChip,
+                        !presets.includes(axis.name) && styles.presetChipActive,
+                      ]}
+                      onPress={() =>
+                        setDraftAxes((prev) =>
+                          prev.map((a, i) => (i === ai ? { ...a, name: "" } : a))
+                        )
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.presetChipText,
+                          !presets.includes(axis.name) && styles.presetChipTextActive,
+                        ]}
+                      >
+                        Custom
+                      </Text>
+                    </Pressable>
                     <Pressable
                       style={styles.removeBtn}
                       onPress={() => setDraftAxes((prev) => prev.filter((_, i) => i !== ai))}

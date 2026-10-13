@@ -243,8 +243,9 @@ export async function etsySellerTopologyPushPending(listingLinkId: string): Prom
 }
 
 /**
- * Etsy still showing the pre-change matrix must not retire a variant INW just added
- * (Shopify add, then an Etsy poll of the old listing). Push INW out instead.
+ * A slow Etsy read of the old matrix must not retire a variant INW just added
+ * (Shopify add, then a poll that is only missing that variant). Push INW out.
+ * An Etsy edit that adds a combination is newer: adopt it instead of writing INW back.
  */
 async function remoteStructureWouldDropRecentInwVariant(input: {
   storeItemId: string;
@@ -256,18 +257,24 @@ async function remoteStructureWouldDropRecentInwVariant(input: {
     where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
     select: { options: true, createdAt: true },
   });
-  const recentOptionKeys = active
-    .filter((row) => {
-      const createdMs = row.createdAt instanceof Date ? row.createdAt.getTime() : NaN;
-      return Number.isFinite(createdMs) && createdMs >= cutoff;
-    })
-    .map((row) => parseStoreVariantOptions(row.options))
-    .filter((opts): opts is Record<string, string> => Boolean(opts && Object.keys(opts).length > 0))
-    .map((opts) => marketplaceTopologyMatchKey(opts));
+  const inwKeys = new Set<string>();
+  const recentOptionKeys: string[] = [];
+  for (const row of active) {
+    const opts = parseStoreVariantOptions(row.options);
+    if (!opts || Object.keys(opts).length === 0) continue;
+    const key = marketplaceTopologyMatchKey(opts);
+    if (!key) continue;
+    inwKeys.add(key);
+    const createdMs = row.createdAt instanceof Date ? row.createdAt.getTime() : NaN;
+    if (Number.isFinite(createdMs) && createdMs >= cutoff) recentOptionKeys.push(key);
+  }
   if (recentOptionKeys.length < 1) return false;
   if (input.optioned.length === 0) return true;
   const remoteKeys = new Set(input.optioned.map((row) => marketplaceTopologyMatchKey(row.options)));
-  return recentOptionKeys.some((key) => !remoteKeys.has(key));
+  const missingRecent = recentOptionKeys.some((key) => !remoteKeys.has(key));
+  if (!missingRecent) return false;
+  const remoteAddsCombination = [...remoteKeys].some((key) => key.length > 0 && !inwKeys.has(key));
+  return !remoteAddsCombination;
 }
 
 /**
