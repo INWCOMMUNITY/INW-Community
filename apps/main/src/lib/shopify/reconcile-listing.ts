@@ -20,6 +20,43 @@ import { notifyShopifyListingIssueOnce } from "./listing-issue-notify";
 import { syncShopifyListingTopology } from "./sync-listing-topology";
 import { readRemoteProductForInbound } from "./process-products-update";
 
+/**
+ * Etsy and INW can already match while Shopify is missing a variant from an earlier add.
+ * A later Etsy poll then sees no structure change and would never create it.
+ * Push only when an active INW variant has no Shopify map.
+ */
+export async function pushUnmappedStoreVariantsToShopify(input: {
+  memberId: string;
+  storeItemId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<void> {
+  const connection = await prisma.shopifyConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) return;
+  const listing = await prisma.shopifyListingLink.findFirst({
+    where: { shopifyConnectionId: connection.id, storeItemId: input.storeItemId },
+    select: { id: true },
+  });
+  if (!listing) return;
+  const [activeVariants, variantMaps] = await Promise.all([
+    prisma.storeVariant.findMany({
+      where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+      select: { id: true },
+    }),
+    prisma.shopifyVariantMap.findMany({
+      where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+      select: { storeVariantId: true },
+    }),
+  ]);
+  const mapped = new Set(variantMaps.map((row) => row.storeVariantId));
+  if (!activeVariants.some((row) => !mapped.has(row.id))) return;
+  await pushStoreItemTopologyToShopifyNow(input);
+}
+
 /** Push the current INW matrix onto Shopify now. Used when Etsy just added a variant. */
 export async function pushStoreItemTopologyToShopifyNow(input: {
   memberId: string;

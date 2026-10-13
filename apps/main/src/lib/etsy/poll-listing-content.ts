@@ -416,6 +416,18 @@ export async function handleEtsyPollListingContentJob(
       }
     }
 
+    // INW and Etsy can already match. Shopify still needs a variant added earlier.
+    try {
+      const { pushUnmappedStoreVariantsToShopify } = await import("../shopify/reconcile-listing");
+      await pushUnmappedStoreVariantsToShopify({
+        memberId: connection.memberId,
+        storeItemId: link.storeItemId,
+        now: deps.now,
+      });
+    } catch {
+      // The next poll retries a Shopify variant that is still missing.
+    }
+
     await reconcileEtsyListingHealthFromDb(prisma, {
       connectionId: connection.id,
       listingLinkId: link.id,

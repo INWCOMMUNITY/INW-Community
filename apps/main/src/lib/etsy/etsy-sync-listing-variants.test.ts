@@ -10,6 +10,7 @@ vi.mock("./connection-request", () => ({
 
 vi.mock("../shopify/reconcile-listing", () => ({
   pushStoreItemTopologyToShopifyNow: vi.fn(async () => undefined),
+  pushUnmappedStoreVariantsToShopify: vi.fn(async () => undefined),
 }));
 
 vi.mock("database", async (importOriginal) => {

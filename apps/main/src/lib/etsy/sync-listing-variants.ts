@@ -471,7 +471,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
  * direction "pull" (cron default): adopt Etsy structure into Foundation when combos diverge.
  * direction "push": seller topology desire — PUT INW products[] onto Etsy.
  */
-export async function syncEtsyListingVariantTopology(input: {
+async function syncEtsyListingVariantTopologyInner(input: {
   connectionId: string;
   memberId: string;
   listingLinkId: string;
@@ -901,6 +901,30 @@ export async function syncEtsyListingVariantTopology(input: {
   }
 
   return { status: "PUSHED", pairCount: correlation.pairs.length };
+}
+
+/**
+ * Sync Size×Color between INW StoreVariants and Etsy products[].
+ * direction "pull" (cron default): adopt Etsy structure into Foundation when combos diverge.
+ * direction "push": seller topology desire — PUT INW products[] onto Etsy.
+ * Afterward, create any INW variant Shopify still does not have.
+ */
+export async function syncEtsyListingVariantTopology(
+  input: Parameters<typeof syncEtsyListingVariantTopologyInner>[0]
+): Promise<SyncEtsyVariantTopologyResult> {
+  try {
+    return await syncEtsyListingVariantTopologyInner(input);
+  } finally {
+    try {
+      const { pushUnmappedStoreVariantsToShopify } = await import("../shopify/reconcile-listing");
+      await pushUnmappedStoreVariantsToShopify({
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+      });
+    } catch {
+      // The next Etsy poll retries a Shopify variant that is still missing.
+    }
+  }
 }
 
 /** Content and inventory jobs should wait when topology just changed the offering ids. */

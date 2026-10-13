@@ -23,6 +23,10 @@ vi.mock("./connection-request", () => ({
   etsyConnectionRequest: vi.fn(),
 }));
 
+vi.mock("../shopify/reconcile-listing", () => ({
+  pushUnmappedStoreVariantsToShopify: vi.fn(async () => undefined),
+}));
+
 import {
   applyEtsyListingContentInbound,
   markEtsyListingContentPollComplete,
@@ -30,6 +34,7 @@ import {
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import { handleEtsyPollListingContentJob } from "./poll-listing-content";
+import { pushUnmappedStoreVariantsToShopify } from "../shopify/reconcile-listing";
 
 const claim = {
   id: "job-poll",
@@ -159,6 +164,11 @@ describe("etsy POLL_LISTING_CONTENT handler", () => {
       expect.anything(),
       expect.objectContaining({ connectionId: "conn-1" })
     );
+    expect(pushUnmappedStoreVariantsToShopify).toHaveBeenCalledWith({
+      memberId: "m1",
+      storeItemId: "item-ok",
+      now: undefined,
+    });
   });
 
   it("stops the poll on a connection-level auth failure", async () => {
