@@ -259,14 +259,20 @@ async function variantBulkUpdateScalars(input: {
   price?: string;
   /** Omit to leave remote SKU untouched (field-level push). */
   sku?: string;
+  /** INW tracks this listing, so Shopify must track quantity too. */
+  trackInventory?: boolean;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
   const variant: Record<string, unknown> = { id: input.variantId };
   if (input.price !== undefined) variant.price = input.price;
-  if (input.sku !== undefined) {
+  if (input.sku !== undefined || input.trackInventory) {
     // 2026-07: SKU lives on InventoryItemInput, not ProductVariantsBulkInput root.
-    variant.inventoryItem = { sku: input.sku ? input.sku : null };
+    // tracked:true is what makes Shopify show a quantity instead of "-".
+    variant.inventoryItem = {
+      ...(input.sku !== undefined ? { sku: input.sku ? input.sku : null } : {}),
+      ...(input.trackInventory ? { tracked: true } : {}),
+    };
   }
   const result = await executeShopifyAdminGraphql<{
     productVariantsBulkUpdate: {
@@ -687,6 +693,7 @@ export async function handleShopifyUpdateListingContentJob(
             ? { price: shopifyMoneyFromCents(storeVariant.priceCents) }
             : {}),
           ...(fieldPlan.pushSku ? { sku: storeVariant.sku ?? "" } : {}),
+          trackInventory: storeItem.inventoryTracking !== "made_to_order",
           fetchImpl: deps.fetchImpl,
           now: deps.now,
         });
@@ -799,6 +806,7 @@ export async function handleShopifyUpdateListingContentJob(
             variantId: variantMap.shopifyVariantId,
             price: shopifyMoneyFromCents(storeVariant.priceCents),
             sku: storeVariant.sku ?? "",
+            trackInventory: storeItem.inventoryTracking !== "made_to_order",
             fetchImpl: deps.fetchImpl,
             now: deps.now,
           });
@@ -871,6 +879,7 @@ export async function handleShopifyUpdateListingContentJob(
         variantId: sib.shopifyVariantId,
         price: shopifyMoneyFromCents(sibVariant.priceCents),
         sku: sibVariant.sku ?? "",
+        trackInventory: storeItem.inventoryTracking !== "made_to_order",
         fetchImpl: deps.fetchImpl,
         now: deps.now,
       });
