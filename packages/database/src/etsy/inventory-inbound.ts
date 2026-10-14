@@ -287,7 +287,7 @@ async function rememberSharedEtsyQuantity(
     return;
   }
   if (matrix.sharedQuantity !== true) return;
-  const next = { ...matrix, quantitiesVary: true };
+  const next: Record<string, unknown> = { ...matrix, quantitiesVary: true };
   delete next.sharedQuantity;
   await db.storeItem.update({
     where: { id: storeItemId },
