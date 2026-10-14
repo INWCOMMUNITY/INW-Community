@@ -15,14 +15,20 @@ export async function POST(req: NextRequest) {
 
   let etsyListingId = "";
   let stockMode: "PHYSICAL" | "MADE_TO_ORDER" | "" = "";
+  let shippingCostCents: number | null = null;
   try {
     const body = (await req.json()) as {
       etsyListingId?: unknown;
       stockMode?: unknown;
+      shippingCostCents?: unknown;
     };
     etsyListingId = typeof body.etsyListingId === "string" ? body.etsyListingId : "";
     stockMode =
       body.stockMode === "PHYSICAL" || body.stockMode === "MADE_TO_ORDER" ? body.stockMode : "";
+    shippingCostCents =
+      typeof body.shippingCostCents === "number" && Number.isFinite(body.shippingCostCents)
+        ? Math.round(body.shippingCostCents)
+        : null;
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
@@ -33,8 +39,14 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  if (shippingCostCents == null || shippingCostCents < 0 || shippingCostCents > 10_000_000) {
+    return NextResponse.json(
+      { error: "Enter a shipping price, or ship for free.", code: "INVALID_REQUEST" },
+      { status: 400 }
+    );
+  }
 
-  const result = await importEtsyListing({ memberId, etsyListingId, stockMode });
+  const result = await importEtsyListing({ memberId, etsyListingId, stockMode, shippingCostCents });
   if (result.status === "ERROR") {
     return NextResponse.json(
       { error: result.message, code: result.code },

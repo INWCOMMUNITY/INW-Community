@@ -10,6 +10,7 @@ import {
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   formatEtsyCents,
 } from "@/lib/etsy/apps-airport";
+import { parseSellerShippingDollars } from "@/lib/etsy/import-shipping";
 
 type Candidate = {
   etsyListingId: string;
@@ -81,9 +82,14 @@ export default function AppsAirportEtsyImportPage() {
   const [stockMode, setStockMode] = useState<StockMode | null>(null);
   const [importing, setImporting] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
-  const [step, setStep] = useState<"discover" | "review">("discover");
+  const [step, setStep] = useState<"discover" | "review" | "shipping">("discover");
   const [bulkPolicy, setBulkPolicy] = useState<StockModePolicy>("RECOMMENDED");
-  const [shippingChoice, setShippingChoice] = useState<"IMPORT_PRICES" | "FREE" | null>(null);
+  const [shippingItems, setShippingItems] = useState<Candidate[]>([]);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [priceById, setPriceById] = useState<Record<string, string>>({});
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [shippingLoading, setShippingLoading] = useState(false);
+  const [singleShippingPrice, setSingleShippingPrice] = useState("");
   const [bulkStarting, setBulkStarting] = useState(false);
   const [bulkCancelling, setBulkCancelling] = useState(false);
   const [batch, setBatch] = useState<BatchProgress | null>(null);
@@ -193,6 +199,7 @@ export default function AppsAirportEtsyImportPage() {
     setStep("review");
     setSelected(null);
     setStockMode(null);
+    setSingleShippingPrice("");
     try {
       const response = await fetch(
         `/api/etsy/import/candidates?etsyListingId=${encodeURIComponent(candidate.etsyListingId)}`,
@@ -233,9 +240,14 @@ export default function AppsAirportEtsyImportPage() {
     }
   }
 
-  async function onImport() {
+  async function onImport(shippingCostCents?: number) {
     if (!selected || !stockMode) {
       setError("Choose a stock mode before importing.");
+      return;
+    }
+    const cents = shippingCostCents ?? parseSellerShippingDollars(singleShippingPrice);
+    if (cents == null) {
+      setError("Enter a shipping price, or ship for free.");
       return;
     }
     setImporting(true);
@@ -248,6 +260,7 @@ export default function AppsAirportEtsyImportPage() {
         body: JSON.stringify({
           etsyListingId: selected.etsyListingId,
           stockMode,
+          shippingCostCents: cents,
         }),
       });
       const body = (await response.json()) as {
@@ -283,11 +296,7 @@ export default function AppsAirportEtsyImportPage() {
     }
   }
 
-  async function onImportAll() {
-    if (!shippingChoice) {
-      setError("Choose Import Shipping Prices or Ship Free with INW.");
-      return;
-    }
+  async function onImportAll(priced?: { listingIds: string[]; shippingPrices: Record<string, number> }) {
     setBulkStarting(true);
     setError(null);
     setConnectionError(null);
@@ -296,7 +305,12 @@ export default function AppsAirportEtsyImportPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stockModePolicy: bulkPolicy, shippingPolicy: shippingChoice }),
+        body: JSON.stringify({
+          stockModePolicy: bulkPolicy,
+          ...(priced
+            ? { listingIds: priced.listingIds, shippingPrices: priced.shippingPrices }
+            : {}),
+        }),
       });
       const body = (await response.json()) as {
         error?: string;
@@ -313,11 +327,99 @@ export default function AppsAirportEtsyImportPage() {
         return;
       }
       setBatch(body.batch);
+      setStep("discover");
     } catch {
       setError("Could not start bulk import.");
     } finally {
       setBulkStarting(false);
     }
+  }
+
+  async function openShippingPage() {
+    setShippingLoading(true);
+    setError(null);
+    setConnectionError(null);
+    try {
+      const all: Candidate[] = [];
+      let nextOffset = 0;
+      for (let page = 0; page < 200; page += 1) {
+        const response = await fetch(
+          `/api/etsy/import/candidates?offset=${nextOffset}&limit=50`,
+          { credentials: "include" }
+        );
+        const body = (await response.json()) as {
+          error?: string;
+          code?: string;
+          candidates?: Candidate[];
+          pageInfo?: { hasNextPage?: boolean; offset?: number };
+        };
+        if (!response.ok) {
+          if (body.code === "CONNECTION_REQUIRED" || body.code === "UNAUTHORIZED") {
+            setConnectionError(body.error ?? "Reconnect Etsy, then try again.");
+          } else {
+            setError(body.error ?? "Could not load Etsy listings.");
+          }
+          return;
+        }
+        all.push(...(body.candidates ?? []));
+        if (!body.pageInfo?.hasNextPage) break;
+        const offset = body.pageInfo.offset ?? nextOffset;
+        if (offset === nextOffset) break;
+        nextOffset = offset;
+        if (page === 199) {
+          setError("This shop has too many listings to price at once. Ship for free instead.");
+          return;
+        }
+      }
+      if (all.length === 0) {
+        setError("No listings left to import.");
+        return;
+      }
+      setShippingItems(all);
+      setCheckedIds(new Set());
+      setPriceById({});
+      setBulkPrice("");
+      setStep("shipping");
+    } catch {
+      setError("Could not load Etsy listings.");
+    } finally {
+      setShippingLoading(false);
+    }
+  }
+
+  function applyBulkPrice() {
+    const cents = parseSellerShippingDollars(bulkPrice);
+    if (checkedIds.size === 0) {
+      setError("Check the listings that should share this shipping price.");
+      return;
+    }
+    if (cents == null) {
+      setError("Enter a shipping price to apply.");
+      return;
+    }
+    const formatted = (cents / 100).toFixed(2);
+    setPriceById((prev) => {
+      const next = { ...prev };
+      for (const id of checkedIds) next[id] = formatted;
+      return next;
+    });
+    setError(null);
+  }
+
+  function importWithPrices() {
+    const shippingPrices: Record<string, number> = {};
+    for (const item of shippingItems) {
+      const cents = parseSellerShippingDollars(priceById[item.etsyListingId] ?? "");
+      if (cents == null) {
+        setError("Enter a shipping price for every listing, or ship for free.");
+        return;
+      }
+      shippingPrices[item.etsyListingId] = cents;
+    }
+    void onImportAll({
+      listingIds: shippingItems.map((item) => item.etsyListingId),
+      shippingPrices,
+    });
   }
 
   async function onCancelBulk() {
@@ -508,54 +610,24 @@ export default function AppsAirportEtsyImportPage() {
                 <span className="text-sm">All made to order</span>
               </label>
             </fieldset>
-            <fieldset className="mt-4 space-y-2" disabled={activeBulk || bulkStarting}>
-              <legend className="text-sm font-semibold" style={{ color: "var(--color-heading)" }}>
-                Shipping on INW
-              </legend>
-              <label className="mt-2 flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="shippingChoice"
-                  className="mt-1"
-                  checked={shippingChoice === "IMPORT_PRICES"}
-                  onChange={() => setShippingChoice("IMPORT_PRICES")}
-                />
-                <span className="text-sm">
-                  Import Shipping Prices
-                  <span className="block text-neutral-600">
-                    Use the Etsy domestic rate when the listing has package dimensions and a fixed
-                    shipping price. Calculated shipping, or a listing missing dimensions, ships free.
-                  </span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="shippingChoice"
-                  className="mt-1"
-                  checked={shippingChoice === "FREE"}
-                  onChange={() => setShippingChoice("FREE")}
-                />
-                <span className="text-sm">
-                  Ship Free with INW
-                  <span className="block text-neutral-600">
-                    Every imported listing ships free on INW.
-                  </span>
-                </span>
-              </label>
-            </fieldset>
-            <button
-              type="button"
-              className="btn mt-4"
-              disabled={activeBulk || bulkStarting || !shippingChoice || Boolean(connectionError)}
-              onClick={() => void onImportAll()}
-            >
-              {bulkStarting
-                ? "Starting…"
-                : activeBulk
-                  ? "Import running…"
-                  : "Import all active listings"}
-            </button>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="btn"
+                disabled={activeBulk || bulkStarting || shippingLoading || Boolean(connectionError)}
+                onClick={() => void openShippingPage()}
+              >
+                {shippingLoading ? "Loading listings…" : "Set Shipping Prices"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-pill-earth"
+                disabled={activeBulk || bulkStarting || shippingLoading || Boolean(connectionError)}
+                onClick={() => void onImportAll()}
+              >
+                {bulkStarting ? "Starting…" : activeBulk ? "Import running…" : "Ship for Free with INW (Appreciated)"}
+              </button>
+            </div>
           </div>
 
           <p className="mb-4 text-sm text-neutral-600">
@@ -647,6 +719,148 @@ export default function AppsAirportEtsyImportPage() {
         </>
       ) : null}
 
+      {step === "shipping" ? (
+        <div className="space-y-4">
+          <div>
+            <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+              Shipping prices
+            </p>
+            <p className="mt-1 text-sm text-neutral-600">
+              Set what buyers pay to ship each listing on INW. Check listings to apply one price to all of them.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3 rounded-[10px] border border-neutral-200 p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={shippingItems.length > 0 && checkedIds.size === shippingItems.length}
+                onChange={(e) => {
+                  setCheckedIds(
+                    e.target.checked
+                      ? new Set(shippingItems.map((item) => item.etsyListingId))
+                      : new Set()
+                  );
+                }}
+              />
+              Select all
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-neutral-600">Price for checked listings</span>
+              <span className="inline-flex items-center gap-1">
+                <span>$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-28 rounded border px-2 py-1.5"
+                  placeholder="0.00"
+                  value={bulkPrice}
+                  onChange={(e) => setBulkPrice(e.target.value)}
+                />
+              </span>
+            </label>
+            <button type="button" className="btn" onClick={applyBulkPrice} disabled={bulkStarting}>
+              Apply to selected
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-[10px] border border-neutral-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-neutral-50 text-left">
+                <tr>
+                  <th className="px-3 py-2 w-10" />
+                  <th className="px-3 py-2">Listing</th>
+                  <th className="px-3 py-2">Shipping price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shippingItems.map((item) => (
+                  <tr key={item.etsyListingId} className="border-t border-neutral-100">
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${item.title}`}
+                        checked={checkedIds.has(item.etsyListingId)}
+                        onChange={(e) => {
+                          setCheckedIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(item.etsyListingId);
+                            else next.delete(item.etsyListingId);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="h-12 w-12 shrink-0 rounded object-cover border border-neutral-200"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 shrink-0 rounded border border-neutral-200 bg-neutral-50" />
+                        )}
+                        <span className="truncate">{item.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center gap-1">
+                        <span>$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          aria-label={`Shipping price for ${item.title}`}
+                          className="w-28 rounded border px-2 py-1.5"
+                          placeholder="0.00"
+                          value={priceById[item.etsyListingId] ?? ""}
+                          onChange={(e) =>
+                            setPriceById((prev) => ({
+                              ...prev,
+                              [item.etsyListingId]: e.target.value,
+                            }))
+                          }
+                        />
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="btn"
+              disabled={bulkStarting || activeBulk}
+              onClick={importWithPrices}
+            >
+              {bulkStarting ? "Starting…" : "Import listings"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-pill-earth"
+              disabled={bulkStarting || activeBulk}
+              onClick={() => void onImportAll()}
+            >
+              Ship for Free with INW (Appreciated)
+            </button>
+            <button
+              type="button"
+              className="btn border border-gray-300 bg-white hover:bg-gray-50"
+              style={{ color: "var(--color-heading)" }}
+              disabled={bulkStarting}
+              onClick={() => {
+                setStep("discover");
+                setError(null);
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {step === "review" ? (
         <div className="max-w-lg space-y-4">
           {reviewLoading ? <p className="text-sm text-neutral-600">Loading listing details…</p> : null}
@@ -695,6 +909,22 @@ export default function AppsAirportEtsyImportPage() {
                   <span className="text-sm">Made to order</span>
                 </label>
               </fieldset>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium" style={{ color: "var(--color-heading)" }}>
+                  Shipping price on INW
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span>$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="w-28 rounded border px-2 py-1.5"
+                    placeholder="0.00"
+                    value={singleShippingPrice}
+                    onChange={(e) => setSingleShippingPrice(e.target.value)}
+                  />
+                </span>
+              </label>
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
@@ -703,6 +933,14 @@ export default function AppsAirportEtsyImportPage() {
                   onClick={() => void onImport()}
                 >
                   {importing ? "Importing…" : "Import to INW"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-pill-earth"
+                  disabled={importing || !stockMode || activeBulk}
+                  onClick={() => void onImport(0)}
+                >
+                  Ship for Free with INW (Appreciated)
                 </button>
                 <button
                   type="button"

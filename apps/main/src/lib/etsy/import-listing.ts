@@ -12,11 +12,6 @@ import {
 } from "database";
 import { fetchEtsyImportListingDetail, type EtsyImportCandidate } from "./import-discovery";
 import { importEtsyListingPersonalization } from "./personalization";
-import {
-  importedInwShippingCents,
-  shouldAttachImportedEtsyPackage,
-  type EtsyImportShippingPolicy,
-} from "./import-shipping";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 
 export type ImportEtsyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
@@ -65,9 +60,8 @@ export async function importEtsyListing(input: {
   memberId: string;
   etsyListingId: string;
   stockMode: ImportEtsyListingStockMode;
-  /** Set by bulk import. Omitted for a single listing, which leaves shipping unchanged. */
-  shippingPolicy?: EtsyImportShippingPolicy;
-  resolveDomesticShippingCents?: (shippingProfileId: string) => Promise<number | null>;
+  /** Seller-chosen INW shipping charge. Omitted leaves the listing's shipping unset. */
+  shippingCostCents?: number;
 }): Promise<ImportEtsyListingResult> {
   if (input.stockMode !== "PHYSICAL" && input.stockMode !== "MADE_TO_ORDER") {
     return {
@@ -193,30 +187,10 @@ export async function importEtsyListing(input: {
       ? snap.etsyTaxonomyId
       : null;
 
-  let domesticShippingCents: number | null = null;
-  if (
-    input.shippingPolicy === "IMPORT_PRICES" &&
-    snap.packageDimensions &&
-    snap.shippingProfileId &&
-    input.resolveDomesticShippingCents
-  ) {
-    domesticShippingCents = await input.resolveDomesticShippingCents(snap.shippingProfileId);
-  }
-  const applyShipping = input.shippingPolicy === "IMPORT_PRICES" || input.shippingPolicy === "FREE";
-  const shippingCostCents = applyShipping
-    ? importedInwShippingCents({
-        policy: input.shippingPolicy!,
-        packageDimensions: snap.packageDimensions,
-        domesticShippingCents,
-      })
-    : null;
-  const attachPackage =
-    input.shippingPolicy != null &&
-    shouldAttachImportedEtsyPackage({
-      policy: input.shippingPolicy,
-      packageDimensions: snap.packageDimensions,
-      domesticShippingCents,
-    });
+  const shippingCostCents =
+    typeof input.shippingCostCents === "number" && Number.isFinite(input.shippingCostCents)
+      ? Math.max(0, Math.round(input.shippingCostCents))
+      : null;
 
   try {
     const created = await prisma.$transaction(async (tx) => {
@@ -239,41 +213,6 @@ export async function importEtsyListing(input: {
         };
       }
 
-      let shippingOptionId: string | null = null;
-      if (attachPackage && snap.packageDimensions) {
-        const remoteProfileId = `listing:${listingId}`;
-        const option = await tx.shippingOption.upsert({
-          where: {
-            memberId_source_remoteProfileId: {
-              memberId: input.memberId,
-              source: "etsy",
-              remoteProfileId,
-            },
-          },
-          create: {
-            memberId: input.memberId,
-            source: "etsy",
-            remoteProfileId,
-            name: (title || "Etsy package").slice(0, 80),
-            lengthIn: snap.packageDimensions.lengthIn,
-            widthIn: snap.packageDimensions.widthIn,
-            heightIn: snap.packageDimensions.heightIn,
-            weightOz: snap.packageDimensions.weightOz,
-            shippingCostCents: shippingCostCents ?? 0,
-            lastImportedAt: new Date(),
-          },
-          update: {
-            lengthIn: snap.packageDimensions.lengthIn,
-            widthIn: snap.packageDimensions.widthIn,
-            heightIn: snap.packageDimensions.heightIn,
-            weightOz: snap.packageDimensions.weightOz,
-            shippingCostCents: shippingCostCents ?? 0,
-            lastImportedAt: new Date(),
-          },
-        });
-        shippingOptionId = option.id;
-      }
-
       const storeItem = await tx.storeItem.create({
         data: {
           memberId: input.memberId,
@@ -291,11 +230,10 @@ export async function importEtsyListing(input: {
           etsyWhenMade,
           etsyIsSupply,
           etsyTaxonomyId,
-          ...(applyShipping
+          ...(shippingCostCents != null
             ? {
-                shippingCostCents: shippingCostCents ?? 0,
+                shippingCostCents,
                 shippingDisabled: false,
-                ...(shippingOptionId ? { shippingOptionId } : {}),
               }
             : {}),
         },

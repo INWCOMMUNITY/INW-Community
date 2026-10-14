@@ -17,6 +17,8 @@ function baseBatch(over: Partial<EtsyImportBatch> = {}): EtsyImportBatch {
     memberId: "m1",
     state: "RUNNING",
     stockModePolicy: "RECOMMENDED",
+    shippingPolicy: "FREE",
+    shippingPricesJson: {},
     total: 10,
     completed: 2,
     failed: 1,

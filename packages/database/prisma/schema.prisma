@@ -3077,8 +3077,10 @@ model EtsyImportBatch {
   memberId           String                     @map("member_id")
   state              EtsyImportBatchState       @default(PENDING)
   stockModePolicy    EtsyImportStockModePolicy  @default(RECOMMENDED) @map("stock_mode_policy")
-  /// IMPORT_PRICES copies a fixed domestic rate when the listing has dimensions. FREE sets INW shipping to $0.
+  /// Kept for existing rows. New imports always store FREE. Seller-chosen prices live in shippingPricesJson.
   shippingPolicy     EtsyImportShippingPolicy   @default(FREE) @map("shipping_policy")
+  /// etsyListingId -> shipping cents. Empty means every imported listing ships free.
+  shippingPricesJson Json                       @default("{}") @map("shipping_prices_json")
   /// Importable listings discovered so far (grows while paging Etsy).
   total              Int                        @default(0)
   completed          Int                        @default(0)

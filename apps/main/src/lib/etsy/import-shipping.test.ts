@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   etsyListingPackageFromRaw,
-  importedInwShippingCents,
-  shouldAttachImportedEtsyPackage,
+  formatShippingCents,
+  parseSellerShippingDollars,
 } from "./import-shipping";
 
 describe("etsy listing shipping import", () => {
@@ -24,48 +24,12 @@ describe("etsy listing shipping import", () => {
     });
   });
 
-  it("imports the domestic price only when dimensions exist", () => {
-    const packageDimensions = etsyListingPackageFromRaw({
-      item_length: 8,
-      item_width: 6,
-      item_height: 4,
-      item_dimensions_unit: "in",
-    });
-    expect(
-      importedInwShippingCents({
-        policy: "IMPORT_PRICES",
-        packageDimensions,
-        domesticShippingCents: 599,
-      })
-    ).toBe(599);
-    expect(
-      shouldAttachImportedEtsyPackage({
-        policy: "IMPORT_PRICES",
-        packageDimensions,
-        domesticShippingCents: 599,
-      })
-    ).toBe(true);
-    expect(
-      importedInwShippingCents({
-        policy: "IMPORT_PRICES",
-        packageDimensions: null,
-        domesticShippingCents: 599,
-      })
-    ).toBe(0);
-  });
-
-  it("ships free when that choice is selected", () => {
-    expect(
-      importedInwShippingCents({
-        policy: "FREE",
-        packageDimensions: {
-          lengthIn: 8,
-          widthIn: 6,
-          heightIn: 4,
-          weightOz: 8,
-        },
-        domesticShippingCents: 599,
-      })
-    ).toBe(0);
+  it("parses a seller-typed shipping price into cents", () => {
+    expect(parseSellerShippingDollars("12.50")).toBe(1250);
+    expect(parseSellerShippingDollars("$0")).toBe(0);
+    expect(parseSellerShippingDollars("")).toBeNull();
+    expect(parseSellerShippingDollars("12.999")).toBeNull();
+    expect(parseSellerShippingDollars("-1")).toBeNull();
+    expect(formatShippingCents(1250)).toBe("12.50");
   });
 });

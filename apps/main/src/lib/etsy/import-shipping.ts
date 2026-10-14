@@ -1,5 +1,3 @@
-export type EtsyImportShippingPolicy = "IMPORT_PRICES" | "FREE";
-
 export type EtsyListingPackage = {
   lengthIn: number;
   widthIn: number;
@@ -80,31 +78,18 @@ export function etsyListingPackageFromRaw(row: {
   };
 }
 
-/**
- * INW shipping charge for an imported listing.
- * A fixed domestic price is used only when the listing also has package dimensions.
- * Everything else, including "Ship Free with INW", is $0.
- */
-export function importedInwShippingCents(input: {
-  policy: EtsyImportShippingPolicy;
-  packageDimensions: EtsyListingPackage | null;
-  domesticShippingCents: number | null;
-}): number {
-  if (input.policy !== "IMPORT_PRICES") return 0;
-  if (!input.packageDimensions) return 0;
-  if (input.domesticShippingCents == null || !Number.isFinite(input.domesticShippingCents)) return 0;
-  return Math.max(0, Math.round(input.domesticShippingCents));
+const MAX_SHIPPING_CENTS = 10_000_000;
+
+/** Dollars typed by the seller, such as "12.50". Blank is unset. */
+export function parseSellerShippingDollars(raw: string): number | null {
+  const trimmed = raw.trim().replace(/^\$/, "");
+  if (!trimmed) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  const cents = Math.round(Number(trimmed) * 100);
+  if (!Number.isFinite(cents) || cents < 0 || cents > MAX_SHIPPING_CENTS) return null;
+  return cents;
 }
 
-export function shouldAttachImportedEtsyPackage(input: {
-  policy: EtsyImportShippingPolicy;
-  packageDimensions: EtsyListingPackage | null;
-  domesticShippingCents: number | null;
-}): boolean {
-  return (
-    input.policy === "IMPORT_PRICES" &&
-    input.packageDimensions != null &&
-    input.domesticShippingCents != null &&
-    Number.isFinite(input.domesticShippingCents)
-  );
+export function formatShippingCents(cents: number): string {
+  return (cents / 100).toFixed(2);
 }
