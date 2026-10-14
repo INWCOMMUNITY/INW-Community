@@ -1,5 +1,6 @@
 import { cache } from "react";
-import { prisma, publicBuyerFieldsFromRows } from "database";
+import { prisma } from "database";
+import { publicBuyerFieldsFromRows } from "database/src/public-buyer-fields";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { includeUnavailableVisibleToViewer, withPublicStockWhere } from "@/lib/store-item-public-access";

@@ -1,4 +1,15 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import type {
+  ListingBuyerFieldKind,
+  ListingBuyerFieldPublic,
+} from "./public-buyer-fields";
+
+export {
+  publicBuyerFieldsFromRows,
+  type ListingBuyerFieldKind,
+  type ListingBuyerFieldPublic,
+  type ListingBuyerFieldRow,
+} from "./public-buyer-fields";
 
 /** Etsy receipt variations with this property id are personalization, not inventory. */
 export const ETSY_PERSONALIZATION_PROPERTY_ID = 54;
@@ -13,8 +24,6 @@ export const LISTING_BUYER_DROPDOWN_LABEL_MAX = 20;
 export const LISTING_BUYER_FILE_LABEL_MAX = 45;
 export const LISTING_BUYER_FILES_MIN = 1;
 export const LISTING_BUYER_FILES_MAX = 10;
-
-export type ListingBuyerFieldKind = "TEXT" | "DROPDOWN" | "FILE";
 
 export type ListingBuyerFieldOptionInput = {
   id?: string | null;
@@ -46,18 +55,6 @@ export type NormalizedListingBuyerField = {
   labelEachFile: boolean;
   etsyQuestionId: string | null;
   options: Array<{ id?: string; label: string; etsyOptionId: string | null }>;
-};
-
-export type ListingBuyerFieldPublic = {
-  id: string;
-  kind: ListingBuyerFieldKind;
-  title: string;
-  instructions: string | null;
-  required: boolean;
-  maxCharacters: number | null;
-  maxFiles: number | null;
-  labelEachFile: boolean;
-  options: Array<{ id: string; label: string }>;
 };
 
 export type BuyerFieldFileAnswer = { url: string; label?: string | null };
@@ -289,41 +286,6 @@ export function buyerFieldsDefinitionFingerprint(fields: NormalizedListingBuyerF
       options: field.options.map((option) => option.label),
     }))
   );
-}
-
-export type ListingBuyerFieldRow = {
-  id: string;
-  kind: ListingBuyerFieldKind;
-  title: string;
-  instructions: string | null;
-  required: boolean;
-  maxCharacters: number | null;
-  maxFiles: number | null;
-  labelEachFile: boolean;
-  etsyQuestionId?: string | null;
-  options: Array<{ id: string; label: string; etsyOptionId?: string | null; position?: number }>;
-};
-
-function sortFields<T extends { position?: number }>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-}
-
-export function publicBuyerFieldsFromRows(
-  rows: Array<ListingBuyerFieldRow & { position: number }>
-): ListingBuyerFieldPublic[] {
-  return sortFields(rows).map((row) => ({
-    id: row.id,
-    kind: row.kind,
-    title: row.title,
-    instructions: row.instructions,
-    required: row.required,
-    maxCharacters: row.maxCharacters,
-    maxFiles: row.maxFiles,
-    labelEachFile: row.labelEachFile,
-    options: [...row.options]
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-      .map((option) => ({ id: option.id, label: option.label })),
-  }));
 }
 
 export function validateBuyerResponses(

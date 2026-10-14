@@ -35,7 +35,7 @@ import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { parseStoredAspects } from "@/lib/listing-limits";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { answersPayload, ListingBuyerAnswers, type BuyerAnswerDraft } from "@/components/store/ListingBuyerAnswers";
-import type { ListingBuyerFieldPublic } from "database";
+import type { ListingBuyerFieldPublic } from "database/src/public-buyer-fields";
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ListingBuyerFieldPublic } from "database";
+import type { ListingBuyerFieldPublic } from "database/src/public-buyer-fields";
 
 export type BuyerAnswerDraft = {
   fieldId: string;

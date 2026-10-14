@@ -99,6 +99,12 @@ export const prisma = prismaClient;
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
 
 export {
+  publicBuyerFieldsFromRows,
+  type ListingBuyerFieldKind,
+  type ListingBuyerFieldPublic,
+  type ListingBuyerFieldRow,
+} from "./public-buyer-fields";
+export {
   ETSY_PERSONALIZATION_PROPERTY_ID,
   LISTING_BUYER_FIELD_MAX,
   buyerFieldsDefinitionFingerprint,
@@ -107,7 +113,6 @@ export {
   etsyPersonalizationWriteBody,
   formatBuyerResponseLines,
   parseStoredBuyerResponses,
-  publicBuyerFieldsFromRows,
   replaceListingBuyerFields,
   splitEtsyReceiptVariations,
   validateBuyerResponses,
@@ -118,7 +123,6 @@ export type {
   EtsyPersonalizationAnswer,
   EtsyPersonalizationQuestion,
   ListingBuyerFieldInput,
-  ListingBuyerFieldPublic,
   NormalizedListingBuyerField,
 } from "./listing-buyer-fields";
 
