@@ -43,16 +43,23 @@ export async function POST(req: NextRequest) {
   }
 
   let stockModePolicy = "RECOMMENDED";
+  let shippingPolicy = "FREE";
   try {
-    const body = (await req.json().catch(() => ({}))) as { stockModePolicy?: unknown };
+    const body = (await req.json().catch(() => ({}))) as {
+      stockModePolicy?: unknown;
+      shippingPolicy?: unknown;
+    };
     if (typeof body.stockModePolicy === "string" && body.stockModePolicy.trim()) {
       stockModePolicy = body.stockModePolicy.trim();
+    }
+    if (typeof body.shippingPolicy === "string" && body.shippingPolicy.trim()) {
+      shippingPolicy = body.shippingPolicy.trim();
     }
   } catch {
     // empty body ok
   }
 
-  const result = await startEtsyImportBatch({ memberId, stockModePolicy });
+  const result = await startEtsyImportBatch({ memberId, stockModePolicy, shippingPolicy });
   if (result.status === "ERROR") {
     return NextResponse.json(
       { error: result.message, code: result.code },

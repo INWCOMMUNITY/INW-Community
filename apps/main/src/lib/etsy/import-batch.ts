@@ -14,6 +14,8 @@ import {
 } from "database";
 import { discoverEtsyImportCandidates, fetchEtsyImportListingDetail } from "./import-discovery";
 import { importEtsyListing } from "./import-listing";
+import { fetchEtsyRemoteShippingProfiles } from "./shipping-profiles-import";
+import type { EtsyImportShippingPolicy } from "./import-shipping";
 
 type EtsyImportStockModePolicy = "RECOMMENDED" | "PHYSICAL" | "MADE_TO_ORDER";
 
@@ -50,12 +52,16 @@ async function enqueueImportBatchJob(input: {
 export async function startEtsyImportBatch(input: {
   memberId: string;
   stockModePolicy?: string;
+  shippingPolicy?: string;
 }): Promise<StartEtsyImportBatchResult> {
   const policyRaw = (input.stockModePolicy ?? "RECOMMENDED").toString().trim().toUpperCase();
   const stockModePolicy: EtsyImportStockModePolicy =
     policyRaw === "PHYSICAL" || policyRaw === "MADE_TO_ORDER" || policyRaw === "RECOMMENDED"
       ? (policyRaw as EtsyImportStockModePolicy)
       : "RECOMMENDED";
+  const shippingRaw = (input.shippingPolicy ?? "FREE").toString().trim().toUpperCase();
+  const shippingPolicy: EtsyImportShippingPolicy =
+    shippingRaw === "IMPORT_PRICES" ? "IMPORT_PRICES" : "FREE";
 
   const connection = await prisma.etsyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
@@ -87,6 +93,7 @@ export async function startEtsyImportBatch(input: {
         memberId: input.memberId,
         state: "PENDING",
         stockModePolicy,
+        shippingPolicy,
         startedAt: new Date(),
         lastProgressAt: new Date(),
       },
@@ -333,6 +340,25 @@ export async function handleEtsyImportBatchJob(
     if (ids.length === 0) break;
   }
 
+  const shippingPolicy: EtsyImportShippingPolicy =
+    batch.shippingPolicy === "IMPORT_PRICES" ? "IMPORT_PRICES" : "FREE";
+  let domesticRates: Promise<Map<string, number | null>> | null = null;
+  const resolveDomesticShippingCents = async (profileId: string): Promise<number | null> => {
+    if (!domesticRates) {
+      domesticRates = fetchEtsyRemoteShippingProfiles(batch.memberId)
+        .then((loaded) => {
+          const rates = new Map<string, number | null>();
+          for (const profile of loaded.profiles) {
+            rates.set(profile.remoteProfileId, profile.shippingCostCents ?? null);
+          }
+          return rates;
+        })
+        .catch(() => new Map<string, number | null>());
+    }
+    const rates = await domesticRates;
+    return rates.get(profileId) ?? null;
+  };
+
   let itemsThisClaim = 0;
   while (
     queue.length > 0 &&
@@ -367,6 +393,9 @@ export async function handleEtsyImportBatchJob(
         memberId: batch.memberId,
         etsyListingId,
         stockMode,
+        shippingPolicy,
+        resolveDomesticShippingCents:
+          shippingPolicy === "IMPORT_PRICES" ? resolveDomesticShippingCents : undefined,
       });
       const itemMs = Date.now() - itemStarted;
       avgItemMs = nextEtsyImportBatchAvgItemMs(avgItemMs, processedBefore, itemMs);

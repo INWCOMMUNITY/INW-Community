@@ -25,9 +25,10 @@ import {
   type EtsyInboundAspect,
 } from "./listing-aspects";
 import {
-  buyerFieldsDefinitionFingerprint,
   buyerFieldsFromEtsyQuestions,
+  etsyPersonalizationFieldsMatch,
   replaceListingBuyerFields,
+  shouldApplyEtsyPersonalizationInbound,
   type EtsyPersonalizationQuestion,
   type NormalizedListingBuyerField,
 } from "../listing-buyer-fields";
@@ -350,50 +351,45 @@ export async function applyEtsyListingContentInbound(
     });
   }
 
-  // Skip while a local content edit is still waiting to push, so a poll cannot
-  // wipe custom options the seller just saved.
-  if (input.remote.personalizationObserved && !desireAhead) {
+  // Custom options sync on their own. A pending title or price edit must not
+  // block an Etsy change to text, choices, or file questions. An INW edit that
+  // has not been pushed yet stays put until that replace finishes.
+  let appliedPersonalization = false;
+  if (input.remote.personalizationObserved) {
     const mapped = buyerFieldsFromEtsyQuestions(input.remote.personalizationQuestions ?? []);
-    if (mapped.ok) {
-      const existing = await db.listingBuyerField.findMany({
-        where: { storeItemId: storeItem.id },
-        orderBy: { position: "asc" },
-        include: { options: { orderBy: { position: "asc" } } },
+    const existing = await db.listingBuyerField.findMany({
+      where: { storeItemId: storeItem.id },
+      orderBy: { position: "asc" },
+      include: { options: { orderBy: { position: "asc" } } },
+    });
+    const localFields: NormalizedListingBuyerField[] = existing.map((row) => ({
+      kind: row.kind,
+      title: row.title,
+      instructions: row.instructions,
+      required: row.required,
+      maxCharacters: row.maxCharacters,
+      maxFiles: row.maxFiles,
+      labelEachFile: row.labelEachFile,
+      etsyQuestionId: row.etsyQuestionId,
+      options: row.options.map((option) => ({
+        label: option.label,
+        etsyOptionId: option.etsyOptionId,
+      })),
+    }));
+    const same = mapped.ok && etsyPersonalizationFieldsMatch(localFields, mapped.fields);
+    if (
+      shouldApplyEtsyPersonalizationInbound({
+        observed: true,
+        mappedOk: mapped.ok,
+        localDirty: listing.personalizationDirty === true,
+        same,
+      }) &&
+      mapped.ok
+    ) {
+      await replaceListingBuyerFields(db, storeItem.id, mapped.fields, {
+        personalizationDirty: false,
       });
-      const localFields: NormalizedListingBuyerField[] = existing.map((row) => ({
-        kind: row.kind,
-        title: row.title,
-        instructions: row.instructions,
-        required: row.required,
-        maxCharacters: row.maxCharacters,
-        maxFiles: row.maxFiles,
-        labelEachFile: row.labelEachFile,
-        etsyQuestionId: row.etsyQuestionId,
-        options: row.options.map((option) => ({
-          label: option.label,
-          etsyOptionId: option.etsyOptionId,
-        })),
-      }));
-      const sameDefinition =
-        buyerFieldsDefinitionFingerprint(localFields) === buyerFieldsDefinitionFingerprint(mapped.fields);
-      const sameEtsyIds =
-        localFields.length === mapped.fields.length &&
-        localFields.every((field, index) => {
-          const remote = mapped.fields[index];
-          if (!remote) return false;
-          if ((field.etsyQuestionId ?? null) !== (remote.etsyQuestionId ?? null)) return false;
-          return field.options.every(
-            (option, optionIndex) =>
-              (option.etsyOptionId ?? null) === (remote.options[optionIndex]?.etsyOptionId ?? null)
-          );
-        });
-      // A personalization GET that returns no questions must not delete options
-      // the seller still has on the listing. Clearing them is an explicit save,
-      // which pushes the delete. An empty poll used to wipe the edit form.
-      const remoteWouldWipe = mapped.fields.length === 0 && localFields.length > 0;
-      if (!remoteWouldWipe && (!sameDefinition || !sameEtsyIds)) {
-        await replaceListingBuyerFields(db, storeItem.id, mapped.fields);
-      }
+      appliedPersonalization = true;
     }
   }
 
@@ -642,7 +638,7 @@ export async function applyEtsyListingContentInbound(
   // edit on INW — record Shopify desires so INW outbound updates the Shopify listing.
   // Never record Etsy content desire here (would loop).
   let shopifyDesireRecorded = false;
-  if (appliedRemoteProduct || appliedRemoteVariant) {
+  if (appliedRemoteProduct || appliedRemoteVariant || appliedPersonalization) {
     const updated = await db.storeItem.findUniqueOrThrow({ where: { id: storeItem.id } });
     const shopify = await recordShopifyListingContentDesire(db, {
       memberId: input.memberId,
@@ -655,6 +651,7 @@ export async function applyEtsyListingContentInbound(
         sku: updated.sku,
         photos: updated.photos,
       },
+      personalizationChanged: appliedPersonalization,
     });
     const dirtyVariants = await recordShopifyDirtyMappedVariantContentDesires(db, {
       memberId: input.memberId,

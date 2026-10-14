@@ -2944,6 +2944,8 @@ model EtsyListingLink {
   importSource           EtsyListingImportSource @default(NATIVE) @map("import_source")
   /// False when an Etsy import could not read personalization. Empty local fields must not delete the remote questions.
   personalizationAuthoritative Boolean         @default(true) @map("personalization_authoritative")
+  /// True after an INW custom-option save until that replace has been written to Etsy.
+  personalizationDirty     Boolean             @default(false) @map("personalization_dirty")
   importedAt             DateTime?              @map("imported_at")
   importBootstrapStartedAt DateTime?            @map("import_bootstrap_started_at")
   createdAt              DateTime               @default(now()) @map("created_at")
@@ -3061,6 +3063,13 @@ enum EtsyImportStockModePolicy {
   @@map("etsy_import_stock_mode_policy")
 }
 
+enum EtsyImportShippingPolicy {
+  IMPORT_PRICES
+  FREE
+
+  @@map("etsy_import_shipping_policy")
+}
+
 /// Durable bulk import of active Etsy listings into INW for one connection generation.
 model EtsyImportBatch {
   id                 String                     @id @default(cuid())
@@ -3068,6 +3077,8 @@ model EtsyImportBatch {
   memberId           String                     @map("member_id")
   state              EtsyImportBatchState       @default(PENDING)
   stockModePolicy    EtsyImportStockModePolicy  @default(RECOMMENDED) @map("stock_mode_policy")
+  /// IMPORT_PRICES copies a fixed domestic rate when the listing has dimensions. FREE sets INW shipping to $0.
+  shippingPolicy     EtsyImportShippingPolicy   @default(FREE) @map("shipping_policy")
   /// Importable listings discovered so far (grows while paging Etsy).
   total              Int                        @default(0)
   completed          Int                        @default(0)

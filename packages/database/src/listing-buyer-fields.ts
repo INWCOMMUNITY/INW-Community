@@ -458,7 +458,8 @@ type BuyerFieldDb = PrismaClient | Prisma.TransactionClient;
 export async function replaceListingBuyerFields(
   db: BuyerFieldDb,
   storeItemId: string,
-  fields: NormalizedListingBuyerField[]
+  fields: NormalizedListingBuyerField[],
+  options?: { personalizationDirty?: boolean }
 ): Promise<void> {
   await db.listingBuyerField.deleteMany({ where: { storeItemId } });
   for (let position = 0; position < fields.length; position += 1) {
@@ -487,8 +488,62 @@ export async function replaceListingBuyerFields(
   }
   await db.etsyListingLink.updateMany({
     where: { storeItemId },
-    data: { personalizationAuthoritative: true },
+    data: {
+      personalizationAuthoritative: true,
+      personalizationDirty: options?.personalizationDirty === true,
+    },
   });
+}
+
+export function etsyPersonalizationFieldsMatch(
+  local: NormalizedListingBuyerField[],
+  remote: NormalizedListingBuyerField[]
+): boolean {
+  if (buyerFieldsDefinitionFingerprint(local) !== buyerFieldsDefinitionFingerprint(remote)) return false;
+  if (local.length !== remote.length) return false;
+  return local.every((field, index) => {
+    const other = remote[index];
+    if (!other) return false;
+    if ((field.etsyQuestionId ?? null) !== (other.etsyQuestionId ?? null)) return false;
+    return field.options.every(
+      (option, optionIndex) =>
+        (option.etsyOptionId ?? null) === (other.options[optionIndex]?.etsyOptionId ?? null)
+    );
+  });
+}
+
+/** Etsy custom-option edits apply unless an INW edit is still waiting to push. */
+export function shouldApplyEtsyPersonalizationInbound(input: {
+  observed: boolean;
+  mappedOk: boolean;
+  localDirty: boolean;
+  same: boolean;
+}): boolean {
+  return input.observed && input.mappedOk && !input.localDirty && !input.same;
+}
+
+function fitEtsyPersonalizationText(value: string, max: number): string {
+  let text = value.trim().replace(/^[^A-Za-z0-9]+/, "");
+  if (text.length > max) text = text.slice(0, max).trim();
+  return text;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isInteger(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function uniqueOptionLabels<T extends { label: string }>(options: T[]): T[] {
+  const seen = new Set<string>();
+  const labels: T[] = [];
+  for (const option of options) {
+    const key = option.label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(option);
+  }
+  return labels;
 }
 
 export function buyerFieldsFromEtsyQuestions(
@@ -497,62 +552,84 @@ export function buyerFieldsFromEtsyQuestions(
   if (!questions || questions.length === 0) return { ok: true, fields: [] };
   const mapped: ListingBuyerFieldInput[] = [];
   for (const question of questions) {
-    const type = String(question.question_type ?? "").trim();
-    const title = String(question.question_text ?? "").trim();
+    const type = String(question.question_type ?? "").trim().toLowerCase();
+    const title = fitEtsyPersonalizationText(String(question.question_text ?? ""), LISTING_BUYER_TITLE_MAX);
+    if (!title) continue;
     const etsyQuestionId =
       question.question_id != null && Number.isFinite(Number(question.question_id))
         ? String(question.question_id)
         : null;
+    const instructions = fitEtsyPersonalizationText(
+      String(question.instructions ?? ""),
+      LISTING_BUYER_INSTRUCTIONS_MAX
+    );
     const options = (question.options ?? [])
       .map((option) => ({
-        label: String(option?.label ?? "").trim(),
+        label: fitEtsyPersonalizationText(
+          String(option?.label ?? ""),
+          type === "labeled_upload" ? LISTING_BUYER_FILE_LABEL_MAX : LISTING_BUYER_DROPDOWN_LABEL_MAX
+        ),
         etsyOptionId:
           option?.option_id != null && Number.isFinite(Number(option.option_id))
             ? String(option.option_id)
             : null,
       }))
       .filter((option) => option.label);
+    const uniqueOptions = uniqueOptionLabels(options).slice(0, LISTING_BUYER_DROPDOWN_OPTIONS_MAX);
     if (type === "text_input") {
       mapped.push({
         kind: "TEXT",
         title,
-        instructions: question.instructions ?? null,
+        instructions: instructions || null,
         required: question.required === true,
-        maxCharacters: question.max_allowed_characters ?? 256,
+        maxCharacters: clampInt(
+          question.max_allowed_characters,
+          LISTING_BUYER_TEXT_CHARS_MIN,
+          LISTING_BUYER_TEXT_CHARS_MAX,
+          256
+        ),
         etsyQuestionId,
       });
     } else if (type === "dropdown") {
+      if (uniqueOptions.length < 1) continue;
       mapped.push({
         kind: "DROPDOWN",
         title,
         required: question.required === true,
         etsyQuestionId,
-        options,
+        options: uniqueOptions,
       });
-    } else if (type === "unlabeled_upload") {
-      mapped.push({
-        kind: "FILE",
-        title,
-        instructions: question.instructions ?? null,
-        required: question.required === true,
-        maxFiles: question.max_allowed_files ?? 1,
-        labelEachFile: false,
-        etsyQuestionId,
-      });
-    } else if (type === "labeled_upload") {
-      mapped.push({
-        kind: "FILE",
-        title,
-        instructions: question.instructions ?? null,
-        required: question.required === true,
-        maxFiles: question.max_allowed_files ?? options.length,
-        labelEachFile: true,
-        etsyQuestionId,
-        options,
-      });
-    } else {
-      return { ok: false, error: `Unsupported Etsy personalization type “${type || "unknown"}”.` };
+    } else if (type === "unlabeled_upload" || type === "labeled_upload") {
+      if (mapped.some((field) => field.kind === "FILE")) continue;
+      if (type === "labeled_upload") {
+        const fileOptions = uniqueOptionLabels(options).slice(0, LISTING_BUYER_FILES_MAX);
+        if (fileOptions.length < 2) continue;
+        mapped.push({
+          kind: "FILE",
+          title,
+          instructions: instructions || null,
+          required: question.required === true,
+          maxFiles: fileOptions.length,
+          labelEachFile: true,
+          etsyQuestionId,
+          options: fileOptions,
+        });
+      } else {
+        mapped.push({
+          kind: "FILE",
+          title,
+          instructions: instructions || null,
+          required: question.required === true,
+          maxFiles: clampInt(question.max_allowed_files, LISTING_BUYER_FILES_MIN, LISTING_BUYER_FILES_MAX, 1),
+          labelEachFile: false,
+          etsyQuestionId,
+        });
+      }
     }
+    if (mapped.length >= LISTING_BUYER_FIELD_MAX) break;
+  }
+  if (mapped.length === 0) {
+    return { ok: false, error: "Etsy personalization could not be read into custom options." };
   }
   return validateListingBuyerFields(mapped);
 }

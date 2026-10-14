@@ -299,7 +299,9 @@ export async function importShopifyBuyerMetafields(input: {
     });
   }
   if (classified.buyerFields.length > 0) {
-    await replaceListingBuyerFields(prisma, input.storeItemId, classified.buyerFields);
+    await replaceListingBuyerFields(prisma, input.storeItemId, classified.buyerFields, {
+      personalizationDirty: true,
+    });
   }
   return { incompatible: classified.incompatible };
 }
@@ -607,6 +609,11 @@ function definitionBody(write: ShopifyBuyerMetafieldWrite, pin: boolean) {
     key: write.key,
     ownerType: "PRODUCT",
     pin,
+    // Admin shows the value. The Online Store can read it only when storefront access is public.
+    access: {
+      admin: "MERCHANT_READ_WRITE",
+      storefront: "PUBLIC_READ",
+    },
     ...(write.description ? { description: write.description } : {}),
     ...(write.validations.length > 0 ? { validations: write.validations } : {}),
   };

@@ -83,6 +83,7 @@ export default function AppsAirportEtsyImportPage() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [step, setStep] = useState<"discover" | "review">("discover");
   const [bulkPolicy, setBulkPolicy] = useState<StockModePolicy>("RECOMMENDED");
+  const [shippingChoice, setShippingChoice] = useState<"IMPORT_PRICES" | "FREE" | null>(null);
   const [bulkStarting, setBulkStarting] = useState(false);
   const [bulkCancelling, setBulkCancelling] = useState(false);
   const [batch, setBatch] = useState<BatchProgress | null>(null);
@@ -283,6 +284,10 @@ export default function AppsAirportEtsyImportPage() {
   }
 
   async function onImportAll() {
+    if (!shippingChoice) {
+      setError("Choose Import Shipping Prices or Ship Free with INW.");
+      return;
+    }
     setBulkStarting(true);
     setError(null);
     setConnectionError(null);
@@ -291,7 +296,7 @@ export default function AppsAirportEtsyImportPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stockModePolicy: bulkPolicy }),
+        body: JSON.stringify({ stockModePolicy: bulkPolicy, shippingPolicy: shippingChoice }),
       });
       const body = (await response.json()) as {
         error?: string;
@@ -503,10 +508,46 @@ export default function AppsAirportEtsyImportPage() {
                 <span className="text-sm">All made to order</span>
               </label>
             </fieldset>
+            <fieldset className="mt-4 space-y-2" disabled={activeBulk || bulkStarting}>
+              <legend className="text-sm font-semibold" style={{ color: "var(--color-heading)" }}>
+                Shipping on INW
+              </legend>
+              <label className="mt-2 flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="shippingChoice"
+                  className="mt-1"
+                  checked={shippingChoice === "IMPORT_PRICES"}
+                  onChange={() => setShippingChoice("IMPORT_PRICES")}
+                />
+                <span className="text-sm">
+                  Import Shipping Prices
+                  <span className="block text-neutral-600">
+                    Use the Etsy domestic rate when the listing has package dimensions and a fixed
+                    shipping price. Calculated shipping, or a listing missing dimensions, ships free.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="shippingChoice"
+                  className="mt-1"
+                  checked={shippingChoice === "FREE"}
+                  onChange={() => setShippingChoice("FREE")}
+                />
+                <span className="text-sm">
+                  Ship Free with INW
+                  <span className="block text-neutral-600">
+                    Every imported listing ships free on INW.
+                  </span>
+                </span>
+              </label>
+            </fieldset>
             <button
               type="button"
               className="btn mt-4"
-              disabled={activeBulk || bulkStarting || Boolean(connectionError)}
+              disabled={activeBulk || bulkStarting || !shippingChoice || Boolean(connectionError)}
               onClick={() => void onImportAll()}
             >
               {bulkStarting

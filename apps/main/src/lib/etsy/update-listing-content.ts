@@ -195,6 +195,19 @@ export async function handleEtsyUpdateListingContentJob(
     return { outcome: "SUCCESS" };
   }
 
+  const pushDirtyPersonalization = async () => {
+    if (listing.personalizationDirty !== true) return null;
+    return pushEtsyListingPersonalization({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      shopId: connection.shopId,
+      etsyListingId: listing.etsyListingId,
+      storeItemId: listing.storeItemId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+  };
+
   const variantMaps = await prisma.etsyVariantMap.findMany({
     where: { etsyListingLinkId: listing.id, etsyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
@@ -209,6 +222,8 @@ export async function handleEtsyUpdateListingContentJob(
     // Structure replace retires the mapped variant and deletes its map before
     // the topology push remeshes. That job is stale — do not notify the seller.
     if (!variant || variant.status !== "ACTIVE") {
+      const personalization = await pushDirtyPersonalization();
+      if (personalization) return personalization;
       return { outcome: "SUCCESS" };
     }
     if (await etsySellerTopologyPushPending(listing.id)) {
@@ -256,6 +271,8 @@ export async function handleEtsyUpdateListingContentJob(
         variantDesiredVersion: variantMap.desiredVariantContentVersion,
       });
     }
+    const personalization = await pushDirtyPersonalization();
+    if (personalization) return personalization;
     await reconcileEtsyListingHealthFromDb(prisma, {
       connectionId: connection.id,
       listingLinkId: listing.id,
@@ -272,6 +289,8 @@ export async function handleEtsyUpdateListingContentJob(
         variantDesiredVersion: variantMap.desiredVariantContentVersion,
       });
     }
+    const personalization = await pushDirtyPersonalization();
+    if (personalization) return personalization;
     await reconcileEtsyListingHealthFromDb(prisma, {
       connectionId: connection.id,
       listingLinkId: listing.id,
@@ -382,6 +401,8 @@ export async function handleEtsyUpdateListingContentJob(
         connectionId: connection.id,
         listingLinkId: listing.id,
       }).catch(() => undefined);
+      const personalization = await pushDirtyPersonalization();
+      if (personalization) return personalization;
       return {
         outcome: "DEAD",
         errorClass: "CONTENT_CONFLICT",
@@ -650,6 +671,8 @@ export async function handleEtsyUpdateListingContentJob(
           }
         }
       }
+      const personalization = await pushDirtyPersonalization();
+      if (personalization) return personalization;
       return {
         outcome: "DEAD",
         errorClass: "PERMANENT",
@@ -672,6 +695,8 @@ export async function handleEtsyUpdateListingContentJob(
         remoteFingerprint: remoteVariantFp,
         now: deps.now,
       });
+      const personalization = await pushDirtyPersonalization();
+      if (personalization) return personalization;
       return {
         outcome: "DEAD",
         errorClass: "CONTENT_CONFLICT",

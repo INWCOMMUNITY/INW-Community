@@ -1,6 +1,7 @@
 import { prisma } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import { clampEtsySku } from "@/lib/listing-sku";
+import { etsyListingPackageFromRaw, type EtsyListingPackage } from "./import-shipping";
 
 export type EtsyImportCandidateVariant = {
   etsyProductId: string;
@@ -33,6 +34,8 @@ export type EtsyImportCandidate = {
   etsyWhenMade: string | null;
   etsyIsSupply: boolean | null;
   etsyTaxonomyId: number | null;
+  shippingProfileId: string | null;
+  packageDimensions: EtsyListingPackage | null;
 };
 
 export type DiscoverEtsyImportCandidatesResult =
@@ -64,6 +67,13 @@ type EtsyListingRow = {
   when_made?: unknown;
   is_supply?: unknown;
   taxonomy_id?: unknown;
+  shipping_profile_id?: unknown;
+  item_length?: unknown;
+  item_width?: unknown;
+  item_height?: unknown;
+  item_dimensions_unit?: unknown;
+  item_weight?: unknown;
+  item_weight_unit?: unknown;
   images?: Array<{ url_570xN?: unknown; url_fullxfull?: unknown }>;
 };
 
@@ -175,6 +185,12 @@ function toCandidateFromListing(row: EtsyListingRow): EtsyImportCandidate {
     etsyWhenMade: typeof row.when_made === "string" ? row.when_made : null,
     etsyIsSupply: typeof row.is_supply === "boolean" ? row.is_supply : null,
     etsyTaxonomyId: taxonomyId,
+    shippingProfileId: (() => {
+      const raw = row.shipping_profile_id;
+      const id = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+      return /^\d+$/.test(id) ? id : null;
+    })(),
+    packageDimensions: etsyListingPackageFromRaw(row),
   };
 }
 

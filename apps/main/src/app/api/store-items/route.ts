@@ -889,13 +889,17 @@ export async function POST(req: NextRequest) {
             const created = await tx.storeItem.create({ data: createData });
             await provisionNativeFoundationListing(tx, created.id);
             if (buyerFieldsCheck?.ok) {
-              await replaceListingBuyerFields(tx, created.id, buyerFieldsCheck.fields);
+              await replaceListingBuyerFields(tx, created.id, buyerFieldsCheck.fields, {
+                personalizationDirty: true,
+              });
             }
             return tx.storeItem.findUniqueOrThrow({ where: { id: created.id } });
           })
         : await prisma.storeItem.create({ data: createData });
     if (writer.route !== "foundation" && buyerFieldsCheck?.ok) {
-      await replaceListingBuyerFields(prisma, item.id, buyerFieldsCheck.fields);
+      await replaceListingBuyerFields(prisma, item.id, buyerFieldsCheck.fields, {
+        personalizationDirty: true,
+      });
     }
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");

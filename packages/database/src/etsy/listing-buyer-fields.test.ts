@@ -3,6 +3,7 @@ import {
   buyerFieldsFromEtsyQuestions,
   buyerResponsesFingerprint,
   etsyPersonalizationWriteBody,
+  shouldApplyEtsyPersonalizationInbound,
   splitEtsyReceiptVariations,
   validateBuyerResponses,
   validateListingBuyerFields,
@@ -123,6 +124,88 @@ describe("etsy personalization mapping", () => {
       question_type: "unlabeled_upload",
       question_id: 13,
     });
+  });
+
+  it("maps a Shop Manager set of text, choices, and a file upload", () => {
+    const mapped = buyerFieldsFromEtsyQuestions([
+      {
+        question_id: 1,
+        question_type: "text_input",
+        question_text: "Specifics",
+        instructions: "Add Last Name, Year, and a Note for your custom cutting board",
+        required: true,
+        max_allowed_characters: 256,
+      },
+      {
+        question_id: 2,
+        question_type: "dropdown",
+        question_text: "Font Choice",
+        required: true,
+        options: [
+          { option_id: 10, label: "Romans" },
+          { option_id: 11, label: "Calibri" },
+          { option_id: 12, label: "Script" },
+        ],
+      },
+      {
+        question_id: 3,
+        question_type: "unlabeled_upload",
+        question_text: "Pet Photo",
+        required: true,
+        max_allowed_files: 5,
+      },
+      {
+        question_id: 4,
+        question_type: "text_input",
+        question_text: "Quote",
+        required: true,
+        max_allowed_characters: 256,
+      },
+    ]);
+    expect(mapped.ok).toBe(true);
+    if (!mapped.ok) return;
+    expect(mapped.fields.map((field) => field.title)).toEqual([
+      "Specifics",
+      "Font Choice",
+      "Pet Photo",
+      "Quote",
+    ]);
+    expect(mapped.fields[2]).toMatchObject({ kind: "FILE", maxFiles: 5 });
+  });
+});
+
+describe("etsy personalization inbound", () => {
+  it("applies an Etsy edit even when some other listing change is still unsynced", () => {
+    expect(
+      shouldApplyEtsyPersonalizationInbound({
+        observed: true,
+        mappedOk: true,
+        localDirty: false,
+        same: false,
+      })
+    ).toBe(true);
+  });
+
+  it("keeps an INW edit that has not been pushed yet", () => {
+    expect(
+      shouldApplyEtsyPersonalizationInbound({
+        observed: true,
+        mappedOk: true,
+        localDirty: true,
+        same: false,
+      })
+    ).toBe(false);
+  });
+
+  it("does not replace local options when Etsy personalization could not be read", () => {
+    expect(
+      shouldApplyEtsyPersonalizationInbound({
+        observed: true,
+        mappedOk: false,
+        localDirty: false,
+        same: false,
+      })
+    ).toBe(false);
   });
 });
 

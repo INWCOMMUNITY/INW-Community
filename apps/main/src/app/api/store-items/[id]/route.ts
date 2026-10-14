@@ -158,7 +158,9 @@ async function applyBuyerFieldReplace(
     })),
   }));
   const changed = buyerFieldsDefinitionFingerprint(before) !== buyerFieldsDefinitionFingerprint(fields);
-  if (changed) await replaceListingBuyerFields(tx, storeItemId, fields);
+  if (changed) {
+    await replaceListingBuyerFields(tx, storeItemId, fields, { personalizationDirty: true });
+  }
   return changed;
 }
 

@@ -52,6 +52,7 @@ export async function fetchEtsyListingPersonalization(input: {
     memberId: input.memberId,
     method: "GET",
     path: `/listings/${encodeURIComponent(input.etsyListingId)}/personalization`,
+    query: { supports_multiple_personalization_questions: true },
     maxAttempts: 2,
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -136,6 +137,10 @@ export async function pushEtsyListingPersonalization(input: {
     if (!deleted.ok && deleted.httpStatus !== 404) {
       return classifyFailure(deleted.class, deleted.retryAfterMs, deleted.message);
     }
+    await prisma.etsyListingLink.updateMany({
+      where: { storeItemId: input.storeItemId, etsyConnectionId: input.connectionId },
+      data: { personalizationDirty: false, personalizationAuthoritative: true },
+    });
     return null;
   }
 
@@ -155,8 +160,14 @@ export async function pushEtsyListingPersonalization(input: {
   }
   const echoed = buyerFieldsFromEtsyQuestions(written.data?.personalization_questions ?? []);
   if (echoed.ok && echoed.fields.length === fields.length) {
-    await replaceListingBuyerFields(prisma, input.storeItemId, echoed.fields);
+    await replaceListingBuyerFields(prisma, input.storeItemId, echoed.fields, {
+      personalizationDirty: false,
+    });
   }
+  await prisma.etsyListingLink.updateMany({
+    where: { storeItemId: input.storeItemId, etsyConnectionId: input.connectionId },
+    data: { personalizationDirty: false, personalizationAuthoritative: true },
+  });
   return null;
 }
 
@@ -184,6 +195,8 @@ export async function importEtsyListingPersonalization(input: {
     });
     if (existingCount > 0) return { warning: null };
   }
-  await replaceListingBuyerFields(prisma, input.storeItemId, mapped.fields);
+  await replaceListingBuyerFields(prisma, input.storeItemId, mapped.fields, {
+    personalizationDirty: false,
+  });
   return { warning: null };
 }
