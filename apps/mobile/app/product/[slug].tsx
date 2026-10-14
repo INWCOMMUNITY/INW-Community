@@ -508,12 +508,26 @@ export default function ProductScreen() {
       quantity,
       variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
       fulfillmentType,
-      buyerResponses: (item.buyerFields ?? []).map((field) => ({
-        fieldId: field.id,
-        text: buyerAnswers[field.id]?.text ?? "",
-        optionLabel: buyerAnswers[field.id]?.optionLabel ?? "",
-        files: buyerAnswers[field.id]?.files ?? [],
-      })),
+      buyerResponses: (item.buyerFields ?? []).map((field) => {
+        const draft = buyerAnswers[field.id];
+        const labeled = field.kind === "FILE" && field.labelEachFile && field.options.length > 0;
+        const labeledFiles = labeled
+          ? field.options.flatMap((option, index) => {
+              const file = draft?.files?.[index];
+              return file?.url ? [{ url: file.url, label: option.label }] : [];
+            })
+          : [];
+        return {
+          fieldId: field.id,
+          text: draft?.text ?? "",
+          optionLabel: draft?.optionLabel ?? "",
+          files: labeled
+            ? labeledFiles.length === field.options.length
+              ? labeledFiles
+              : []
+            : (draft?.files ?? []).filter((file) => file?.url),
+        };
+      }),
     };
     if (fulfillmentType === "local_delivery" && localDeliveryForm) {
       payload.localDeliveryDetails = localDeliveryForm;
@@ -913,33 +927,64 @@ export default function ProductScreen() {
                         );
                       })
                     : null}
-                  {field.kind === "FILE" ? (
-                    <Pressable
-                      onPress={async () => {
-                        const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
-                        if (picked.canceled || !picked.assets[0]) return;
-                        const asset = picked.assets[0];
-                        const form = new FormData();
-                        form.append("file", {
-                          uri: asset.uri,
-                          name: asset.fileName ?? "upload.jpg",
-                          type: asset.mimeType ?? "image/jpeg",
-                        } as unknown as Blob);
-                        const uploaded = await apiUploadFile("/api/upload/buyer-file", form);
-                        setBuyerAnswers((prev) => ({
-                          ...prev,
-                          [field.id]: {
-                            ...prev[field.id],
-                            files: [...(prev[field.id]?.files ?? []), { url: uploaded.url }],
-                          },
-                        }));
-                      }}
-                    >
-                      <Text style={{ color: theme.colors.earth }}>
-                        Upload image ({(buyerAnswers[field.id]?.files ?? []).length}/{field.maxFiles ?? 1})
-                      </Text>
-                    </Pressable>
-                  ) : null}
+                  {field.kind === "FILE"
+                    ? (field.labelEachFile && field.options.length > 0
+                        ? field.options
+                        : Array.from({ length: Math.min(10, Math.max(1, field.maxFiles ?? 1)) }, (_, index) => ({
+                            id: `${field.id}-file-${index}`,
+                            label: "Add a file",
+                          }))
+                      ).map((slot, index) => {
+                        const saved = buyerAnswers[field.id]?.files?.[index];
+                        return (
+                          <Pressable
+                            key={slot.id}
+                            onPress={async () => {
+                              const picked = await ImagePicker.launchImageLibraryAsync({
+                                mediaTypes: ["images"],
+                                quality: 0.8,
+                              });
+                              if (picked.canceled || !picked.assets[0]) return;
+                              const asset = picked.assets[0];
+                              const form = new FormData();
+                              form.append("file", {
+                                uri: asset.uri,
+                                name: asset.fileName ?? "upload.jpg",
+                                type: asset.mimeType ?? "image/jpeg",
+                              } as unknown as Blob);
+                              const uploaded = await apiUploadFile("/api/upload/buyer-file", form);
+                              setBuyerAnswers((prev) => {
+                                const nextFiles = [...(prev[field.id]?.files ?? [])];
+                                nextFiles[index] = {
+                                  url: uploaded.url,
+                                  label: field.labelEachFile ? slot.label : null,
+                                };
+                                return {
+                                  ...prev,
+                                  [field.id]: { ...prev[field.id], files: nextFiles },
+                                };
+                              });
+                            }}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 10,
+                              borderWidth: 1,
+                              borderStyle: "dashed",
+                              borderColor: "#d4d4d4",
+                              backgroundColor: "#f5f5f4",
+                              borderRadius: 8,
+                              paddingHorizontal: 12,
+                              paddingVertical: 12,
+                              marginTop: 8,
+                            }}
+                          >
+                            <Text style={{ fontSize: 18, color: "#444" }}>{saved?.url ? "✓" : "+"}</Text>
+                            <Text style={{ flex: 1 }}>{slot.label}</Text>
+                          </Pressable>
+                        );
+                      })
+                    : null}
                 </View>
               ))}
             </View>

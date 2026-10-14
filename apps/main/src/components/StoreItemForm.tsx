@@ -1323,7 +1323,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           </ListingFormSection>
 
           <ListingFormSection
-            title="Custom options"
+            title="Custom Options"
             description="Text, choices, or files buyers fill in. These do not change stock."
           >
             <ListingBuyerFieldsEditor

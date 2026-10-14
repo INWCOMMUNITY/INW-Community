@@ -982,16 +982,35 @@ export function StorefrontListingContent({
                   fields={item.buyerFields ?? []}
                   drafts={buyerDrafts}
                   onChange={setBuyerDrafts}
-                  onUpload={async (file) => {
-                    const form = new FormData();
-                    form.set("file", file);
-                    const res = await fetch("/api/upload/buyer-file", { method: "POST", body: form });
-                    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-                    if (!res.ok || !data.url) {
-                      throw new Error(data.error ?? "Upload failed");
-                    }
-                    return data.url;
-                  }}
+                  onUpload={(file, onProgress) =>
+                    new Promise((resolve, reject) => {
+                      const form = new FormData();
+                      form.set("file", file);
+                      const xhr = new XMLHttpRequest();
+                      xhr.open("POST", "/api/upload/buyer-file");
+                      xhr.upload.onprogress = (event) => {
+                        if (event.lengthComputable && event.total > 0) {
+                          onProgress(Math.round((event.loaded / event.total) * 100));
+                        }
+                      };
+                      xhr.onload = () => {
+                        let data: { url?: string; error?: string } = {};
+                        try {
+                          data = JSON.parse(xhr.responseText) as { url?: string; error?: string };
+                        } catch {
+                          data = {};
+                        }
+                        if (xhr.status >= 200 && xhr.status < 300 && data.url) {
+                          onProgress(100);
+                          resolve(data.url);
+                          return;
+                        }
+                        reject(new Error(data.error || "Upload failed"));
+                      };
+                      xhr.onerror = () => reject(new Error("Upload failed"));
+                      xhr.send(form);
+                    })
+                  }
                 />
                 {perOptionStock && !allVariantsSelected ? (
                   <p className="text-sm text-gray-600 mt-6">

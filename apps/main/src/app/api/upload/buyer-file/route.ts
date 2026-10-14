@@ -48,19 +48,30 @@ export async function POST(req: NextRequest) {
   if (!blobCheck.ok) {
     return NextResponse.json({ error: blobCheck.error }, { status: blobCheck.status });
   }
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const ext = path.extname(file.name) || ".bin";
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const stored = await put(`buyer-files/${session.user.id}/${Date.now()}${ext}`, bytes, {
-      access: "public",
-      contentType: file.type || "application/octet-stream",
-    });
-    return NextResponse.json({ url: stored.url });
-  }
+  try {
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const ext = path.extname(file.name) || ".bin";
+    const filename = `${session.user.id}-${Date.now()}${ext}`;
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const stored = await put(`buyer-files/${session.user.id}/${Date.now()}${ext}`, bytes, {
+          access: "public",
+          contentType: file.type || "application/octet-stream",
+        });
+        return NextResponse.json({ url: stored.url });
+      } catch (error) {
+        // Local dev often has a token that Blob rejects. The public folder still works here.
+        if (process.env.VERCEL) throw error;
+        console.error("[buyer-file] blob rejected, storing on disk", error);
+      }
+    }
 
-  const dir = path.join(process.cwd(), "public", "uploads", "buyer-files");
-  await fs.mkdir(dir, { recursive: true });
-  const filename = `${session.user.id}-${Date.now()}${ext}`;
-  await fs.writeFile(path.join(dir, filename), bytes);
-  return NextResponse.json({ url: `/uploads/buyer-files/${filename}` });
+    const dir = path.join(process.cwd(), "public", "uploads", "buyer-files");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, filename), bytes);
+    return NextResponse.json({ url: `/uploads/buyer-files/${filename}` });
+  } catch (error) {
+    console.error("[buyer-file]", error);
+    return NextResponse.json({ error: "Could not upload that photo. Try again." }, { status: 500 });
+  }
 }

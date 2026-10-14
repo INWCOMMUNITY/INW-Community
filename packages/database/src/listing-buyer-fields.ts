@@ -216,7 +216,7 @@ export function validateListingBuyerFields(raw: unknown): ValidateBuyerFieldsRes
       return { ok: false, error: "Labeling each file needs at least 2 files." };
     }
     const options = labelEachFile
-      ? normalizeOptionLabels(rec.options, LISTING_BUYER_FILE_LABEL_MAX, "File label")
+      ? normalizeOptionLabels(rec.options, LISTING_BUYER_FILE_LABEL_MAX, "File label", true)
       : { ok: true as const, labels: [] };
     if (!options.ok) return options;
     if (labelEachFile && options.labels.length !== maxFiles) {
@@ -245,7 +245,8 @@ export function validateListingBuyerFields(raw: unknown): ValidateBuyerFieldsRes
 function normalizeOptionLabels(
   raw: ListingBuyerFieldOptionInput[] | undefined,
   maxLen: number,
-  noun: string
+  noun: string,
+  allowDuplicate = false
 ):
   | { ok: true; labels: NormalizedListingBuyerField["options"] }
   | { ok: false; error: string } {
@@ -259,7 +260,7 @@ function normalizeOptionLabels(
       return { ok: false, error: `${noun} labels must be 1–${maxLen} characters.` };
     }
     const key = label.toLowerCase();
-    if (seen.has(key)) return { ok: false, error: `${noun} labels must be unique.` };
+    if (!allowDuplicate && seen.has(key)) return { ok: false, error: `${noun} labels must be unique.` };
     seen.add(key);
     labels.push({
       id: typeof option.id === "string" && option.id.trim() ? option.id.trim() : undefined,
@@ -564,7 +565,7 @@ export function buyerFieldsFromEtsyQuestions(
     } else if (type === "unlabeled_upload" || type === "labeled_upload") {
       if (mapped.some((field) => field.kind === "FILE")) continue;
       if (type === "labeled_upload") {
-        const fileOptions = uniqueOptionLabels(options).slice(0, LISTING_BUYER_FILES_MAX);
+        const fileOptions = options.slice(0, LISTING_BUYER_FILES_MAX);
         if (fileOptions.length < 2) continue;
         mapped.push({
           kind: "FILE",

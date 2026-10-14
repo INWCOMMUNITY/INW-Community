@@ -1,6 +1,10 @@
 "use client";
 
+import { useState } from "react";
+
 const LISTING_BUYER_FIELD_MAX = 5;
+const OPTION_LABEL_MAX = 20;
+const DROPDOWN_OPTIONS_MAX = 30;
 
 export type BuyerFieldDraft = {
   kind: "TEXT" | "DROPDOWN" | "FILE";
@@ -10,7 +14,7 @@ export type BuyerFieldDraft = {
   maxCharacters: string;
   maxFiles: string;
   labelEachFile: boolean;
-  optionsText: string;
+  options: string[];
   etsyQuestionId?: string | null;
   optionMeta?: Array<{ label: string; etsyOptionId?: string | null }>;
 };
@@ -24,16 +28,15 @@ export function emptyBuyerField(kind: BuyerFieldDraft["kind"]): BuyerFieldDraft 
     maxCharacters: "256",
     maxFiles: kind === "FILE" ? "1" : "",
     labelEachFile: false,
-    optionsText: kind === "DROPDOWN" ? "" : "",
+    options: [],
   };
 }
 
 function optionsWithIds(field: BuyerFieldDraft) {
   const meta = field.optionMeta ?? [];
   const used = new Set<number>();
-  return field.optionsText
-    .split("\n")
-    .map((line) => line.trim())
+  return field.options
+    .map((label) => label.trim())
     .filter(Boolean)
     .map((label) => {
       const index = meta.findIndex((option, i) => !used.has(i) && option.label === label);
@@ -83,13 +86,91 @@ export function buyerFieldsFromExisting(
     maxCharacters: row.maxCharacters != null ? String(row.maxCharacters) : "256",
     maxFiles: row.maxFiles != null ? String(row.maxFiles) : "1",
     labelEachFile: row.labelEachFile === true,
-    optionsText: (row.options ?? []).map((option) => option.label).join("\n"),
+    options: (row.options ?? []).map((option) => option.label).filter(Boolean),
     optionMeta: (row.options ?? []).map((option) => ({
       label: option.label,
       etsyOptionId: option.etsyOptionId ?? null,
     })),
     etsyQuestionId: row.etsyQuestionId ?? null,
   }));
+}
+
+function kindLabel(kind: BuyerFieldDraft["kind"]) {
+  if (kind === "TEXT") return "Text Box";
+  if (kind === "DROPDOWN") return "List of Options";
+  return "File Upload";
+}
+
+function OptionChipsEditor({
+  labels,
+  onChange,
+  maxCount,
+}: {
+  labels: string[];
+  onChange: (next: string[]) => void;
+  maxCount: number;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function addValue() {
+    const val = draft.trim().slice(0, OPTION_LABEL_MAX);
+    if (!val) return;
+    if (labels.length >= maxCount) return;
+    if (labels.some((label) => label.toLowerCase() === val.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange([...labels, val]);
+    setDraft("");
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-600">Options (max {OPTION_LABEL_MAX} characters each)</p>
+      <div className="flex flex-wrap gap-2 items-center">
+        {labels.map((value, vi) => (
+          <span
+            key={`${value}-${vi}`}
+            className="inline-flex items-center gap-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+          >
+            {value}
+            <button
+              type="button"
+              onClick={() => onChange(labels.filter((_, j) => j !== vi))}
+              className="text-red-500 hover:text-red-700 font-bold leading-none"
+              aria-label={`Remove ${value}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {labels.length < maxCount ? (
+          <>
+            <input
+              type="text"
+              value={draft}
+              maxLength={OPTION_LABEL_MAX}
+              onChange={(e) => setDraft(e.target.value.slice(0, OPTION_LABEL_MAX))}
+              placeholder="+ Add option"
+              className="w-32 border rounded px-2 py-1 text-sm"
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                addValue();
+              }}
+            />
+            <button
+              type="button"
+              className="text-sm font-semibold text-[var(--color-primary)]"
+              onClick={addValue}
+            >
+              Add
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function ListingBuyerFieldsEditor({
@@ -109,9 +190,7 @@ export function ListingBuyerFieldsEditor({
       {fields.map((field, index) => (
         <div key={index} className="rounded-lg border border-gray-200 p-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-gray-900">
-              {field.kind === "TEXT" ? "Text box" : field.kind === "DROPDOWN" ? "List of options" : "File upload"}
-            </span>
+            <span className="text-sm font-medium text-gray-900">{kindLabel(field.kind)}</span>
             <button
               type="button"
               className="text-sm text-red-600"
@@ -162,10 +241,10 @@ export function ListingBuyerFieldsEditor({
             </label>
           ) : null}
           {field.kind === "TEXT" ? (
-            <label className="block text-xs text-gray-600">
-              Character limit (1–1024)
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs text-gray-600">Character limit (1–1024)</span>
               <input
-                className="mt-1 w-32 border rounded px-2 py-1.5 text-sm"
+                className="w-32 border rounded px-2 py-1.5 text-sm"
                 inputMode="numeric"
                 value={field.maxCharacters}
                 onChange={(e) => {
@@ -174,45 +253,62 @@ export function ListingBuyerFieldsEditor({
                   onChange(next);
                 }}
               />
-            </label>
+            </div>
           ) : null}
           {field.kind === "DROPDOWN" || (field.kind === "FILE" && field.labelEachFile) ? (
-            <label className="block text-xs text-gray-600">
-              {field.kind === "DROPDOWN" ? "Options, one per line (max 20 characters)" : "File labels, one per line"}
-              <textarea
-                className="mt-1 w-full border rounded px-2 py-1.5 text-sm"
-                rows={3}
-                value={field.optionsText}
-                onChange={(e) => {
-                  const next = [...fields];
-                  next[index] = { ...field, optionsText: e.target.value };
-                  onChange(next);
-                }}
-              />
-            </label>
+            <OptionChipsEditor
+              labels={field.options}
+              maxCount={field.kind === "DROPDOWN" ? DROPDOWN_OPTIONS_MAX : 10}
+              onChange={(options) => {
+                const next = [...fields];
+                const maxFiles =
+                  field.kind === "FILE" && field.labelEachFile
+                    ? String(Math.min(10, Math.max(1, options.length || Number(field.maxFiles) || 1)))
+                    : field.maxFiles;
+                next[index] = {
+                  ...field,
+                  options,
+                  ...(field.kind === "FILE" ? { maxFiles } : {}),
+                };
+                onChange(next);
+              }}
+            />
           ) : null}
           {field.kind === "FILE" ? (
-            <div className="flex flex-wrap gap-4 items-end">
-              <label className="block text-xs text-gray-600">
-                Number of files (1–10)
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-gray-600">Number of files (1–10)</span>
                 <input
-                  className="mt-1 w-24 border rounded px-2 py-1.5 text-sm"
+                  className="w-24 border rounded px-2 py-1.5 text-sm"
                   inputMode="numeric"
                   value={field.maxFiles}
+                  disabled={field.labelEachFile}
+                  title={
+                    field.labelEachFile
+                      ? "Matches the number of file labels"
+                      : undefined
+                  }
                   onChange={(e) => {
                     const next = [...fields];
                     next[index] = { ...field, maxFiles: e.target.value.replace(/[^\d]/g, "") };
                     onChange(next);
                   }}
                 />
-              </label>
-              <label className="flex items-center gap-2 text-sm pb-1">
+              </div>
+              <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={field.labelEachFile}
                   onChange={(e) => {
+                    const labelEachFile = e.target.checked;
                     const next = [...fields];
-                    next[index] = { ...field, labelEachFile: e.target.checked };
+                    next[index] = {
+                      ...field,
+                      labelEachFile,
+                      maxFiles: labelEachFile
+                        ? String(Math.min(10, Math.max(1, field.options.length || Number(field.maxFiles) || 1)))
+                        : field.maxFiles,
+                    };
                     onChange(next);
                   }}
                 />
@@ -224,11 +320,19 @@ export function ListingBuyerFieldsEditor({
       ))}
       {fields.length < LISTING_BUYER_FIELD_MAX ? (
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="action-pill action-pill-sm btn-pill-outline" onClick={() => onChange([...fields, emptyBuyerField("TEXT")])}>
-            + Text box
+          <button
+            type="button"
+            className="action-pill action-pill-sm btn-pill-outline"
+            onClick={() => onChange([...fields, emptyBuyerField("TEXT")])}
+          >
+            + Text Box
           </button>
-          <button type="button" className="action-pill action-pill-sm btn-pill-outline" onClick={() => onChange([...fields, emptyBuyerField("DROPDOWN")])}>
-            + List of options
+          <button
+            type="button"
+            className="action-pill action-pill-sm btn-pill-outline"
+            onClick={() => onChange([...fields, emptyBuyerField("DROPDOWN")])}
+          >
+            + List of Options
           </button>
           <button
             type="button"
@@ -236,7 +340,7 @@ export function ListingBuyerFieldsEditor({
             disabled={fileTaken}
             onClick={() => onChange([...fields, emptyBuyerField("FILE")])}
           >
-            + File upload
+            + File Upload
           </button>
         </div>
       ) : null}
