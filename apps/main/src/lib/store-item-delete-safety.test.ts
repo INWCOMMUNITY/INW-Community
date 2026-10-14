@@ -75,6 +75,11 @@ vi.mock("@/lib/seller-activity-log", () => ({
   logSellerActivity: vi.fn(),
 }));
 
+vi.mock("@/lib/disconnect-ended-listing-channels", () => ({
+  disconnectStoreItemChannels: vi.fn(),
+  disconnectChannelsForEndedStoreItems: vi.fn(),
+}));
+
 const { deleteFeedPostsForSoldItem } = vi.hoisted(() => ({
   deleteFeedPostsForSoldItem: vi.fn(),
 }));

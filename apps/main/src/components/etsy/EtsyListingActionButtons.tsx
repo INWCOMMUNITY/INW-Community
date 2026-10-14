@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
   etsyListingIsPubliclyViewable,
   etsyListingPublicUrl,
@@ -159,8 +158,8 @@ export function EtsyListingActionButtons({
     {
       kind: "link",
       id: "view-linked",
-      label: "View linked listings",
-      href: APPS_AIRPORT_ETSY_LISTINGS_PATH,
+      label: "View my items",
+      href: "/seller-hub/store/items",
     },
     ...(!live
       ? ([
@@ -214,7 +213,7 @@ export function EtsyListingActionButtons({
         <div className="max-w-[16rem] rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-900">
           <p className="font-semibold">Remove from INW?</p>
           <p className="mt-1 text-neutral-700">
-            Takes this listing off your INW storefront. It stays live on Etsy.
+            Takes this listing off your INW storefront. It stays live on Etsy, and INW drops the link so you can import it again as a new listing.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button

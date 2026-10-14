@@ -5,8 +5,8 @@ import Link from "next/link";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { ShopifyMetafieldListingDialog } from "@/components/shopify/ShopifyMetafieldListingDialog";
+import { ShopifySharedQuantityDialog } from "@/components/shopify/ShopifySharedQuantityDialog";
 import {
-  APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_PATH,
   APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
   formatCents,
@@ -28,6 +28,7 @@ type EligibleListing = {
   supported?: boolean;
   unsupportedReason?: string | null;
   needsShopifyMetafields?: boolean;
+  usesSharedQuantityPool?: boolean;
 };
 
 type ListingStatus = {
@@ -109,6 +110,7 @@ export default function AppsAirportShopifySyncPage() {
   const [progressDetail, setProgressDetail] = useState<string | null>(null);
   const [resultModal, setResultModal] = useState<ResultModal | null>(null);
   const [metafieldTargets, setMetafieldTargets] = useState<EligibleListing[] | null>(null);
+  const [sharedQuantityOpen, setSharedQuantityOpen] = useState(false);
   const busyRef = useRef(false);
   const pollGenerationRef = useRef(0);
 
@@ -205,14 +207,14 @@ export default function AppsAirportShopifySyncPage() {
           if (step === "published") {
             setProgressDetail("This listing is live on your Online Store.");
           } else if (step === "needs_attention" && !listing?.issueMessage && !body.job?.errorMessage) {
-            setProgressDetail("Open Synced Listings to review what needs attention.");
+            setProgressDetail("Open My Items to review what needs attention.");
           }
           return;
         }
       }
       if (pollGenerationRef.current !== generation) return;
       setProgressDetail(
-        "Sync is still running in the background. Check Synced Listings shortly."
+        "Sync is still running in the background. Check My Items shortly."
       );
     },
     []
@@ -303,6 +305,10 @@ export default function AppsAirportShopifySyncPage() {
   );
 
   function requestEnqueue(targets: EligibleListing[]) {
+    if (targets.some((listing) => listing.usesSharedQuantityPool)) {
+      setSharedQuantityOpen(true);
+      return;
+    }
     if (targets.some((listing) => listing.needsShopifyMetafields)) {
       setMetafieldTargets(targets);
       return;
@@ -398,11 +404,11 @@ export default function AppsAirportShopifySyncPage() {
             progress === "mapping" ||
             progress === "publishing") && (
             <Link
-              href={APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}
+              href="/seller-hub/store/items"
               className="btn mt-3 inline-block"
               prefetch={false}
             >
-              View synced listings
+              View my items
             </Link>
           )}
         </div>
@@ -538,6 +544,10 @@ export default function AppsAirportShopifySyncPage() {
         </>
       ) : null}
 
+      <ShopifySharedQuantityDialog
+        open={sharedQuantityOpen}
+        onClose={() => setSharedQuantityOpen(false)}
+      />
       <ShopifyMetafieldListingDialog
         open={metafieldTargets != null}
         itemCount={metafieldTargets?.length ?? 1}
@@ -593,12 +603,12 @@ export default function AppsAirportShopifySyncPage() {
               </button>
               {resultModal.tone !== "error" ? (
                 <Link
-                  href={APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}
+                  href="/seller-hub/store/items"
                   className="btn"
                   prefetch={false}
                   onClick={() => setResultModal(null)}
                 >
-                  View synced listings
+                  View my items
                 </Link>
               ) : null}
             </div>

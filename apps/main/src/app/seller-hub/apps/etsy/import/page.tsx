@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import {
-  APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   formatEtsyCents,
@@ -551,12 +550,12 @@ export default function AppsAirportEtsyImportPage() {
           {(batch.state === "COMPLETED" || batch.state === "CANCELLED") && (
             <p className="mt-3 text-sm">
               <Link
-                href={APPS_AIRPORT_ETSY_LISTINGS_PATH}
+                href="/seller-hub/store/items"
                 className="underline font-medium"
                 style={{ color: "var(--color-primary)" }}
                 prefetch={false}
               >
-                View linked listings
+                View my items
               </Link>
             </p>
           )}
@@ -707,7 +706,7 @@ export default function AppsAirportEtsyImportPage() {
               {etsyReportedCount === 0
                 ? "Etsy returned no active listings for this connected shop. Confirm you’re connected to the right shop in Connection Settings."
                 : alreadyLinkedCount > 0
-                  ? "All active Etsy listings on this page are already linked in INW. Open Linked Listings to manage them."
+                  ? "All active Etsy listings on this page are already linked in INW. Open My Items to manage them."
                   : "No importable active listings found. If you see the listing in Etsy Shop Manager, reconnect Etsy and try again."}
             </p>
           ) : null}

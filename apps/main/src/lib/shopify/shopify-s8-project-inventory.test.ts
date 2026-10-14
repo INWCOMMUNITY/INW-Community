@@ -10,6 +10,7 @@ vi.mock("database", async () => {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyVariantMap: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       shopifyListingLink: { findUnique: vi.fn() },
+      storeItem: { findUnique: vi.fn() },
     },
     markShopifyInventoryProjectionApplied: vi.fn(async () => true),
     markShopifyInventoryProjectionRemoteDrift: vi.fn(async () => undefined),
@@ -130,6 +131,7 @@ beforeEach(() => {
   vi.mocked(prisma.shopifyListingLink.findUnique).mockResolvedValue({
     inventoryHealth: "HEALTHY",
   } as never);
+  vi.mocked(prisma.storeItem.findUnique).mockResolvedValue(null as never);
 });
 
 describe("handleShopifyProjectInventoryJob", () => {
@@ -150,6 +152,42 @@ describe("handleShopifyProjectInventoryJob", () => {
       })
     );
     expect(markShopifyInventoryProjectionApplied).not.toHaveBeenCalled();
+  });
+
+  it("shared pool replaces leftover per-combination Shopify stock", async () => {
+    vi.mocked(prisma.storeItem.findUnique).mockResolvedValue({
+      variants: {
+        sharedQuantity: true,
+        skus: [{ quantity: 10 }, { quantity: 10 }],
+      },
+    } as never);
+    vi.mocked(prisma.shopifyVariantMap.findUnique).mockResolvedValue(
+      baseMap({
+        inventoryDesiredAvailable: 10,
+        inventoryAppliedAvailable: 25,
+      }) as never
+    );
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (String(body.query).includes("ShopifyInventoryProjectionRead")) {
+        return jsonResponse(inventoryRead(18));
+      }
+      expect(body.variables.input.quantities[0]).toEqual(
+        expect.objectContaining({ quantity: 10, changeFromQuantity: 18 })
+      );
+      return jsonResponse({
+        data: {
+          inventorySetQuantities: {
+            inventoryAdjustmentGroup: { id: "gid://shopify/InventoryAdjustmentGroup/1" },
+            userErrors: [],
+          },
+        },
+      });
+    });
+    const result = await handleShopifyProjectInventoryJob(claim(), { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(markShopifyInventoryProjectionRemoteDrift).not.toHaveBeenCalled();
+    expect(markShopifyInventoryProjectionApplied).toHaveBeenCalled();
   });
 
   it("S7 catch-up: remote already desired → no set mutation, mark applied and clear drift", async () => {

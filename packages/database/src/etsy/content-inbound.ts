@@ -21,8 +21,10 @@ import {
   aspectsEqual,
   mergeEtsyInboundAspects,
   normalizeEtsyTags,
+  stripEtsyPackageDimensionAspects,
   tagsEqual,
   type EtsyInboundAspect,
+  type EtsyPackageDimensionLabels,
 } from "./listing-aspects";
 import {
   buyerFieldsFromEtsyQuestions,
@@ -44,10 +46,12 @@ export type EtsyRemoteListingObservation = {
   state?: string | null;
   /** Diagnostic only. */
   updatedAt?: Date | null;
-  /** Shop Manager Attributes (+ materials/dimensions) mapped to INW Item Details. */
+  /** Shop Manager Attributes and materials mapped to INW Item Details. */
   aspects?: EtsyInboundAspect[] | null;
   /** True when listing properties were fetched (even if empty). */
   aspectsObserved?: boolean;
+  /** Etsy package size. Matching Width / Height / Depth rows are removed from Item Details. */
+  packageDimensions?: EtsyPackageDimensionLabels | null;
   /** Etsy search tags. */
   tags?: string[] | null;
   tagsObserved?: boolean;
@@ -336,12 +340,16 @@ export async function applyEtsyListingContentInbound(
 
   // Attributes / tags are Etsy→INW only (aspects ignored by Etsy outbound).
   // Apply independently of title/description LWW so Shop Manager Attributes land in Item Details.
+  // Package width/height/length stay off Item Details and clear any earlier echo.
   const aspectPatch: {
     aspects?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
     tags?: string[];
   } = {};
   if (input.remote.aspectsObserved) {
-    const merged = mergeEtsyInboundAspects(storeItem.aspects, input.remote.aspects ?? []);
+    const merged = stripEtsyPackageDimensionAspects(
+      mergeEtsyInboundAspects(storeItem.aspects, input.remote.aspects ?? []),
+      input.remote.packageDimensions
+    );
     if (!aspectsEqual(storeItem.aspects, merged)) {
       aspectPatch.aspects =
         merged.length > 0 ? (merged as unknown as Prisma.InputJsonValue) : Prisma.JsonNull;

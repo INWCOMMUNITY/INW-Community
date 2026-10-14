@@ -743,15 +743,21 @@ export async function relistFoundationListing(
 ): Promise<void> {
   await lockCutoverShare(tx);
   await lockStoreItemForUpdate(tx, args.storeItemId);
+  const ended = await tx.storeItem.findUnique({
+    where: { id: args.storeItemId },
+    select: { endedAt: true },
+  });
+  const endedAtMs = ended?.endedAt?.getTime() ?? null;
   await tx.storeItem.update({
     where: { id: args.storeItemId },
     data: { status: "active", endedAt: null },
   });
   // Only reactivate variants that are part of this relist SET. Do not resurrect
   // topology-retired orphans (Shopify GID replaced) that are absent from targets.
+  // End clears isDefault, so a simple listing has no default left to find.
   const allVariants = await tx.storeVariant.findMany({
     where: { storeItemId: args.storeItemId },
-    select: { id: true, options: true, isDefault: true, status: true },
+    select: { id: true, options: true, isDefault: true, status: true, retiredAt: true },
   });
   const reactivateIds = new Set<string>();
   if (args.matrixTargets) {
@@ -762,12 +768,27 @@ export async function relistFoundationListing(
     }
   } else {
     const defaults = allVariants.filter((v) => v.isDefault);
-    if (defaults.length === 1) reactivateIds.add(defaults[0]!.id);
+    if (defaults.length === 1) {
+      reactivateIds.add(defaults[0]!.id);
+    } else if (allVariants.length === 1) {
+      reactivateIds.add(allVariants[0]!.id);
+    } else if (endedAtMs != null) {
+      const cohort = allVariants.filter(
+        (variant) =>
+          variant.retiredAt != null && Math.abs(variant.retiredAt.getTime() - endedAtMs) < 5000
+      );
+      for (const variant of cohort) reactivateIds.add(variant.id);
+    }
   }
   if (reactivateIds.size > 0) {
+    const ids = [...reactivateIds];
     await tx.storeVariant.updateMany({
-      where: { id: { in: [...reactivateIds] } },
-      data: { status: "ACTIVE", retiredAt: null },
+      where: { id: { in: ids } },
+      data: {
+        status: "ACTIVE",
+        retiredAt: null,
+        ...(!args.matrixTargets && ids.length === 1 ? { isDefault: true } : {}),
+      },
     });
   }
   await applyFoundationSellerQuantitySets(tx, args);

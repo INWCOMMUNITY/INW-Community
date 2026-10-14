@@ -206,7 +206,7 @@ export function ListOnChannelProgressModal({
                     etsySyncProgressLabel(step),
                     body.listing?.issueMessage ??
                       body.job?.errorMessage ??
-                      "Open Linked Listings to review what needs attention."
+                      "Open My Items to review what needs attention."
                   );
                 }
                 return;
@@ -247,7 +247,7 @@ export function ListOnChannelProgressModal({
                     shopifySyncProgressLabel(step),
                     body.listing?.issueMessage ??
                       body.job?.errorMessage ??
-                      "Open Synced Listings to review what needs attention."
+                      "Open My Items to review what needs attention."
                   );
                 }
                 return;
@@ -263,8 +263,8 @@ export function ListOnChannelProgressModal({
           "pending",
           "Still working",
           channel === "etsy"
-            ? "Still working in the background. Open Linked Listings in a minute to confirm."
-            : "Sync is still running in the background. Check Synced Listings shortly."
+            ? "Still working in the background. Open My Items in a minute to confirm."
+            : "Sync is still running in the background. Check My Items shortly."
         );
       } catch {
         if (cancelledRef.current) return;

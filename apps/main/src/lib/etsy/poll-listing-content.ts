@@ -2,6 +2,7 @@ import {
   applyEtsyListingContentInbound,
   applyEtsyListingInventoryInbound,
   buildEtsyInboundAspects,
+  etsyPackageDimensionLabels,
   enqueueEtsySyncJob,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
@@ -188,6 +189,8 @@ async function fetchRemoteObservation(input: {
   const aspects = buildEtsyInboundAspects({
     properties: propertiesRes.ok ? propertiesRes.data?.results ?? [] : [],
     materials: Array.isArray(listingRes.data.materials) ? listingRes.data.materials : [],
+  });
+  const packageDimensions = etsyPackageDimensionLabels({
     itemWidth: listingRes.data.item_width,
     itemHeight: listingRes.data.item_height,
     itemLength: listingRes.data.item_length,
@@ -258,6 +261,7 @@ async function fetchRemoteObservation(input: {
           : null,
       aspects,
       aspectsObserved,
+      packageDimensions,
       tags,
       tagsObserved,
       personalizationQuestions: personalization.ok ? personalization.questions : null,

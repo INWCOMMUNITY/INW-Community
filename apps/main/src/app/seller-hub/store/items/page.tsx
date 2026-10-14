@@ -36,6 +36,7 @@ type MyStoreItem = {
   /** Where the listing is live — INW always; Shopify when linked. */
   channels?: AppsAirportChannelId[];
   needsShopifyMetafields?: boolean;
+  usesSharedQuantityPool?: boolean;
 };
 
 const STATUS_TABS: { key: Exclude<ItemsTab, "drafts">; label: string }[] = [
@@ -319,7 +320,10 @@ function MyItemsPageInner() {
       {
         id: "inw",
         label: "INW",
-        detail: selected.length === 1 ? "Your INW storefront" : `${selected.length} listings`,
+        detail:
+          selected.length === 1
+            ? "Your INW storefront. Etsy and Shopify stay in their shops, and INW drops the link."
+            : `${selected.length} listings. Channel links are removed.`,
       },
     ];
     if (etsyCount > 0) {
@@ -356,31 +360,6 @@ function MyItemsPageInner() {
     };
     void runAction(async () => {
       const problems: string[] = [];
-      if (places.includes("inw")) {
-        if (ids.length === 1) {
-          const res = await fetch(`/api/store-items/${ids[0]}`, {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "inactive" }),
-          });
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error((data as { error?: string }).error ?? "Failed to end listing on INW");
-          }
-        } else {
-          const res = await fetch("/api/store-items/bulk", {
-            method: "DELETE",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ storeItemIds: ids }),
-          });
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error((data as { error?: string }).error ?? "Failed to end listings on INW");
-          }
-        }
-      }
       if (places.includes("etsy")) {
         for (const item of selected) {
           if (!item.channels?.includes("etsy")) continue;
@@ -411,6 +390,31 @@ function MyItemsPageInner() {
           if (!res.ok) {
             const data = (await res.json().catch(() => ({}))) as { error?: string };
             problems.push(data.error ?? `Could not end “${item.title}” on Shopify`);
+          }
+        }
+      }
+      if (places.includes("inw")) {
+        if (ids.length === 1) {
+          const res = await fetch(`/api/store-items/${ids[0]}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "inactive" }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error((data as { error?: string }).error ?? "Failed to end listing on INW");
+          }
+        } else {
+          const res = await fetch("/api/store-items/bulk", {
+            method: "DELETE",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storeItemIds: ids }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error((data as { error?: string }).error ?? "Failed to end listings on INW");
           }
         }
       }
@@ -811,6 +815,7 @@ function MyItemsPageInner() {
                           etsyReady={etsyReady}
                           shopifyReady={shopifyReady}
                           needsShopifyMetafields={item.needsShopifyMetafields}
+                          usesSharedQuantityPool={item.usesSharedQuantityPool}
                           onListed={(message) => {
                             if (message) setActionMessage(message);
                             void load();
@@ -942,6 +947,7 @@ function MyItemsPageInner() {
                           etsyReady={etsyReady}
                           shopifyReady={shopifyReady}
                           needsShopifyMetafields={item.needsShopifyMetafields}
+                          usesSharedQuantityPool={item.usesSharedQuantityPool}
                           onListed={(message) => {
                             if (message) setActionMessage(message);
                             void load();

@@ -10,7 +10,9 @@ import {
   shouldPauseInventoryForDirectShopifyEdit,
 } from "./inventory-direct-edit";
 import {
+  captureShopifyInventoryProjectionDesire,
   ensureShopifyProjectInventoryJob,
+  listingIsSharedPool,
   markShopifyInventoryProjectionApplied,
   markShopifyInventoryProjectionRemoteDrift,
 } from "./inventory-desire";
@@ -232,6 +234,23 @@ export async function applyShopifyInventoryLevelObservation(
   const sourceFactId =
     input.observation.inventoryLevelId?.trim() ||
     `invlvl:${input.observation.inventoryItemId}:${input.observation.locationId}:${input.observation.evidenceId}:${remote}`;
+
+  if (cls === "UNEXPLAINED_REMOTE_EDIT") {
+    const item = await db.storeItem.findUnique({
+      where: { id: variantMap.storeItemId },
+      select: { variants: true },
+    });
+    if (listingIsSharedPool(item?.variants)) {
+      // One listing quantity. Do not copy one combination's leftover Shopify
+      // stock onto the pool; push the listing quantity back out instead.
+      await captureShopifyInventoryProjectionDesire(db, {
+        memberId: input.memberId,
+        storeVariantId: variantMap.storeVariantId,
+        force: true,
+      });
+      return { status: "IGNORED", reason: "SHARED_POOL" };
+    }
+  }
 
   try {
     const applied = await applyTrackedMarketplaceQuantityEdit(db, {

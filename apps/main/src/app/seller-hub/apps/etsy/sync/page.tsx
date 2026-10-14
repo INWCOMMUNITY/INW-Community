@@ -10,7 +10,6 @@ import {
   type EtsyHowItsMadeFormValue,
 } from "@/components/etsy/EtsyHowItsMadeFields";
 import {
-  APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
@@ -145,7 +144,7 @@ export default function AppsAirportEtsySyncPage() {
       }
     }
     setProgressDetail(
-      "Still working in the background. Open Linked Listings in a minute to confirm."
+      "Still working in the background. Open My Items in a minute to confirm."
     );
   }
 
@@ -291,8 +290,8 @@ export default function AppsAirportEtsySyncPage() {
             </p>
           ) : null}
           {(progress === "live" || progress === "needs_attention" || progress === "already_mapped") && (
-            <Link href={APPS_AIRPORT_ETSY_LISTINGS_PATH} className="btn mt-3 inline-block" prefetch={false}>
-              View linked listings
+            <Link href="/seller-hub/store/items" className="btn mt-3 inline-block" prefetch={false}>
+              View my items
             </Link>
           )}
         </div>

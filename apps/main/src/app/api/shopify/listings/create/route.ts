@@ -75,8 +75,9 @@ export async function POST(req: NextRequest) {
           result.code === "UNSUPPORTED_VARIANTS" ||
           result.code === "INACTIVE" ||
           result.code === "MISSING_TITLE" ||
-          result.code === "MISSING_PRICE" ||
-          result.code === "CONFLICT"
+        result.code === "MISSING_PRICE" ||
+        result.code === "SHARED_QUANTITY" ||
+        result.code === "CONFLICT"
         ? 409
         : 400;
   return NextResponse.json({ error: result.message, code: result.code }, { status });

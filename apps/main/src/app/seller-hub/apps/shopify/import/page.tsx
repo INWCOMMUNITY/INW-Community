@@ -399,12 +399,12 @@ export default function AppsAirportShopifyImportPage() {
           {(batch.state === "COMPLETED" || batch.state === "CANCELLED") && (
             <p className="mt-3 text-sm">
               <Link
-                href={APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}
+                href="/seller-hub/store/items"
                 className="underline font-medium"
                 style={{ color: "var(--color-primary)" }}
                 prefetch={false}
               >
-                View synced listings
+                View my items
               </Link>
             </p>
           )}
@@ -479,12 +479,12 @@ export default function AppsAirportShopifyImportPage() {
               {loading ? "Loading…" : "Refresh products"}
             </button>
             <Link
-              href={APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}
+              href="/seller-hub/store/items"
               className="text-sm underline self-center"
               prefetch={false}
               style={{ color: "var(--color-primary)" }}
             >
-              Synced listings
+              My items
             </Link>
           </div>
 

@@ -3,6 +3,7 @@ import {
   assertShopifyProductGid,
   assertShopifyProductVariantGid,
   prisma,
+  sharedListingPoolAvailable,
   ShopifyGidValidationError,
   trackedAvailable,
 } from "database";
@@ -91,11 +92,6 @@ export function listingSharesOneSku(variants: unknown): boolean {
   return (variants as { skusVary?: unknown }).skusVary === false;
 }
 
-function listingSharesOneQuantity(variants: unknown): boolean {
-  if (!variants || typeof variants !== "object" || Array.isArray(variants)) return false;
-  return (variants as { sharedQuantity?: unknown }).sharedQuantity === true;
-}
-
 /** One Shopify price when the listing price does not vary by combination. */
 export function shopifyVariantPriceCents(input: {
   variantPriceCents: number;
@@ -162,17 +158,16 @@ export async function loadShopifyCreateInventory(input: {
   if (itemIds.length > 0) {
     const items = await prisma.storeItem.findMany({
       where: { id: { in: itemIds } },
-      select: { id: true, variants: true },
+      select: { id: true, variants: true, quantity: true },
     });
-    const shared = new Set(items.filter((item) => listingSharesOneQuantity(item.variants)).map((item) => item.id));
-    applySharedShopifyAvailability(
-      availableByVariantId,
-      states.map((state) => ({
-        variantId: state.variantId,
-        storeItemId: state.storeItemId,
-        shared: shared.has(state.storeItemId),
-      }))
-    );
+    for (const item of items) {
+      const pool = sharedListingPoolAvailable(item.variants, item.quantity);
+      if (pool == null) continue;
+      for (const state of states) {
+        if (state.storeItemId !== item.id || !availableByVariantId.has(state.variantId)) continue;
+        availableByVariantId.set(state.variantId, pool);
+      }
+    }
   }
   return { locationId, availableByVariantId };
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { disconnectChannelsForEndedStoreItems } from "@/lib/disconnect-ended-listing-channels";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
@@ -32,6 +33,12 @@ export async function GET(req: NextRequest) {
   });
   if (!connection) {
     return NextResponse.json({ connection: null, listings: [] });
+  }
+
+  try {
+    await disconnectChannelsForEndedStoreItems(memberId);
+  } catch (error) {
+    console.error("[etsy-listings] could not drop ended channel links", error);
   }
 
   const links = await prisma.etsyListingLink.findMany({

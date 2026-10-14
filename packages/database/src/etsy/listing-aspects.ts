@@ -1,5 +1,6 @@
 /**
- * Map Etsy Shop Manager Attributes (+ materials / dimensions) into INW Item Details.
+ * Map Etsy Shop Manager Attributes and materials into INW Item Details.
+ * Package size (item width / height / length) stays on Etsy for shipping and is not an Item Detail.
  * Etsy→INW only — StoreItem.aspects stay ignored by Etsy outbound adapters.
  */
 
@@ -49,7 +50,7 @@ function dimensionValue(amount: number | null | undefined, unit: string | null |
   return u ? `${num} ${u}` : num;
 }
 
-/** Build Item Details rows from Etsy listing properties, materials, and dimensions. */
+/** Build Item Details rows from Etsy listing properties and materials. */
 export function buildEtsyInboundAspects(source: EtsyListingAttributeSource): EtsyInboundAspect[] {
   const rows: EtsyInboundAspect[] = [];
   for (const property of source.properties ?? []) {
@@ -74,21 +75,53 @@ export function buildEtsyInboundAspects(source: EtsyListingAttributeSource): Ets
     rows.push({ name: "Materials", value: materials.join(", ") });
   }
 
-  const unit = source.itemDimensionsUnit ?? null;
-  const width = dimensionValue(source.itemWidth, unit);
-  const height = dimensionValue(source.itemHeight, unit);
-  const length = dimensionValue(source.itemLength, unit);
-  if (width && !rows.some((row) => row.name.toLowerCase() === "width")) {
-    rows.push({ name: "Width", value: width });
-  }
-  if (height && !rows.some((row) => row.name.toLowerCase() === "height")) {
-    rows.push({ name: "Height", value: height });
-  }
-  if (length && !rows.some((row) => row.name.toLowerCase() === "depth" || row.name.toLowerCase() === "length")) {
-    rows.push({ name: "Depth", value: length });
-  }
-
   return normalizeInboundAspects(rows);
+}
+
+export type EtsyPackageDimensionLabels = {
+  width: string;
+  height: string;
+  depth: string;
+};
+
+/** Formatted package measurements. These are shipping fields, not Item Details. */
+export function etsyPackageDimensionLabels(
+  source: Pick<
+    EtsyListingAttributeSource,
+    "itemWidth" | "itemHeight" | "itemLength" | "itemDimensionsUnit"
+  >
+): EtsyPackageDimensionLabels {
+  const unit = source.itemDimensionsUnit ?? null;
+  return {
+    width: dimensionValue(source.itemWidth, unit),
+    height: dimensionValue(source.itemHeight, unit),
+    depth: dimensionValue(source.itemLength, unit),
+  };
+}
+
+const PACKAGE_DIMENSION_AXIS: Record<string, keyof EtsyPackageDimensionLabels> = {
+  width: "width",
+  height: "height",
+  depth: "depth",
+  length: "depth",
+};
+
+/**
+ * Drop Item Details that only echo the Etsy package size written for shipping.
+ * A real attribute with a different value is kept.
+ */
+export function stripEtsyPackageDimensionAspects(
+  aspects: EtsyInboundAspect[],
+  packageDimensions: EtsyPackageDimensionLabels | null | undefined
+): EtsyInboundAspect[] {
+  if (!packageDimensions) return aspects;
+  return aspects.filter((row) => {
+    const axis = PACKAGE_DIMENSION_AXIS[row.name.trim().toLowerCase()];
+    if (!axis) return true;
+    const echoed = packageDimensions[axis].trim().toLowerCase();
+    if (!echoed) return true;
+    return row.value.trim().toLowerCase() !== echoed;
+  });
 }
 
 /**

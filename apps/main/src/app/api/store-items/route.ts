@@ -13,6 +13,7 @@ import {
   serializeVariantMatrix,
   validateVariantMatrixForSave,
   parseInventoryTracking,
+  shopifyBlocksSharedQuantityPool,
 } from "@/lib/listing-variant-matrix";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
@@ -146,6 +147,17 @@ async function storeItemIdsNeedingShopifyMetafields(itemIds: string[]): Promise<
     distinct: ["storeItemId"],
   });
   return new Set(rows.map((row) => row.storeItemId));
+}
+
+async function storeItemIdsUsingSharedQuantityPool(itemIds: string[]): Promise<Set<string>> {
+  if (itemIds.length === 0) return new Set();
+  const rows = await prisma.storeItem.findMany({
+    where: { id: { in: itemIds } },
+    select: { id: true, variants: true },
+  });
+  return new Set(
+    rows.filter((row) => shopifyBlocksSharedQuantityPool(row.variants)).map((row) => row.id)
+  );
 }
 
 /** Sold tab rows = paid sales (INW orders + applied Etsy sale facts), not only sold_out listings. */
@@ -364,10 +376,15 @@ async function loadMineSoldSales(userId: string) {
   }
 
   rows.sort((a, b) => (a.soldAt < b.soldAt ? 1 : a.soldAt > b.soldAt ? -1 : 0));
-  const metafieldIds = await storeItemIdsNeedingShopifyMetafields(rows.map((row) => row.storeItemId));
+  const soldItemIds = rows.map((row) => row.storeItemId);
+  const [metafieldIds, sharedPoolIds] = await Promise.all([
+    storeItemIdsNeedingShopifyMetafields(soldItemIds),
+    storeItemIdsUsingSharedQuantityPool(soldItemIds),
+  ]);
   return rows.map((row) => ({
     ...row,
     needsShopifyMetafields: metafieldIds.has(row.storeItemId),
+    usesSharedQuantityPool: sharedPoolIds.has(row.storeItemId),
   }));
 }
 
@@ -522,9 +539,10 @@ export async function GET(req: NextRequest) {
     });
 
     const itemIds = items.map((i) => i.id);
-    const [{ channelsByItemId, viewsByItemId }, metafieldIds] = await Promise.all([
+    const [{ channelsByItemId, viewsByItemId }, metafieldIds, sharedPoolIds] = await Promise.all([
       loadMineListingChannels(userId, itemIds),
       storeItemIdsNeedingShopifyMetafields(itemIds),
+      storeItemIdsUsingSharedQuantityPool(itemIds),
     ]);
 
     const mapMineItem = (i: (typeof items)[number]) => ({
@@ -533,6 +551,7 @@ export async function GET(req: NextRequest) {
       channels: channelsByItemId.get(i.id) ?? ["inw"],
       views30d: viewsByItemId.get(i.id) ?? 0,
       needsShopifyMetafields: metafieldIds.has(i.id),
+      usesSharedQuantityPool: sharedPoolIds.has(i.id),
     });
 
     return NextResponse.json(items.map(mapMineItem));

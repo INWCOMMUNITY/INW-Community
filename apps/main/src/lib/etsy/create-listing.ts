@@ -982,7 +982,7 @@ async function finalizeEtsyListingActivation(input: {
       uploaded.attempted < 1
         ? "Add at least one photo on INW before activating on Etsy."
         : uploaded.lastError ||
-          "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (Connection Settings → Linked Listings will show IMAGES_REQUIRED until fixed)."
+          "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (My Items will show IMAGES_REQUIRED until fixed)."
     ).slice(0, 500);
     await prisma.etsyListingLink.updateMany({
       where: { etsyConnectionId: connection.id, etsyListingId },

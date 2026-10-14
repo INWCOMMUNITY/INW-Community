@@ -1,6 +1,7 @@
 import {
   clearShopifyInventoryProjectionPendingMutation,
   classifyShopifyInventoryProjectionAction,
+  listingIsSharedPool,
   markShopifyInventoryProjectionApplied,
   markShopifyInventoryProjectionRemoteDrift,
   prisma,
@@ -570,7 +571,7 @@ export async function handleShopifyProjectInventoryJob(
     return { outcome: "SUCCESS" };
   }
 
-  if (decision.action === "INVALID_TARGET" || decision.action === "MISSING_APPLIED_BASE") {
+  if (decision.action === "INVALID_TARGET") {
     return {
       outcome: "DEAD",
       errorClass: "GRAPHQL_PERMANENT",
@@ -590,16 +591,41 @@ export async function handleShopifyProjectInventoryJob(
     return { outcome: "SUCCESS" };
   }
 
-  if (decision.action === "REMOTE_DRIFT") {
-    await markShopifyInventoryProjectionRemoteDrift(prisma, {
-      variantMapId: variantMap.id,
-      remoteAvailable: decision.remote,
-      code: decision.code,
-      message: `Remote Shopify available ${decision.remote} differs from desired ${decision.desired} and applied base ${String(decision.appliedBase)}; refusing to overwrite`,
-      now: opts?.now,
+  let quantityWrite: { quantity: number; changeFromQuantity: number } | null = null;
+  if (decision.action === "INIT_SET" || decision.action === "SAFE_CAS") {
+    quantityWrite = { quantity: decision.quantity, changeFromQuantity: decision.changeFromQuantity };
+  } else if (decision.action === "REMOTE_DRIFT" || decision.action === "MISSING_APPLIED_BASE") {
+    const item = await prisma.storeItem.findUnique({
+      where: { id: parsed.storeItemId },
+      select: { variants: true },
     });
-    // Terminate this projection attempt; a later desire/S7 catch-up may enqueue a new version.
-    return { outcome: "SUCCESS" };
+    const desired = variantMap.inventoryDesiredAvailable;
+    if (
+      listingIsSharedPool(item?.variants) &&
+      desired != null &&
+      read.remote.available != null &&
+      read.remote.available >= 0
+    ) {
+      // Shopify has no shared-quantity switch. A seller's one quantity replaces
+      // leftover per-combination stock instead of stopping on drift.
+      quantityWrite = { quantity: desired, changeFromQuantity: read.remote.available };
+    } else if (decision.action === "REMOTE_DRIFT") {
+      await markShopifyInventoryProjectionRemoteDrift(prisma, {
+        variantMapId: variantMap.id,
+        remoteAvailable: decision.remote,
+        code: decision.code,
+        message: `Remote Shopify available ${decision.remote} differs from desired ${decision.desired} and applied base ${String(decision.appliedBase)}; refusing to overwrite`,
+        now: opts?.now,
+      });
+      return { outcome: "SUCCESS" };
+    } else {
+      return {
+        outcome: "DEAD",
+        errorClass: "GRAPHQL_PERMANENT",
+        errorCode: decision.code,
+        errorMessage: decision.message,
+      };
+    }
   }
 
   const referenceDocumentUri = shopifyInventoryProjectionReferenceUri({
@@ -726,9 +752,9 @@ export async function handleShopifyProjectInventoryJob(
     return { outcome: "SUCCESS" };
   }
 
-  if (decision.action === "INIT_SET" || decision.action === "SAFE_CAS") {
-    const changeFrom = decision.changeFromQuantity;
-    const quantity = decision.quantity;
+  if (quantityWrite) {
+    const changeFrom = quantityWrite.changeFromQuantity;
+    const quantity = quantityWrite.quantity;
     const idempotencyKey =
       variantMap.inventoryPendingMutationKind === "SET" &&
       variantMap.inventoryPendingIdempotencyKey &&

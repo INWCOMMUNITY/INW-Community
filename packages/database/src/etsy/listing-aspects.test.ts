@@ -3,10 +3,11 @@ import {
   buildEtsyInboundAspects,
   mergeEtsyInboundAspects,
   normalizeEtsyTags,
+  stripEtsyPackageDimensionAspects,
 } from "./listing-aspects";
 
 describe("buildEtsyInboundAspects", () => {
-  it("maps Shop Manager attributes, materials, and dimensions into Item Details", () => {
+  it("maps Shop Manager attributes and materials, and leaves package size off Item Details", () => {
     const aspects = buildEtsyInboundAspects({
       properties: [
         { property_name: "Occasion", values: ["Birthday"] },
@@ -14,22 +15,36 @@ describe("buildEtsyInboundAspects", () => {
         { property_name: "Width", values: ["12"], scale_name: "Inches" },
       ],
       materials: ["Wool", "Cotton"],
-      itemWidth: 12,
-      itemHeight: 8,
-      itemLength: 3,
+      itemWidth: 6,
+      itemHeight: 4,
+      itemLength: 8,
       itemDimensionsUnit: "in",
     });
-    expect(aspects).toEqual(
-      expect.arrayContaining([
-        { name: "Occasion", value: "Birthday" },
-        { name: "Room", value: "Living Room, Bedroom" },
+    expect(aspects).toEqual([
+      { name: "Occasion", value: "Birthday" },
+      { name: "Room", value: "Living Room, Bedroom" },
+      { name: "Width", value: "12 (Inches)" },
+      { name: "Materials", value: "Wool, Cotton" },
+    ]);
+  });
+});
+
+describe("stripEtsyPackageDimensionAspects", () => {
+  it("removes Item Details that echo the Etsy package size", () => {
+    const kept = stripEtsyPackageDimensionAspects(
+      [
+        { name: "WHICH", value: "Random" },
+        { name: "Width", value: "6 in" },
+        { name: "Height", value: "4 in" },
+        { name: "Depth", value: "8 in" },
         { name: "Width", value: "12 (Inches)" },
-        { name: "Materials", value: "Wool, Cotton" },
-        { name: "Height", value: "8 in" },
-        { name: "Depth", value: "3 in" },
-      ])
+      ],
+      { width: "6 in", height: "4 in", depth: "8 in" }
     );
-    expect(aspects.filter((row) => row.name === "Width")).toHaveLength(1);
+    expect(kept).toEqual([
+      { name: "WHICH", value: "Random" },
+      { name: "Width", value: "12 (Inches)" },
+    ]);
   });
 });
 

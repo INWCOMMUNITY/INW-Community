@@ -115,7 +115,7 @@ export function SellerHubTopNav() {
     ...(etsyConnected
       ? [
           {
-            href: APPS_AIRPORT_ETSY_HUB.listingsPath,
+            href: APPS_AIRPORT_ETSY_HUB.hubPath,
             label: APPS_AIRPORT_ETSY_HUB.displayName,
             icon: APPS_AIRPORT_ETSY_HUB.icon,
           },
@@ -124,7 +124,7 @@ export function SellerHubTopNav() {
     ...(shopifyConnected
       ? [
           {
-            href: APPS_AIRPORT_SHOPIFY_HUB.listingsPath,
+            href: APPS_AIRPORT_SHOPIFY_HUB.hubPath,
             label: APPS_AIRPORT_SHOPIFY_HUB.displayName,
             icon: APPS_AIRPORT_SHOPIFY_HUB.icon,
           },

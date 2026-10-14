@@ -195,6 +195,16 @@ export function matrixUsesSharedPool(matrix: VariantMatrix): boolean {
   return matrix.sharedQuantity === true || (matrix.quantitiesVary === false && matrix.skus.length > 1);
 }
 
+/** Shopify tracks each variant separately, so a shared INW/Etsy pool cannot be listed. */
+export function shopifyBlocksSharedQuantityPool(variants: unknown): boolean {
+  const matrix = normalizeVariantMatrix(variants);
+  if (!matrix || matrix.skus.length < 2) return false;
+  return matrix.sharedQuantity === true;
+}
+
+export const SHOPIFY_SHARED_QUANTITY_MESSAGE =
+  "Shared Quantity Pools are not compatible with Shopify. You will have to add quantities to each variant before INW will list on Shopify";
+
 export type FoundationMatrixTarget = {
   fingerprint: string;
   options: Record<string, string>;

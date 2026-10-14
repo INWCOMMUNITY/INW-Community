@@ -69,6 +69,10 @@ vi.mock("@/lib/content-moderation", () => ({
 vi.mock("@/lib/store-listing-stripe-rules", () => ({
   memberHasStripeConnectForStorefront: vi.fn(async () => true),
 }));
+vi.mock("@/lib/disconnect-ended-listing-channels", () => ({
+  disconnectStoreItemChannels: vi.fn(),
+  disconnectChannelsForEndedStoreItems: vi.fn(),
+}));
 
 import { PATCH as sellerPatch } from "@/app/api/store-items/[id]/route";
 import { POST as relist } from "@/app/api/store-items/[id]/relist/route";

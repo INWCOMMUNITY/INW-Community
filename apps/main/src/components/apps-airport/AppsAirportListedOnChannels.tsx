@@ -7,6 +7,7 @@ import { IonIcon } from "@/components/IonIcon";
 import { ListOnChannelProgressModal } from "@/components/apps-airport/ListOnChannelProgressModal";
 import { EtsyListOnChannelModal } from "@/components/etsy/EtsyListOnChannelModal";
 import { ShopifyMetafieldListingDialog } from "@/components/shopify/ShopifyMetafieldListingDialog";
+import { ShopifySharedQuantityDialog } from "@/components/shopify/ShopifySharedQuantityDialog";
 import {
   listedOnManageHref,
   listedOnSettingsHref,
@@ -90,6 +91,7 @@ export function AppsAirportListedOnChannels({
   etsyReady = false,
   shopifyReady = false,
   needsShopifyMetafields = false,
+  usesSharedQuantityPool = false,
   onListed,
 }: {
   channels?: AppsAirportChannelId[] | null;
@@ -102,6 +104,8 @@ export function AppsAirportListedOnChannels({
   shopifyReady?: boolean;
   /** Listing has custom options Shopify shows through metafields. */
   needsShopifyMetafields?: boolean;
+  /** One quantity shared across combinations. Shopify cannot list this. */
+  usesSharedQuantityPool?: boolean;
   onListed?: (message?: string) => void;
 }) {
   const reactId = useId();
@@ -112,6 +116,7 @@ export function AppsAirportListedOnChannels({
   const [etsyModalOpen, setEtsyModalOpen] = useState(false);
   const [shopifyProgressOpen, setShopifyProgressOpen] = useState(false);
   const [shopifyMetafieldOpen, setShopifyMetafieldOpen] = useState(false);
+  const [sharedQuantityOpen, setSharedQuantityOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const clearCloseTimer = () => {
@@ -204,6 +209,10 @@ export function AppsAirportListedOnChannels({
         return;
       }
       setTip(null);
+      if (usesSharedQuantityPool) {
+        setSharedQuantityOpen(true);
+        return;
+      }
       if (needsShopifyMetafields) {
         setShopifyMetafieldOpen(true);
         return;
@@ -350,6 +359,10 @@ export function AppsAirportListedOnChannels({
           onFinished={(_outcome, message) => onListed?.(message)}
         />
       ) : null}
+      <ShopifySharedQuantityDialog
+        open={sharedQuantityOpen}
+        onClose={() => setSharedQuantityOpen(false)}
+      />
       <ShopifyMetafieldListingDialog
         open={shopifyMetafieldOpen}
         onCancel={() => setShopifyMetafieldOpen(false)}

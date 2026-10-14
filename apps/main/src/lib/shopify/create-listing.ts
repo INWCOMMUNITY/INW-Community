@@ -32,6 +32,10 @@ import {
   restoreShopifyTrackedQuantities,
 } from "./product-set-listing";
 import { enqueueShopifyPublishListingAfterMapping } from "./publish-listing-job";
+import {
+  SHOPIFY_SHARED_QUANTITY_MESSAGE,
+  shopifyBlocksSharedQuantityPool,
+} from "@/lib/listing-variant-matrix";
 
 export type EnqueueShopifyCreateListingResult =
   | {
@@ -57,6 +61,7 @@ export type EnqueueShopifyCreateListingResult =
         | "INACTIVE"
         | "MISSING_TITLE"
         | "MISSING_PRICE"
+        | "SHARED_QUANTITY"
         | "CONFLICT";
       message: string;
     };
@@ -110,7 +115,7 @@ export async function enqueueShopifyCreateListing(input: {
 
   const storeItem = await prisma.storeItem.findFirst({
     where: { id: input.storeItemId, memberId: input.memberId },
-    select: { id: true, status: true, title: true },
+    select: { id: true, status: true, title: true, variants: true },
   });
   if (!storeItem) {
     return { status: "ERROR", code: "NOT_FOUND", message: "Store item was not found" };
@@ -127,6 +132,14 @@ export async function enqueueShopifyCreateListing(input: {
       status: "ERROR",
       code: "MISSING_TITLE",
       message: "Add a title before listing on Shopify",
+    };
+  }
+
+  if (shopifyBlocksSharedQuantityPool(storeItem.variants)) {
+    return {
+      status: "ERROR",
+      code: "SHARED_QUANTITY",
+      message: SHOPIFY_SHARED_QUANTITY_MESSAGE,
     };
   }
 

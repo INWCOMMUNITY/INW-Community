@@ -639,6 +639,19 @@ select option:checked {
   animation: heartPulse 0.3s ease-out;
 }
 
+@keyframes listingChannelSyncSlide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.listing-channel-sync-slide {
+  animation: listingChannelSyncSlide 1.15s ease-in-out infinite;
+}
+
 /* Chip bounce animation for filter selection */
 @keyframes chipBounce {
   0%, 100% {

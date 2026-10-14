@@ -29,6 +29,7 @@ import {
   foundationMatrixWritePlan,
   normalizeVariantMatrix,
   stampSharedListingFlags,
+  shopifyBlocksSharedQuantityPool,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
   sumMatrixQuantities,
@@ -880,6 +881,14 @@ describe("shared listing quantity", () => {
   it("keeps one pool when every combination stores that number", () => {
     const item = { variants, quantity: 40, priceCents: 500 };
     expect(listingUsesSharedQuantity(variants)).toBe(true);
+    expect(shopifyBlocksSharedQuantityPool(variants)).toBe(true);
+    expect(
+      shopifyBlocksSharedQuantityPool({
+        ...variants,
+        quantitiesVary: false,
+        sharedQuantity: false,
+      })
+    ).toBe(false);
     expect(listingQuantityFromVariants(variants)).toBe(10);
     expect(sharedPoolAvailable(item)).toBe(10);
     expect(getAvailableQuantity(item, { "Primary color": "Brown", "Secondary color": "Black" })).toBe(10);

@@ -101,7 +101,7 @@ export default function AppsAirportShopifyListingDetailPage() {
       subtitle="INW listing, Shopify mapping, and sync health for the current connection."
       crumbs={[
         { href: APPS_AIRPORT_SHOPIFY_PATH, label: "Shopify" },
-        { href: APPS_AIRPORT_SHOPIFY_LISTINGS_PATH, label: "Synced listings" },
+        { href: "/seller-hub/store/items", label: "My items" },
         {
           href: `${APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}/${listingId}`,
           label: "Manage",

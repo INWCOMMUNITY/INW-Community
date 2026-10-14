@@ -43,7 +43,7 @@ export function ShopifyListingActionButtons({
   async function removeFromInw() {
     if (
       !window.confirm(
-        "Remove this listing from INW?\n\nIt stays on your Online Store. Only the INW listing is ended."
+        "Remove this listing from INW?\n\nIt stays on your Online Store. INW drops the link so you can import it again as a new listing."
       )
     ) {
       return;
@@ -62,7 +62,7 @@ export function ShopifyListingActionButtons({
         setError(body.error?.trim() || "Could not remove from INW");
         return;
       }
-      onActionComplete?.("Removed from INW. It stays on your Online Store.");
+      onActionComplete?.("Removed from INW. It stays on your Online Store, and the INW link is gone.");
     } catch {
       setError("Could not remove from INW");
     } finally {

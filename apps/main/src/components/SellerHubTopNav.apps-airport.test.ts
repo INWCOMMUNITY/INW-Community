@@ -18,6 +18,10 @@ describe("Seller Hub Sync Airport navigation", () => {
     );
     expect(listingsBlock).toContain('label: "Sync Airport"');
     expect(listingsBlock).toContain('href: "/seller-hub/apps"');
+    expect(listingsBlock).toContain("APPS_AIRPORT_ETSY_HUB.hubPath");
+    expect(listingsBlock).toContain("APPS_AIRPORT_SHOPIFY_HUB.hubPath");
+    expect(listingsBlock).not.toContain("/seller-hub/apps/etsy/listings");
+    expect(listingsBlock).not.toContain("/seller-hub/apps/shopify/listings");
   });
 
   it("nests Sync Airport under Listings in the mobile drawer", () => {
@@ -28,6 +32,10 @@ describe("Seller Hub Sync Airport navigation", () => {
     );
     expect(listingsBlock).toContain('href: "/seller-hub/apps"');
     expect(listingsBlock).toContain('label: "Sync Airport"');
+    expect(listingsBlock).toContain("APPS_AIRPORT_ETSY_HUB.hubPath");
+    expect(listingsBlock).toContain("APPS_AIRPORT_SHOPIFY_HUB.hubPath");
+    expect(listingsBlock).not.toContain("/seller-hub/apps/etsy/listings");
+    expect(listingsBlock).not.toContain("/seller-hub/apps/shopify/listings");
     // Standalone top-level Sync Airport link removed from drawer
     expect(source).not.toMatch(
       /href="\/seller-hub\/apps"[\s\S]*?Sync Airport[\s\S]*?title="Listings"/

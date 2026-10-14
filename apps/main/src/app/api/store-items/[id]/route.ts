@@ -48,6 +48,7 @@ import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
+import { disconnectStoreItemChannels } from "@/lib/disconnect-ended-listing-channels";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
 import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 
@@ -789,13 +790,18 @@ export async function PATCH(
       if (item.status === "sold_out") {
         deleteFeedPostsForSoldItem(itemId).catch(() => {});
       }
+      if (item.status === "inactive") {
+        await disconnectStoreItemChannels(itemId);
+      }
       const { logSellerActivity } = await import("@/lib/seller-activity-log");
       logSellerActivity(ownerId, "item_updated", "store_item", itemId, {
         changedFields: Object.keys(update),
         title: item.title,
       });
-      kickEtsySyncJobsAfterEdit();
-      kickShopifySyncJobsAfterEdit();
+      if (item.status !== "inactive") {
+        kickEtsySyncJobsAfterEdit();
+        kickShopifySyncJobsAfterEdit();
+      }
       return NextResponse.json({ ...item });
     } catch (e) {
       const cutover = jsonIfCutoverBlocked(e);
@@ -913,6 +919,9 @@ export async function PATCH(
   if (item.status === "sold_out") {
     deleteFeedPostsForSoldItem(itemId).catch(() => {});
   }
+  if (item.status === "inactive") {
+    await disconnectStoreItemChannels(itemId);
+  }
   // Log activity
   const { logSellerActivity } = await import("@/lib/seller-activity-log");
   const changedFields = Object.keys(update);
@@ -921,8 +930,10 @@ export async function PATCH(
     title: item.title,
   });
 
-  kickEtsySyncJobsAfterEdit();
-  kickShopifySyncJobsAfterEdit();
+  if (item.status !== "inactive") {
+    kickEtsySyncJobsAfterEdit();
+    kickShopifySyncJobsAfterEdit();
+  }
   return NextResponse.json({ ...item });
 }
 

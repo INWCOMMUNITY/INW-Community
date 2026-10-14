@@ -1,5 +1,6 @@
 import { prisma, SHOPIFY_MAX_OPTION_DIMENSIONS, SHOPIFY_MAX_VARIANTS } from "database";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
+import { shopifyBlocksSharedQuantityPool } from "@/lib/listing-variant-matrix";
 
 export type ShopifyEligibleListing = {
   storeItemId: string;
@@ -14,6 +15,8 @@ export type ShopifyEligibleListing = {
   variantCount: number;
   /** Custom options that Shopify shows only after metafields are on the product page. */
   needsShopifyMetafields: boolean;
+  /** One quantity shared by every combination. Shopify cannot list this. */
+  usesSharedQuantityPool: boolean;
 };
 
 /**
@@ -49,6 +52,7 @@ export async function listEligibleShopifyExportListings(input: {
       quantity: true,
       status: true,
       updatedAt: true,
+      variants: true,
       storeVariants: {
         where: { status: "ACTIVE" },
         select: { id: true, options: true },
@@ -88,6 +92,7 @@ export async function listEligibleShopifyExportListings(input: {
       updatedAt: item.updatedAt.toISOString(),
       variantCount: item.storeVariants.length,
       needsShopifyMetafields: false,
+      usesSharedQuantityPool: shopifyBlocksSharedQuantityPool(item.variants),
     }));
 
   if (eligible.length === 0) return eligible;

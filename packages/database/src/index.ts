@@ -550,7 +550,9 @@ export type {
 export {
   aspectsEqual,
   buildEtsyInboundAspects,
+  etsyPackageDimensionLabels,
   mergeEtsyInboundAspects,
+  stripEtsyPackageDimensionAspects,
   normalizeEtsyTags,
   normalizeInboundAspects,
   tagsEqual,
@@ -732,10 +734,12 @@ export {
   captureShopifyInventoryProjectionDesire,
   clearShopifyInventoryProjectionPendingMutation,
   ensureShopifyProjectInventoryJob,
+  listingIsSharedPool,
   markShopifyInventoryProjectionApplied,
   markShopifyInventoryProjectionRemoteDrift,
   seedShopifyInventoryProjectionOnMapping,
   setShopifyInventoryProjectionPendingMutation,
+  sharedListingPoolAvailable,
 } from "./shopify/inventory-desire";
 export type {
   CaptureShopifyInventoryProjectionDesireResult,
