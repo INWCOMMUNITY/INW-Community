@@ -85,10 +85,10 @@ export default function AppsAirportEtsyImportPage() {
   const [step, setStep] = useState<"discover" | "review" | "shipping">("discover");
   const [bulkPolicy, setBulkPolicy] = useState<StockModePolicy>("RECOMMENDED");
   const [shippingItems, setShippingItems] = useState<Candidate[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [priceById, setPriceById] = useState<Record<string, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
-  const [shippingLoading, setShippingLoading] = useState(false);
   const [singleShippingPrice, setSingleShippingPrice] = useState("");
   const [bulkStarting, setBulkStarting] = useState(false);
   const [bulkCancelling, setBulkCancelling] = useState(false);
@@ -335,56 +335,35 @@ export default function AppsAirportEtsyImportPage() {
     }
   }
 
-  async function openShippingPage() {
-    setShippingLoading(true);
-    setError(null);
-    setConnectionError(null);
-    try {
-      const all: Candidate[] = [];
-      let nextOffset = 0;
-      for (let page = 0; page < 200; page += 1) {
-        const response = await fetch(
-          `/api/etsy/import/candidates?offset=${nextOffset}&limit=50`,
-          { credentials: "include" }
-        );
-        const body = (await response.json()) as {
-          error?: string;
-          code?: string;
-          candidates?: Candidate[];
-          pageInfo?: { hasNextPage?: boolean; offset?: number };
-        };
-        if (!response.ok) {
-          if (body.code === "CONNECTION_REQUIRED" || body.code === "UNAUTHORIZED") {
-            setConnectionError(body.error ?? "Reconnect Etsy, then try again.");
-          } else {
-            setError(body.error ?? "Could not load Etsy listings.");
-          }
-          return;
-        }
-        all.push(...(body.candidates ?? []));
-        if (!body.pageInfo?.hasNextPage) break;
-        const offset = body.pageInfo.offset ?? nextOffset;
-        if (offset === nextOffset) break;
-        nextOffset = offset;
-        if (page === 199) {
-          setError("This shop has too many listings to price at once. Ship for free instead.");
-          return;
-        }
-      }
-      if (all.length === 0) {
-        setError("No listings left to import.");
-        return;
-      }
-      setShippingItems(all);
-      setCheckedIds(new Set());
-      setPriceById({});
-      setBulkPrice("");
-      setStep("shipping");
-    } catch {
-      setError("Could not load Etsy listings.");
-    } finally {
-      setShippingLoading(false);
+  function selectedCandidates(): Candidate[] {
+    return candidates.filter((candidate) => selectedIds.has(candidate.etsyListingId));
+  }
+
+  function openShippingPage() {
+    const chosen = selectedCandidates();
+    if (chosen.length === 0) {
+      setError("Select the listings to import.");
+      return;
     }
+    setError(null);
+    setShippingItems(chosen);
+    setCheckedIds(new Set());
+    setPriceById({});
+    setBulkPrice("");
+    setStep("shipping");
+  }
+
+  function shipFree(items: Candidate[]) {
+    if (items.length === 0) {
+      setError("Select the listings to import.");
+      return;
+    }
+    const shippingPrices: Record<string, number> = {};
+    for (const item of items) shippingPrices[item.etsyListingId] = 0;
+    void onImportAll({
+      listingIds: items.map((item) => item.etsyListingId),
+      shippingPrices,
+    });
   }
 
   function applyBulkPrice() {
@@ -573,12 +552,12 @@ export default function AppsAirportEtsyImportPage() {
         <>
           <div className="mb-6 rounded-[10px] border border-neutral-200 p-4">
             <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
-              Import all active listings
+              Choose listings to import
             </p>
             <p className="mt-1 text-sm text-neutral-600">
-              Import every active Etsy listing that is not already linked
-              {estimateCount > 0 ? ` (about ${estimateCount} on this shop)` : ""}. This can take a
-              while for large shops; progress and time remaining appear above.
+              Check the listings you want
+              {estimateCount > 0 ? ` (about ${estimateCount} not linked yet)` : ""}. The next page
+              sets a shipping price for each one. Ship for free to import the checked listings now.
             </p>
             <fieldset className="mt-3 space-y-2" disabled={activeBulk || bulkStarting}>
               <legend className="sr-only">Stock mode for bulk import</legend>
@@ -610,28 +589,10 @@ export default function AppsAirportEtsyImportPage() {
                 <span className="text-sm">All made to order</span>
               </label>
             </fieldset>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                className="btn"
-                disabled={activeBulk || bulkStarting || shippingLoading || Boolean(connectionError)}
-                onClick={() => void openShippingPage()}
-              >
-                {shippingLoading ? "Loading listings…" : "Set Shipping Prices"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-pill-earth"
-                disabled={activeBulk || bulkStarting || shippingLoading || Boolean(connectionError)}
-                onClick={() => void onImportAll()}
-              >
-                {bulkStarting ? "Starting…" : activeBulk ? "Import running…" : "Ship for Free with INW (Appreciated)"}
-              </button>
-            </div>
           </div>
 
           <p className="mb-4 text-sm text-neutral-600">
-            Or review one listing at a time to choose stock mode before importing.
+            Or open Review on one listing to choose its stock mode and shipping price.
           </p>
           {shopName || etsyReportedCount != null ? (
             <p className="mb-3 text-sm text-neutral-600">
@@ -653,6 +614,20 @@ export default function AppsAirportEtsyImportPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-neutral-50 text-left">
                   <tr>
+                    <th className="px-3 py-2 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all listings"
+                        checked={candidates.length > 0 && selectedIds.size === candidates.length}
+                        onChange={(e) => {
+                          setSelectedIds(
+                            e.target.checked
+                              ? new Set(candidates.map((candidate) => candidate.etsyListingId))
+                              : new Set()
+                          );
+                        }}
+                      />
+                    </th>
                     <th className="px-3 py-2">Listing</th>
                     <th className="px-3 py-2">State</th>
                     <th className="px-3 py-2">Price</th>
@@ -663,6 +638,21 @@ export default function AppsAirportEtsyImportPage() {
                 <tbody>
                   {candidates.map((candidate) => (
                     <tr key={candidate.etsyListingId} className="border-t border-neutral-100">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${candidate.title}`}
+                          checked={selectedIds.has(candidate.etsyListingId)}
+                          onChange={(e) => {
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(candidate.etsyListingId);
+                              else next.delete(candidate.etsyListingId);
+                              return next;
+                            });
+                          }}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-3 min-w-0">
                           {candidate.imageUrl ? (
@@ -715,6 +705,26 @@ export default function AppsAirportEtsyImportPage() {
             >
               Load more
             </button>
+          ) : null}
+          {candidates.length > 0 ? (
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="btn"
+                disabled={activeBulk || bulkStarting || Boolean(connectionError)}
+                onClick={openShippingPage}
+              >
+                Set Shipping Prices
+              </button>
+              <button
+                type="button"
+                className="btn btn-pill-earth"
+                disabled={activeBulk || bulkStarting || Boolean(connectionError)}
+                onClick={() => shipFree(selectedCandidates())}
+              >
+                {bulkStarting ? "Starting…" : activeBulk ? "Import running…" : "Ship for Free with INW (Appreciated)"}
+              </button>
+            </div>
           ) : null}
         </>
       ) : null}
@@ -841,7 +851,7 @@ export default function AppsAirportEtsyImportPage() {
               type="button"
               className="btn btn-pill-earth"
               disabled={bulkStarting || activeBulk}
-              onClick={() => void onImportAll()}
+              onClick={() => shipFree(shippingItems)}
             >
               Ship for Free with INW (Appreciated)
             </button>
