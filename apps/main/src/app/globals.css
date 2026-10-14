@@ -223,6 +223,7 @@ a {
 .btn-pill-primary:hover:not(:disabled) {
   background-color: #3E432F;
   border-color: #3E432F;
+  color: white;
 }
 
 .btn-pill-earth {
@@ -234,6 +235,7 @@ a {
 .btn-pill-earth:hover:not(:disabled) {
   background-color: #4a3f33;
   border-color: #4a3f33;
+  color: white;
 }
 
 .btn-pill-tan {

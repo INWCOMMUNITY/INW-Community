@@ -210,8 +210,11 @@ export async function handleEtsyProjectInventoryJob(
   }
 
   const products = inventoryRes.data.products;
+  const listingLevelQuantity =
+    products.length > 1 && (inventoryRes.data.quantity_on_property ?? []).length === 0;
   let matched = false;
   let remoteQty: number | null = null;
+  let listingLevelDrift = false;
   const nextProducts = products.map((product) => {
     const productId = String(product.product_id ?? "");
     const offerings = (product.offerings ?? []).map((offering) => {
@@ -234,9 +237,15 @@ export async function handleEtsyProjectInventoryJob(
           : typeof offering.price === "number"
             ? offering.price
             : undefined;
-      if (productId === variantMap.etsyProductId && offeringId === variantMap.etsyOfferingId) {
+      const isMatch = productId === variantMap.etsyProductId && offeringId === variantMap.etsyOfferingId;
+      if (isMatch) {
         matched = true;
         remoteQty = offeringQuantity(offering.quantity);
+      }
+      if (listingLevelQuantity && offeringQuantity(offering.quantity) !== desiredQty) {
+        listingLevelDrift = true;
+      }
+      if (isMatch || listingLevelQuantity) {
         return {
           ...offering,
           quantity: desiredQty,
@@ -330,7 +339,7 @@ export async function handleEtsyProjectInventoryJob(
     };
   }
 
-  if (remoteQty !== desiredQty) {
+  if (remoteQty !== desiredQty || listingLevelDrift) {
     const put = await etsyConnectionRequest({
       connectionId: connection.id,
       memberId: connection.memberId,

@@ -36,6 +36,15 @@ export type EtsyImportCandidate = {
   etsyTaxonomyId: number | null;
   shippingProfileId: string | null;
   packageDimensions: EtsyListingPackage | null;
+  /**
+   * Etsy `price_on_property` / `quantity_on_property` / `sku_on_property`.
+   * Empty means that field is one listing value, not one value per combination.
+   */
+  pricesVary?: boolean;
+  quantitiesVary?: boolean;
+  skusVary?: boolean;
+  /** True when every combination shares one listing quantity. */
+  sharedQuantity?: boolean;
 };
 
 export type DiscoverEtsyImportCandidatesResult =
@@ -92,6 +101,34 @@ type EtsyInventoryProduct = {
     price?: unknown;
   }>;
 };
+
+type EtsyInventoryPayload = {
+  products?: EtsyInventoryProduct[];
+  price_on_property?: unknown;
+  quantity_on_property?: unknown;
+  sku_on_property?: unknown;
+};
+
+/** Etsy property ids that a price, quantity, or SKU varies on. Null when the array was omitted. */
+function onPropertyIds(raw: unknown): number[] | null {
+  if (!Array.isArray(raw)) return null;
+  const ids: number[] = [];
+  for (const value of raw) {
+    const id = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    if (Number.isInteger(id) && id > 0) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Non-empty `*_on_property` means that field differs by combination.
+ * An empty array means one listing-level value copied onto every offering.
+ * A missing array falls back to whether the offering values actually differ.
+ */
+function fieldVaries(onProperty: number[] | null, distinctCount: number): boolean {
+  if (onProperty) return onProperty.length > 0;
+  return distinctCount > 1;
+}
 
 function moneyToCents(price: unknown): number | null {
   if (price == null) return null;
@@ -196,7 +233,7 @@ function toCandidateFromListing(row: EtsyListingRow): EtsyImportCandidate {
 
 export function hydrateEtsyCandidateWithInventory(
   base: EtsyImportCandidate,
-  inventory: { products?: EtsyInventoryProduct[] } | null
+  inventory: EtsyInventoryPayload | null
 ): EtsyImportCandidate {
   const products = Array.isArray(inventory?.products) ? inventory!.products! : [];
   if (products.length === 0) {
@@ -263,17 +300,47 @@ export function hydrateEtsyCandidateWithInventory(
     };
   }
 
-  const totalQty = usableVariants.reduce((sum, v) => sum + v.quantity, 0);
+  const pricesVary = fieldVaries(
+    onPropertyIds(inventory?.price_on_property),
+    new Set(usableVariants.map((variant) => variant.priceCents)).size
+  );
+  const quantitiesVary = fieldVaries(
+    onPropertyIds(inventory?.quantity_on_property),
+    new Set(usableVariants.map((variant) => variant.quantity)).size
+  );
+  const skusVary = fieldVaries(
+    onPropertyIds(inventory?.sku_on_property),
+    new Set(usableVariants.map((variant) => variant.sku ?? "")).size
+  );
+  // Shop Manager can leave Prices/Quantities/SKUs vary off while still listing
+  // every color combination. Etsy then copies the one listing quantity onto
+  // every offering — summing those copies multiplies stock.
+  const sharedQuantity = !quantitiesVary && usableVariants.length > 1;
+  const sharedQty = usableVariants[0]?.quantity ?? 0;
+  const sharedPrice = usableVariants[0]?.priceCents ?? base.priceCents ?? 0;
+  const normalizedVariants = usableVariants.map((variant) => ({
+    ...variant,
+    quantity: sharedQuantity ? sharedQty : variant.quantity,
+    priceCents: pricesVary ? variant.priceCents : sharedPrice,
+    sku: skusVary ? variant.sku : usableVariants[0]?.sku ?? variant.sku,
+  }));
+  const totalQty = sharedQuantity
+    ? sharedQty
+    : normalizedVariants.reduce((sum, variant) => sum + variant.quantity, 0);
   return {
     ...base,
     supported: true,
     unsupportedReason: null,
-    priceCents: usableVariants[0]?.priceCents ?? base.priceCents,
+    priceCents: sharedPrice,
     quantity: totalQty,
-    sku: usableVariants[0]?.sku ?? base.sku,
+    sku: normalizedVariants[0]?.sku ?? base.sku,
     recommendedStockMode: "PHYSICAL",
-    variants: usableVariants,
+    variants: normalizedVariants,
     axes,
+    pricesVary,
+    quantitiesVary,
+    skusVary,
+    sharedQuantity,
   };
 }
 
@@ -447,7 +514,7 @@ export async function fetchEtsyImportListingDetail(input: {
     };
   }
 
-  const inventoryRes = await etsyConnectionRequest<{ products?: EtsyInventoryProduct[] }>({
+  const inventoryRes = await etsyConnectionRequest<EtsyInventoryPayload>({
     connectionId: connection.id,
     memberId: input.memberId,
     method: "GET",

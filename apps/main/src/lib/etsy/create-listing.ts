@@ -24,6 +24,7 @@ import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
 import { pushEtsyListingPersonalization } from "./personalization";
 import {
   buildEtsyInventoryProductsPayload,
+  etsyVaryFlagsFromMatrix,
   correlateEtsyProductsToStoreVariants,
   ETSY_INVENTORY_QUERY,
   parseStoreVariantOptions,
@@ -631,6 +632,7 @@ export async function handleEtsyCreateListingJob(
       axisNames: gate.axisNames,
       propertyMap,
       readinessStateId: readiness.readinessStateId,
+      ...etsyVaryFlagsFromMatrix(storeItem.variants),
     });
     const put = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
       connectionId: connection.id,

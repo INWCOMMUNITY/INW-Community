@@ -67,6 +67,23 @@ function batchIsActive(batch: BatchProgress | null): boolean {
   return batch != null && (batch.state === "PENDING" || batch.state === "RUNNING");
 }
 
+/** Fills while the current listing is still importing, then snaps ahead as each one finishes. */
+function importBarPercent(batch: BatchProgress, nowMs: number): number {
+  if (batch.state === "COMPLETED" || batch.state === "CANCELLED") return 100;
+  if (batch.scanning) {
+    const wave = (Math.sin(nowMs / 450) + 1) / 2;
+    return 10 + wave * 22;
+  }
+  const total = Math.max(1, batch.total);
+  const done = batch.processed;
+  if (!batchIsActive(batch)) return batch.percent ?? Math.round((done / total) * 100);
+  const anchor = batch.lastProgressAt ?? batch.startedAt;
+  const elapsed = anchor ? Math.max(0, nowMs - new Date(anchor).getTime()) : 0;
+  const itemMs = batch.avgItemMs && batch.avgItemMs > 0 ? batch.avgItemMs : 12_000;
+  const slice = batch.remaining > 0 ? Math.min(0.9, elapsed / itemMs) : 0;
+  return Math.min(99, ((done + slice) / total) * 100);
+}
+
 export default function AppsAirportEtsyImportPage() {
   const router = useRouter();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -98,6 +115,7 @@ export default function AppsAirportEtsyImportPage() {
     continueHref?: string;
   } | null>(null);
   const shownBulkNotice = useRef<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const loadBatch = useCallback(async () => {
     try {
@@ -171,6 +189,12 @@ export default function AppsAirportEtsyImportPage() {
     }, 2500);
     return () => window.clearInterval(id);
   }, [batch, loadBatch]);
+
+  useEffect(() => {
+    if (!batchIsActive(batch)) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 200);
+    return () => window.clearInterval(id);
+  }, [batch]);
 
   useEffect(() => {
     if (!batch) return;
@@ -492,8 +516,7 @@ export default function AppsAirportEtsyImportPage() {
             {activeBulk ? (
               <button
                 type="button"
-                className="btn border border-gray-300 bg-white hover:bg-gray-50 text-sm"
-                style={{ color: "var(--color-heading)" }}
+                className="btn btn-pill-primary text-sm"
                 disabled={bulkCancelling || batch.cancelRequested}
                 onClick={() => void onCancelBulk()}
               >
@@ -503,17 +526,9 @@ export default function AppsAirportEtsyImportPage() {
           </div>
           <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-neutral-200">
             <div
-              className="h-full rounded-full transition-all duration-500"
+              className="h-full rounded-full transition-[width] duration-200"
               style={{
-                width: `${
-                  batch.scanning
-                    ? 8
-                    : batch.percent != null
-                      ? batch.percent
-                      : activeBulk
-                        ? 12
-                        : 100
-                }%`,
+                width: `${importBarPercent(batch, nowMs)}%`,
                 background: "var(--color-primary)",
               }}
             />
@@ -559,6 +574,7 @@ export default function AppsAirportEtsyImportPage() {
               {estimateCount > 0 ? ` (about ${estimateCount} not linked yet)` : ""}. The next page
               sets a shipping price for each one. Ship for free to import the checked listings now.
             </p>
+            <p className="mt-2 text-sm text-neutral-600">INW does not sync shipping prices.</p>
             <fieldset className="mt-3 space-y-2" disabled={activeBulk || bulkStarting}>
               <legend className="sr-only">Stock mode for bulk import</legend>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -722,7 +738,7 @@ export default function AppsAirportEtsyImportPage() {
                 disabled={activeBulk || bulkStarting || Boolean(connectionError)}
                 onClick={() => shipFree(selectedCandidates())}
               >
-                {bulkStarting ? "Starting…" : activeBulk ? "Import running…" : "Ship for Free with INW (Appreciated)"}
+                {bulkStarting ? "Starting…" : activeBulk ? "Import Running…" : "Ship for Free with INW (Appreciated)"}
               </button>
             </div>
           ) : null}
@@ -737,6 +753,7 @@ export default function AppsAirportEtsyImportPage() {
             </p>
             <p className="mt-1 text-sm text-neutral-600">
               Set what buyers pay to ship each listing on INW. Check listings to apply one price to all of them.
+              INW does not sync shipping prices.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-3 rounded-[10px] border border-neutral-200 p-3">
@@ -857,8 +874,7 @@ export default function AppsAirportEtsyImportPage() {
             </button>
             <button
               type="button"
-              className="btn border border-gray-300 bg-white hover:bg-gray-50"
-              style={{ color: "var(--color-heading)" }}
+              className="btn btn-pill-primary"
               disabled={bulkStarting}
               onClick={() => {
                 setStep("discover");
@@ -934,6 +950,7 @@ export default function AppsAirportEtsyImportPage() {
                     onChange={(e) => setSingleShippingPrice(e.target.value)}
                   />
                 </span>
+                <span className="mt-1 block text-neutral-600">INW does not sync shipping prices.</span>
               </label>
               <div className="flex flex-wrap gap-3">
                 <button
@@ -954,8 +971,7 @@ export default function AppsAirportEtsyImportPage() {
                 </button>
                 <button
                   type="button"
-                  className="btn border border-gray-300 bg-white hover:bg-gray-50"
-                  style={{ color: "var(--color-heading)" }}
+                  className="btn btn-pill-primary"
                   disabled={importing}
                   onClick={() => {
                     setStep("discover");

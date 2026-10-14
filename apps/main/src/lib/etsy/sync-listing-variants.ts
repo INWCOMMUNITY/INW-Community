@@ -19,6 +19,7 @@ import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import {
   buildEtsyInventoryProductsPayload,
+  etsyVaryFlagsFromMatrix,
   correlateEtsyProductsToStoreVariants,
   ETSY_INVENTORY_QUERY,
   toEtsyInventoryPutBody,
@@ -793,12 +794,18 @@ async function syncEtsyListingVariantTopologyInner(input: {
     fetchImpl: input.fetchImpl,
     now: input.now,
   });
+  const matrix = await prisma.storeItem.findUnique({
+    where: { id: input.storeItemId },
+    select: { variants: true },
+  });
+  const varyFlags = etsyVaryFlagsFromMatrix(matrix?.variants);
   const payloadInventory = buildEtsyInventoryProductsPayload({
     variants: variantRows,
     inventoryTracking: input.inventoryTracking,
     axisNames: gate.axisNames,
     propertyMap,
     readinessStateId: input.readinessStateId,
+    ...varyFlags,
   });
 
   const put = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({

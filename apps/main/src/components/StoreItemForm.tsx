@@ -210,7 +210,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [optionsConfirmed, setOptionsConfirmed] = useState(() => !existing?.id || initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>(initialMatrix.skus);
-  const [pricesVary, setPricesVary] = useState(false);
+  const [pricesVary, setPricesVary] = useState(initialMatrix.pricesVary);
+  const [quantitiesVary, setQuantitiesVary] = useState(initialMatrix.quantitiesVary);
+  const [skusVary, setSkusVary] = useState(initialMatrix.skusVary);
   const [localDeliveryAvailable, setLocalDeliveryAvailable] = useState(
     existing?.localDeliveryAvailable ?? false
   );
@@ -304,6 +306,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               setOptionsEnabled(true);
               setVariantAxes(matrix.axes);
               setVariantSkus(matrix.skus);
+              setPricesVary(matrix.pricesVary);
+              setQuantitiesVary(matrix.quantitiesVary);
+              setSkusVary(matrix.skusVary);
             }
           }
           setBuyerFieldsReady(true);
@@ -840,14 +845,23 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       quantity: madeToOrder
         ? quantity
         : enabledSkus
-          ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
+          ? quantitiesVary
+            ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
+            : Math.max(0, enabledSkus.find((sku) => sku.enabled)?.quantity ?? quantity)
           : quantity,
       ...(isEdit && !optionsConfirmed
         ? {}
         : {
             variants:
               optionsEnabled && enabledSkus
-                ? serializeVariantMatrix({ axes: variantAxes, skus: enabledSkus })
+                ? serializeVariantMatrix({
+                    axes: variantAxes,
+                    skus: enabledSkus,
+                    pricesVary,
+                    quantitiesVary,
+                    skusVary,
+                    sharedQuantity: !quantitiesVary && enabledSkus.length > 1,
+                  })
                 : null,
           }),
       shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
@@ -1384,6 +1398,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 }}
                 galleryPhotos={photos}
                 onPricesVaryChange={setPricesVary}
+                initialPricesVary={pricesVary}
+                initialQuantitiesVary={quantitiesVary}
+                initialSkusVary={skusVary}
+                onQuantitiesVaryChange={setQuantitiesVary}
               />
             </div>
 

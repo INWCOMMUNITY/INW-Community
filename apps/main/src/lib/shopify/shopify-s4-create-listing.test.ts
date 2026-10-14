@@ -8,7 +8,7 @@ vi.mock("database", async () => {
     ...actual,
     prisma: {
       shopifyConnection: { findUnique: vi.fn(), findFirst: vi.fn() },
-      storeItem: { findFirst: vi.fn() },
+      storeItem: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       listingBuyerField: { findMany: vi.fn().mockResolvedValue([]) },
       storeVariant: { findMany: vi.fn() },
       inventoryState: { findMany: vi.fn() },

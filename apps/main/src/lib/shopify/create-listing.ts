@@ -23,6 +23,8 @@ import {
   lookupShopifyListingVariantsByCustomId,
 } from "./listing-product-lookup";
 import {
+  listingSharesOnePrice,
+  listingSharesOneSku,
   loadShopifyCreateInventory,
   productSetShopifyDraftListing,
   productSetShopifyMultiVariantDraftListing,
@@ -543,7 +545,13 @@ export async function handleShopifyCreateListingJob(
     return handleMultiVariantCreate({
       claim,
       connection: connection as { id: string; memberId: string; primaryLocationId: string },
-      storeItem: storeItem as { id: string; title: string; description: string | null },
+      storeItem: storeItem as {
+        id: string;
+        title: string;
+        description: string | null;
+        priceCents: number;
+        variants: unknown;
+      },
       variants,
       payload,
       deps,
@@ -671,7 +679,13 @@ export async function handleShopifyCreateListingJob(
 async function handleMultiVariantCreate(ctx: {
   claim: ShopifySyncJobClaim;
   connection: { id: string; memberId: string; primaryLocationId: string };
-  storeItem: { id: string; title: string; description: string | null };
+  storeItem: {
+    id: string;
+    title: string;
+    description: string | null;
+    priceCents: number;
+    variants: unknown;
+  };
   variants: Array<{ id: string; priceCents: number; sku: string | null; options: unknown }>;
   payload: CreateListingPayload;
   deps: { fetchImpl?: ShopifyFetch; now?: Date };
@@ -725,6 +739,8 @@ async function handleMultiVariantCreate(ctx: {
   }));
 
   const variantById = new Map(variants.map((v) => [v.id, v]));
+  const onePrice = listingSharesOnePrice(storeItem.variants);
+  const oneSku = listingSharesOneSku(storeItem.variants);
   const inventory = await loadShopifyCreateInventory({
     connectionId: connection.id,
     storeVariantIds: variantOptionsList.map((vo) => vo.storeVariantId),
@@ -732,13 +748,14 @@ async function handleMultiVariantCreate(ctx: {
   const shopifyVariants = variantOptionsList.map((vo) => {
     const sv = variantById.get(vo.storeVariantId)!;
     const available = inventory.availableByVariantId.get(vo.storeVariantId);
+    const priceCents = onePrice && storeItem.priceCents > 0 ? storeItem.priceCents : sv.priceCents;
     return {
       optionValues: Object.entries(vo.options).map(([optionName, name]) => ({
         optionName,
         name,
       })),
-      price: centsToShopifyMoney(sv.priceCents),
-      ...(sv.sku ? { sku: sv.sku } : {}),
+      price: centsToShopifyMoney(priceCents),
+      ...(!oneSku && sv.sku ? { sku: sv.sku } : {}),
       ...(inventory.locationId && available != null
         ? productSetVariantInventory(inventory.locationId, available)
         : {}),

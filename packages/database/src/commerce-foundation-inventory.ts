@@ -384,6 +384,7 @@ export async function projectStoreItemVariantsMatrix(
   const prices = new Set(skus.map((s) => Number(s.priceCents) || 0));
   const qtys = new Set(skus.map((s) => Number(s.quantity) || 0));
   const skuCodes = new Set(skus.map((s) => String(s.sku ?? "")));
+  const sharedQuantity = existing?.sharedQuantity === true;
 
   const positivePrices = [...prices].filter((p) => Number.isFinite(p) && p > 0);
   const facadePrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null;
@@ -405,9 +406,12 @@ export async function projectStoreItemVariantsMatrix(
       variants: {
         axes,
         skus,
-        pricesVary: prices.size > 1,
-        quantitiesVary: qtys.size > 1,
-        skusVary: skuCodes.size > 1,
+        pricesVary: prices.size > 1 || existing?.pricesVary === true,
+        quantitiesVary: sharedQuantity
+          ? false
+          : qtys.size > 1 || existing?.quantitiesVary === true,
+        skusVary: skuCodes.size > 1 || existing?.skusVary === true,
+        ...(sharedQuantity ? { sharedQuantity: true } : {}),
         ...(imageAxis ? { imageAxis } : {}),
       } as Prisma.InputJsonValue,
       ...(facadePrice != null ? { priceCents: facadePrice } : {}),
@@ -415,11 +419,24 @@ export async function projectStoreItemVariantsMatrix(
   });
 }
 
+function sharedPoolLeader<T extends { availabilityVersion: number; onHand: number; reserved: number }>(
+  states: T[]
+): T {
+  return states.reduce((best, state) => {
+    if (state.availabilityVersion !== best.availabilityVersion) {
+      return state.availabilityVersion > best.availabilityVersion ? state : best;
+    }
+    return trackedAvailable(state.onHand, state.reserved) < trackedAvailable(best.onHand, best.reserved)
+      ? state
+      : best;
+  });
+}
+
 export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: string): Promise<number> {
   await lockStoreItemForUpdate(tx, storeItemId);
   const item = await tx.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { id: true, inventoryTracking: true },
+    select: { id: true, inventoryTracking: true, variants: true },
   });
   if (!item) {
     throw new FoundationMissingStateError(`StoreItem ${storeItemId} not found for projection`);
@@ -428,9 +445,51 @@ export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: st
     await tx.storeItem.update({ where: { id: storeItemId }, data: { quantity: 0 } });
     return 0;
   }
+  const sharedQuantity = coerceVariantsMatrixJson(item.variants)?.sharedQuantity === true;
   const states = await tx.inventoryState.findMany({
     where: { storeItemId, variant: { status: "ACTIVE" } },
   });
+  if (sharedQuantity) {
+    const finiteIds = states.filter((state) => state.mode === "TRACKED_FINITE").map((state) => state.variantId);
+    const locked = [];
+    for (const variantId of finiteIds) {
+      locked.push(await lockInventoryState(tx, variantId));
+    }
+    const finite = locked.filter(
+      (state): state is typeof state & { onHand: number; reserved: number } =>
+        state.mode === "TRACKED_FINITE" && state.onHand != null && state.reserved != null
+    );
+    if (finite.length > 0) {
+      const leader = sharedPoolLeader(finite);
+      for (const state of finite) {
+        if (state.onHand === leader.onHand && state.reserved === leader.reserved) continue;
+        await tx.inventoryState.update({
+          where: { variantId: state.variantId },
+          data: {
+            onHand: leader.onHand,
+            reserved: leader.reserved,
+            availabilityVersion: Math.max(state.availabilityVersion, leader.availabilityVersion),
+          },
+        });
+      }
+      // Shopify has no shared-quantity switch. Push the one pool onto every
+      // combination so a sale of one color updates the others too.
+      for (const state of finite) {
+        await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+          memberId: state.memberId,
+          storeVariantId: state.variantId,
+        });
+        await captureEtsyInventoryProjectionDesireAfterChange(tx, {
+          memberId: state.memberId,
+          storeVariantId: state.variantId,
+        });
+      }
+      const available = Math.max(0, trackedAvailable(leader.onHand, leader.reserved));
+      await tx.storeItem.update({ where: { id: storeItemId }, data: { quantity: available } });
+      await projectStoreItemVariantsMatrix(tx, storeItemId);
+      return available;
+    }
+  }
   let sum = 0;
   for (const state of states) {
     if (state.mode === "MADE_TO_ORDER") continue;

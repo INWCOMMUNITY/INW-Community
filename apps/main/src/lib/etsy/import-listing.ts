@@ -42,14 +42,21 @@ function uniqueSlug(base: string): string {
 
 function matrixFromCandidate(candidate: EtsyImportCandidate) {
   if (candidate.axes.length === 0 || candidate.variants.length <= 1) return null;
+  const pricesVary = candidate.pricesVary === true;
+  const quantitiesVary = candidate.quantitiesVary === true;
+  const skusVary = candidate.skusVary === true;
   return {
     axes: candidate.axes.map((axis) => ({ name: axis.name, values: axis.values })),
     skus: candidate.variants.map((variant) => ({
       options: variant.options,
       quantity: variant.quantity,
-      priceCents: variant.priceCents,
-      sku: variant.sku ?? undefined,
+      ...(pricesVary ? { priceCents: variant.priceCents } : {}),
+      ...(skusVary && variant.sku ? { sku: variant.sku } : {}),
     })),
+    pricesVary,
+    quantitiesVary,
+    skusVary,
+    ...(candidate.sharedQuantity ? { sharedQuantity: true } : {}),
   };
 }
 
@@ -164,9 +171,12 @@ export async function importEtsyListing(input: {
   }
 
   const inventoryTracking = input.stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
+  const sharedQuantity = snap.sharedQuantity === true && snap.variants.length > 1;
   const totalQty =
     input.stockMode === "PHYSICAL"
-      ? snap.variants.reduce((sum, variant) => sum + Math.max(0, variant.quantity), 0)
+      ? sharedQuantity
+        ? Math.max(0, snap.quantity ?? snap.variants[0]?.quantity ?? 0)
+        : snap.variants.reduce((sum, variant) => sum + Math.max(0, variant.quantity), 0)
       : 0;
   const title = snap.title.slice(0, 200);
   const description = snap.description.trim() ? snap.description : null;

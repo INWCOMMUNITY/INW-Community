@@ -264,6 +264,37 @@ export async function applyEtsyOfferingInventoryObservation(
 /**
  * Apply inventory observations for every mapped offering on a listing poll.
  */
+async function rememberSharedEtsyQuantity(
+  db: EtsyInventoryInboundDb,
+  storeItemId: string,
+  sharedQuantity: boolean
+): Promise<void> {
+  const item = await db.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { variants: true },
+  });
+  if (!item?.variants || typeof item.variants !== "object" || Array.isArray(item.variants)) return;
+  const matrix = item.variants as Record<string, unknown>;
+  if (!Array.isArray(matrix.axes) || matrix.axes.length === 0) return;
+  if (sharedQuantity) {
+    if (matrix.sharedQuantity === true && matrix.quantitiesVary === false) return;
+    await db.storeItem.update({
+      where: { id: storeItemId },
+      data: {
+        variants: { ...matrix, sharedQuantity: true, quantitiesVary: false } as Prisma.InputJsonValue,
+      },
+    });
+    return;
+  }
+  if (matrix.sharedQuantity !== true) return;
+  const next = { ...matrix, quantitiesVary: true };
+  delete next.sharedQuantity;
+  await db.storeItem.update({
+    where: { id: storeItemId },
+    data: { variants: next as Prisma.InputJsonValue },
+  });
+}
+
 export async function applyEtsyListingInventoryInbound(
   db: EtsyInventoryInboundDb,
   input: {
@@ -272,9 +303,19 @@ export async function applyEtsyListingInventoryInbound(
     listingLinkId: string;
     etsyListingId: string;
     variants: Array<{ etsyOfferingId: string; quantity: number | null }>;
+    /** Empty Etsy quantity_on_property: one quantity shared by every combination. */
+    sharedQuantity?: boolean;
     now?: Date;
   }
 ): Promise<{ applied: number; waitingOrder: number }> {
+  const listingForPool = await db.etsyListingLink.findFirst({
+    where: { id: input.listingLinkId, etsyConnectionId: input.connectionId },
+    select: { storeItemId: true },
+  });
+  if (listingForPool?.storeItemId && input.sharedQuantity != null) {
+    await rememberSharedEtsyQuantity(db, listingForPool.storeItemId, input.sharedQuantity);
+  }
+
   let applied = 0;
   let waitingOrder = 0;
   for (const variant of input.variants) {
