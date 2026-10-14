@@ -11,6 +11,7 @@ import {
   EtsyMappingError,
 } from "database";
 import { fetchEtsyImportListingDetail, type EtsyImportCandidate } from "./import-discovery";
+import { mapEtsyTaxonomyToInw } from "./map-etsy-category";
 import { importEtsyListingPersonalization } from "./personalization";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 
@@ -186,6 +187,7 @@ export async function importEtsyListing(input: {
     snap.etsyTaxonomyId > 0
       ? snap.etsyTaxonomyId
       : null;
+  const inwCategory = etsyTaxonomyId != null ? mapEtsyTaxonomyToInw(etsyTaxonomyId) : null;
 
   const shippingCostCents =
     typeof input.shippingCostCents === "number" && Number.isFinite(input.shippingCostCents)
@@ -230,6 +232,9 @@ export async function importEtsyListing(input: {
           etsyWhenMade,
           etsyIsSupply,
           etsyTaxonomyId,
+          ...(inwCategory
+            ? { category: inwCategory.category, subcategory: inwCategory.subcategory }
+            : {}),
           ...(shippingCostCents != null
             ? {
                 shippingCostCents,
