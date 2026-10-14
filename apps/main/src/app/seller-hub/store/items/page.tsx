@@ -7,6 +7,11 @@ import { AppsAirportListedOnChannels } from "@/components/apps-airport/AppsAirpo
 import { IonIcon } from "@/components/IonIcon";
 import { type AppsAirportChannelId } from "@/lib/shopify/apps-airport";
 import { ShareListingsToFeedPrompt } from "@/components/feed/ShareListingsToFeedPrompt";
+import {
+  EndListingsDialog,
+  type EndListingOption,
+  type EndListingPlace,
+} from "@/components/seller/EndListingsDialog";
 
 type ItemsTab = "active" | "ended" | "sold" | "drafts";
 
@@ -30,6 +35,7 @@ type MyStoreItem = {
   canRelist?: boolean;
   /** Where the listing is live — INW always; Shopify when linked. */
   channels?: AppsAirportChannelId[];
+  needsShopifyMetafields?: boolean;
 };
 
 const STATUS_TABS: { key: Exclude<ItemsTab, "drafts">; label: string }[] = [
@@ -107,6 +113,7 @@ function MyItemsPageInner() {
   const [acting, setActing] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [endDialogIds, setEndDialogIds] = useState<string[] | null>(null);
   const [feedShareIds, setFeedShareIds] = useState<string[]>([]);
   const [etsyReady, setEtsyReady] = useState(false);
   const [shopifyReady, setShopifyReady] = useState(false);
@@ -298,33 +305,120 @@ function MyItemsPageInner() {
     }
   };
 
-  const endListings = (ids: string[]) => {
-    if (!confirm(`End ${ids.length} listing${ids.length === 1 ? "" : "s"}?`)) return;
+  const openEndDialog = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMenuOpenId(null);
+    setEndDialogIds(ids);
+  };
+
+  const endPlaceOptions = (ids: string[]): EndListingOption[] => {
+    const selected = items.filter((item) => ids.includes(item.id));
+    const etsyCount = selected.filter((item) => item.channels?.includes("etsy")).length;
+    const shopifyCount = selected.filter((item) => item.channels?.includes("shopify")).length;
+    const options: EndListingOption[] = [
+      {
+        id: "inw",
+        label: "INW",
+        detail: selected.length === 1 ? "Your INW storefront" : `${selected.length} listings`,
+      },
+    ];
+    if (etsyCount > 0) {
+      options.push({
+        id: "etsy",
+        label: "Etsy",
+        detail:
+          etsyCount === selected.length
+            ? "Listed on Etsy"
+            : `${etsyCount} of ${selected.length} listings`,
+      });
+    }
+    if (shopifyCount > 0) {
+      options.push({
+        id: "shopify",
+        label: "Shopify",
+        detail:
+          shopifyCount === selected.length
+            ? "Listed on Shopify"
+            : `${shopifyCount} of ${selected.length} listings`,
+      });
+    }
+    return options;
+  };
+
+  const confirmEndListings = (places: EndListingPlace[]) => {
+    const ids = endDialogIds ?? [];
+    if (ids.length === 0 || places.length === 0) return;
+    const selected = items.filter((item) => ids.includes(item.id));
+    const placeLabel: Record<EndListingPlace, string> = {
+      inw: "INW",
+      etsy: "Etsy",
+      shopify: "Shopify",
+    };
     void runAction(async () => {
-      if (ids.length === 1) {
-        const res = await fetch(`/api/store-items/${ids[0]}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "inactive" }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error((data as { error?: string }).error ?? "Failed to end listing");
-        }
-      } else {
-        const res = await fetch("/api/store-items/bulk", {
-          method: "DELETE",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ storeItemIds: ids }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error((data as { error?: string }).error ?? "Failed to end listings");
+      const problems: string[] = [];
+      if (places.includes("inw")) {
+        if (ids.length === 1) {
+          const res = await fetch(`/api/store-items/${ids[0]}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "inactive" }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error((data as { error?: string }).error ?? "Failed to end listing on INW");
+          }
+        } else {
+          const res = await fetch("/api/store-items/bulk", {
+            method: "DELETE",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storeItemIds: ids }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error((data as { error?: string }).error ?? "Failed to end listings on INW");
+          }
         }
       }
-    }, "Listing(s) ended.");
+      if (places.includes("etsy")) {
+        for (const item of selected) {
+          if (!item.channels?.includes("etsy")) continue;
+          const res = await fetch(`/api/etsy/listings/${encodeURIComponent(listingIdOf(item))}/actions`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "end" }),
+          });
+          if (!res.ok) {
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            problems.push(data.error ?? `Could not end “${item.title}” on Etsy`);
+          }
+        }
+      }
+      if (places.includes("shopify")) {
+        for (const item of selected) {
+          if (!item.channels?.includes("shopify")) continue;
+          const res = await fetch(
+            `/api/shopify/listings/${encodeURIComponent(listingIdOf(item))}/actions`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "unpublish" }),
+            }
+          );
+          if (!res.ok) {
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            problems.push(data.error ?? `Could not end “${item.title}” on Shopify`);
+          }
+        }
+      }
+      if (problems.length > 0) {
+        throw new Error(problems[0]);
+      }
+    }, `Ended on ${places.map((place) => placeLabel[place]).join(" and ")}.`);
+    setEndDialogIds(null);
   };
 
   const relist = (ids: string[]) => {
@@ -396,7 +490,7 @@ function MyItemsPageInner() {
           <button
             type="button"
             className="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
-            onClick={() => endListings([item.id])}
+            onClick={() => openEndDialog([item.id])}
           >
             End listing
           </button>
@@ -406,6 +500,16 @@ function MyItemsPageInner() {
 
   return (
     <div className="w-full min-w-0" data-testid="seller-hub-my-items">
+      <EndListingsDialog
+        open={endDialogIds != null}
+        listingCount={endDialogIds?.length ?? 0}
+        options={endPlaceOptions(endDialogIds ?? [])}
+        busy={acting}
+        onCancel={() => {
+          if (!acting) setEndDialogIds(null);
+        }}
+        onConfirm={confirmEndListings}
+      />
       <ShareListingsToFeedPrompt
         open={feedShareIds.length > 0}
         storeItemIds={feedShareIds}
@@ -557,7 +661,7 @@ function MyItemsPageInner() {
                   type="button"
                   disabled={acting}
                   className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                  onClick={() => endListings(selectedIds)}
+                  onClick={() => openEndDialog(selectedIds)}
                 >
                   End
                 </button>
@@ -571,16 +675,6 @@ function MyItemsPageInner() {
                 </button>
               </>
             )}
-            <button
-              type="button"
-              disabled={acting}
-              className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
-              onClick={() =>
-                setActionMessage("Manage 3rd Parties — coming soon. Tell us what this should do next.")
-              }
-            >
-              Manage 3rd Parties
-            </button>
             {selectedIds.length === 1 ? (
               <Link
                 href={`/seller-hub/store/new?similar=${
@@ -716,6 +810,7 @@ function MyItemsPageInner() {
                           itemTitle={item.title}
                           etsyReady={etsyReady}
                           shopifyReady={shopifyReady}
+                          needsShopifyMetafields={item.needsShopifyMetafields}
                           onListed={(message) => {
                             if (message) setActionMessage(message);
                             void load();
@@ -846,6 +941,7 @@ function MyItemsPageInner() {
                           itemTitle={item.title}
                           etsyReady={etsyReady}
                           shopifyReady={shopifyReady}
+                          needsShopifyMetafields={item.needsShopifyMetafields}
                           onListed={(message) => {
                             if (message) setActionMessage(message);
                             void load();

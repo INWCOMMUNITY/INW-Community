@@ -6,6 +6,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
 import { SellerHubMobileDrawer } from "@/components/SellerHubMobileDrawer";
+import { APPS_AIRPORT_ETSY_HUB } from "@/lib/etsy/apps-airport";
+import { APPS_AIRPORT_SHOPIFY_HUB } from "@/lib/shopify/apps-airport";
 
 const SEGMENT_COLOR = "#5F6955";
 
@@ -55,6 +57,8 @@ export function SellerHubTopNav() {
 
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
   const [payoutReady, setPayoutReady] = useState(false);
+  const [etsyConnected, setEtsyConnected] = useState(false);
+  const [shopifyConnected, setShopifyConnected] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleEnter = useCallback((label: string) => {
@@ -87,10 +91,45 @@ export function SellerHubTopNav() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    function isActive(body: { connections?: { status?: string }[] } | null): boolean {
+      return Array.isArray(body?.connections) && body.connections.some((row) => row.status === "ACTIVE");
+    }
+    Promise.all([
+      fetch("/api/etsy/connection", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+      fetch("/api/shopify/connection", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ]).then(([etsy, shopify]) => {
+      setEtsyConnected(isActive(etsy));
+      setShopifyConnected(isActive(shopify));
+    });
+  }, []);
+
   const listingsChildren: Child[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/seller-hub/apps", label: "Sync Airport", icon: "apps-outline" },
+    ...(etsyConnected
+      ? [
+          {
+            href: APPS_AIRPORT_ETSY_HUB.listingsPath,
+            label: APPS_AIRPORT_ETSY_HUB.displayName,
+            icon: APPS_AIRPORT_ETSY_HUB.icon,
+          },
+        ]
+      : []),
+    ...(shopifyConnected
+      ? [
+          {
+            href: APPS_AIRPORT_SHOPIFY_HUB.listingsPath,
+            label: APPS_AIRPORT_SHOPIFY_HUB.displayName,
+            icon: APPS_AIRPORT_SHOPIFY_HUB.icon,
+          },
+        ]
+      : []),
   ];
 
   const ordersChildren: Child[] = [
@@ -306,6 +345,8 @@ export function SellerHubTopNav() {
         onClose={() => setMobileMenuOpen(false)}
         onStripeDashboard={() => void handleStripeClick()}
         hasLocalDelivery={hasLocalDelivery}
+        etsyConnected={etsyConnected}
+        shopifyConnected={shopifyConnected}
       />
     </header>
   );

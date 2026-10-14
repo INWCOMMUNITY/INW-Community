@@ -782,6 +782,7 @@ export {
   shopifyCentsFromMoneyString,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
+  shopifyPushPriceCents,
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
 } from "./shopify/content-fingerprint";

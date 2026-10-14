@@ -1,9 +1,28 @@
+import { waitUntil } from "@vercel/functions";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { enqueueShopifyCreateListing } from "@/lib/shopify/create-listing";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
+
+async function drainShopifyJobsAfterCreate(max = 8) {
+  const { runNextShopifySyncJob } = await import("@/lib/shopify/admin-graphql");
+  // Prefer outbound listing work over import/reconcile while the seller waits.
+  for (let i = 0; i < max; i += 1) {
+    const create = await runNextShopifySyncJob({
+      workerId: `shopify-create-inline-${i}`,
+      kind: "CREATE_LISTING",
+    });
+    if (create.claimed) continue;
+    const publish = await runNextShopifySyncJob({
+      workerId: `shopify-create-publish-inline-${i}`,
+      kind: "PUBLISH_LISTING",
+    });
+    if (publish.claimed) continue;
+    break;
+  }
+}
 
 /**
  * Explicit seller action: queue CREATE_LISTING for a simple StoreItem.
@@ -38,6 +57,8 @@ export async function POST(req: NextRequest) {
     });
   }
   if (result.status === "QUEUED") {
+    // Don't wait only on Vercel cron — process immediately after enqueue.
+    waitUntil(drainShopifyJobsAfterCreate());
     return NextResponse.json({
       status: "queued",
       connectionId: result.connectionId,

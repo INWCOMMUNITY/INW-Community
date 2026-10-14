@@ -12,6 +12,8 @@ export type ShopifyEligibleListing = {
   status: string;
   updatedAt: string;
   variantCount: number;
+  /** Custom options that Shopify shows only after metafields are on the product page. */
+  needsShopifyMetafields: boolean;
 };
 
 /**
@@ -57,7 +59,7 @@ export async function listEligibleShopifyExportListings(input: {
     take: 200,
   });
 
-  return items
+  const eligible = items
     .filter((item) => {
       const count = item.storeVariants.length;
       if (count < 1 || count > SHOPIFY_MAX_VARIANTS) return false;
@@ -85,5 +87,18 @@ export async function listEligibleShopifyExportListings(input: {
       status: item.status,
       updatedAt: item.updatedAt.toISOString(),
       variantCount: item.storeVariants.length,
+      needsShopifyMetafields: false,
     }));
+
+  if (eligible.length === 0) return eligible;
+  const withFields = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: { in: eligible.map((item) => item.storeItemId) } },
+    select: { storeItemId: true },
+    distinct: ["storeItemId"],
+  });
+  const metafieldIds = new Set(withFields.map((row) => row.storeItemId));
+  return eligible.map((item) => ({
+    ...item,
+    needsShopifyMetafields: metafieldIds.has(item.storeItemId),
+  }));
 }

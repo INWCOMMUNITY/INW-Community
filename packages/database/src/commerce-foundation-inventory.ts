@@ -385,9 +385,21 @@ export async function projectStoreItemVariantsMatrix(
   const qtys = new Set(skus.map((s) => Number(s.quantity) || 0));
   const skuCodes = new Set(skus.map((s) => String(s.sku ?? "")));
   const sharedQuantity = existing?.sharedQuantity === true;
+  const pricesVary =
+    existing?.pricesVary === false ? false : prices.size > 1 || existing?.pricesVary === true;
+  const quantitiesVary = sharedQuantity
+    ? false
+    : existing?.quantitiesVary === false
+      ? false
+      : qtys.size > 1 || existing?.quantitiesVary === true;
+  const skusVary =
+    existing?.skusVary === false ? false : skuCodes.size > 1 || existing?.skusVary === true;
 
   const positivePrices = [...prices].filter((p) => Number.isFinite(p) && p > 0);
   const facadePrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null;
+  // A single listing price stays the seller's price. The cheapest combination
+  // must not replace it after the rows were aligned to that price.
+  const pricePatch = pricesVary && facadePrice != null ? { priceCents: facadePrice } : {};
 
   if (axes.length === 0) {
     await tx.storeItem.update({
@@ -406,15 +418,13 @@ export async function projectStoreItemVariantsMatrix(
       variants: {
         axes,
         skus,
-        pricesVary: prices.size > 1 || existing?.pricesVary === true,
-        quantitiesVary: sharedQuantity
-          ? false
-          : qtys.size > 1 || existing?.quantitiesVary === true,
-        skusVary: skuCodes.size > 1 || existing?.skusVary === true,
+        pricesVary,
+        quantitiesVary,
+        skusVary,
         ...(sharedQuantity ? { sharedQuantity: true } : {}),
         ...(imageAxis ? { imageAxis } : {}),
       } as Prisma.InputJsonValue,
-      ...(facadePrice != null ? { priceCents: facadePrice } : {}),
+      ...pricePatch,
     },
   });
 }

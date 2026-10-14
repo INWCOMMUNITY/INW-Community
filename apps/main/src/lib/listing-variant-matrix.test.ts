@@ -26,7 +26,9 @@ import {
   variantQtyDraftToNumber,
   variantQtyToEditable,
   combinationEnabledAfterAxisEdit,
+  foundationMatrixWritePlan,
   normalizeVariantMatrix,
+  stampSharedListingFlags,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
   sumMatrixQuantities,
@@ -886,5 +888,47 @@ describe("shared listing quantity", () => {
 
   it("uses the listing quantity once projection has already collapsed the sum", () => {
     expect(sharedPoolAvailable({ variants, quantity: 4 })).toBe(4);
+  });
+});
+
+describe("foundation matrix write plan", () => {
+  const matrix: VariantMatrix = {
+    axes: [{ name: "Color", values: ["Brown", "Blue"] }],
+    skus: [
+      { options: { Color: "Brown" }, quantity: 25, priceCents: 1800 },
+      { options: { Color: "Blue" }, quantity: 8, priceCents: 900 },
+    ],
+    quantitiesVary: false,
+    pricesVary: false,
+    sharedQuantity: true,
+  };
+
+  it("copies the listing quantity and price onto every combination", () => {
+    const plan = foundationMatrixWritePlan(matrix, { facadePriceCents: 500, listingQuantity: 10 });
+    expect(plan.sharedPool).toBe(true);
+    expect(plan.onePrice).toBe(true);
+    expect(plan.targets.map((target) => target.targetOnHand)).toEqual([10, 10]);
+    expect(plan.targets.map((target) => target.priceCents)).toEqual([500, 500]);
+  });
+
+  it("keeps each combination's quantity and price when they vary", () => {
+    const plan = foundationMatrixWritePlan(
+      { ...matrix, quantitiesVary: true, pricesVary: true, sharedQuantity: false },
+      { facadePriceCents: 500, listingQuantity: 10 }
+    );
+    expect(plan.sharedPool).toBe(false);
+    expect(plan.onePrice).toBe(false);
+    expect(plan.targets.map((target) => target.targetOnHand)).toEqual([25, 8]);
+    expect(plan.targets.map((target) => target.priceCents)).toEqual([1800, 900]);
+  });
+
+  it("stamps the shared pool onto the stored matrix before projection", () => {
+    const stamped = stampSharedListingFlags(
+      { axes: matrix.axes, skus: matrix.skus, pricesVary: true, quantitiesVary: true },
+      matrix
+    );
+    expect(stamped.sharedQuantity).toBe(true);
+    expect(stamped.pricesVary).toBe(false);
+    expect(stamped.quantitiesVary).toBe(false);
   });
 });

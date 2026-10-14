@@ -45,6 +45,7 @@ import { listShopifySellerListingViews } from "@/lib/shopify/listing-public-view
 import { enqueueShopifyCreateListing } from "@/lib/shopify/create-listing";
 import { getShopifyListingViewUrl, runShopifyListingAction } from "@/lib/shopify/listing-actions";
 import { getShopifyExportReadiness } from "@/lib/shopify/export-readiness";
+import { runNextShopifySyncJob } from "@/lib/shopify/admin-graphql";
 import { GET as eligibleGet } from "@/app/api/shopify/listings/eligible/route";
 import { GET as listingsGet } from "@/app/api/shopify/listings/route";
 import { POST as createListingPost } from "@/app/api/shopify/listings/create/route";
@@ -66,6 +67,8 @@ describe("Sync Airport Shopify read APIs", () => {
     vi.mocked(runShopifyListingAction).mockReset();
     vi.mocked(getShopifyListingViewUrl).mockReset();
     vi.mocked(getShopifyExportReadiness).mockReset();
+    vi.mocked(runNextShopifySyncJob).mockReset();
+    vi.mocked(runNextShopifySyncJob).mockResolvedValue({ claimed: false });
   });
 
   it("returns CONNECTION_REQUIRED for eligible listings without an active connection", async () => {
@@ -250,6 +253,8 @@ describe("Sync Airport Shopify read APIs", () => {
       memberId: "member-a",
       storeItemId: "item-1",
     });
+    // waitUntil runs the drain promise; create then publish kinds are preferred.
+    expect(runNextShopifySyncJob).toHaveBeenCalled();
   });
 
   it("returns export readiness for a store item", async () => {

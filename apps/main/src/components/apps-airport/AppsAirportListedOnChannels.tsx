@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { IonIcon } from "@/components/IonIcon";
 import { ListOnChannelProgressModal } from "@/components/apps-airport/ListOnChannelProgressModal";
 import { EtsyListOnChannelModal } from "@/components/etsy/EtsyListOnChannelModal";
+import { ShopifyMetafieldListingDialog } from "@/components/shopify/ShopifyMetafieldListingDialog";
 import {
   listedOnManageHref,
   listedOnSettingsHref,
@@ -88,6 +89,7 @@ export function AppsAirportListedOnChannels({
   itemTitle,
   etsyReady = false,
   shopifyReady = false,
+  needsShopifyMetafields = false,
   onListed,
 }: {
   channels?: AppsAirportChannelId[] | null;
@@ -98,6 +100,8 @@ export function AppsAirportListedOnChannels({
   etsyReady?: boolean;
   /** Shopify fully connected (ACTIVE + inventory ready). */
   shopifyReady?: boolean;
+  /** Listing has custom options Shopify shows through metafields. */
+  needsShopifyMetafields?: boolean;
   onListed?: (message?: string) => void;
 }) {
   const reactId = useId();
@@ -107,6 +111,7 @@ export function AppsAirportListedOnChannels({
   const [tip, setTip] = useState<TipState | null>(null);
   const [etsyModalOpen, setEtsyModalOpen] = useState(false);
   const [shopifyProgressOpen, setShopifyProgressOpen] = useState(false);
+  const [shopifyMetafieldOpen, setShopifyMetafieldOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const clearCloseTimer = () => {
@@ -199,6 +204,10 @@ export function AppsAirportListedOnChannels({
         return;
       }
       setTip(null);
+      if (needsShopifyMetafields) {
+        setShopifyMetafieldOpen(true);
+        return;
+      }
       setShopifyProgressOpen(true);
     }
   }
@@ -341,6 +350,14 @@ export function AppsAirportListedOnChannels({
           onFinished={(_outcome, message) => onListed?.(message)}
         />
       ) : null}
+      <ShopifyMetafieldListingDialog
+        open={shopifyMetafieldOpen}
+        onCancel={() => setShopifyMetafieldOpen(false)}
+        onConfirm={() => {
+          setShopifyMetafieldOpen(false);
+          setShopifyProgressOpen(true);
+        }}
+      />
     </div>
   );
 }

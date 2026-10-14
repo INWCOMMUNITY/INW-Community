@@ -364,6 +364,7 @@ export function shopifySyncProgressLabel(step: ShopifySyncProgressStep): string 
 
 export function resolveShopifySyncProgress(input: {
   enqueueStatus?: "queued" | "already_mapped" | null;
+  jobState?: string | null;
   listing?: {
     readiness?: string | null;
     inventoryInitState?: string | null;
@@ -371,24 +372,31 @@ export function resolveShopifySyncProgress(input: {
   } | null;
 }): ShopifySyncProgressStep {
   if (input.enqueueStatus === "already_mapped" && !input.listing) return "already_mapped";
-  if (!input.listing) {
-    if (input.enqueueStatus === "queued") return "creating_product";
-    return "preparing";
-  }
-  if (input.listing.readiness === "READY_TO_PUBLISH") return "published";
-  if (input.listing.readiness === "ACTION_REQUIRED" || input.listing.readiness === "CONNECTION_REQUIRED") {
+  if (input.listing?.readiness === "READY_TO_PUBLISH") return "published";
+  if (
+    input.listing?.readiness === "ACTION_REQUIRED" ||
+    input.listing?.readiness === "CONNECTION_REQUIRED" ||
+    input.jobState === "DEAD"
+  ) {
     return "needs_attention";
   }
-  if (input.listing.inventoryInitState === "PENDING") return "inventory_initializing";
-  if (
-    input.listing.inventoryInitState === "INITIALIZED" ||
-    input.listing.inventoryInitState === "NOT_APPLICABLE"
-  ) {
-    const remote = String(input.listing.remoteProductStatus ?? "").toUpperCase();
-    if (remote !== "ACTIVE") return "publishing";
+  if (input.listing) {
+    if (input.listing.inventoryInitState === "PENDING") return "inventory_initializing";
+    if (
+      input.listing.inventoryInitState === "INITIALIZED" ||
+      input.listing.inventoryInitState === "NOT_APPLICABLE"
+    ) {
+      const remote = String(input.listing.remoteProductStatus ?? "").toUpperCase();
+      if (remote !== "ACTIVE") return "publishing";
+    }
+    if (input.listing.readiness === "SYNCING") return "mapping";
+    return "queued";
   }
-  if (input.listing.readiness === "SYNCING") return "mapping";
-  return "queued";
+  if (input.jobState === "SUCCEEDED") return "publishing";
+  if (input.jobState === "RUNNING") return "creating_product";
+  if (input.jobState === "PENDING" || input.jobState === "RETRY_WAIT") return "queued";
+  if (input.enqueueStatus === "queued") return "creating_product";
+  return "preparing";
 }
 
 /** Safe Shopify Admin product URL from known domain + product GID. */

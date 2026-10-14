@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  etsyListingPublicUrl,
   etsySyncProgressLabel,
   resolveEtsySyncProgress,
   type EtsySyncProgressStep,
@@ -93,6 +94,8 @@ export function ListOnChannelProgressModal({
   const [outcome, setOutcome] = useState<Outcome>(initialError ? "error" : "pending");
   const finishedRef = useRef(false);
   const cancelledRef = useRef(false);
+  const [viewBusy, setViewBusy] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
   const outcomeRef = useRef<Outcome>(initialError ? "error" : "pending");
   const messageRef = useRef<string>(initialError ?? "Preparing…");
 
@@ -157,7 +160,8 @@ export function ListOnChannelProgressModal({
             : shopifySyncProgressLabel("queued")
         );
 
-        const maxAttempts = channel === "etsy" ? 24 : 20;
+        // Create + publish can take two jobs; keep polling longer than a single cron tick.
+        const maxAttempts = channel === "etsy" ? 24 : 36;
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           if (cancelledRef.current) return;
           await new Promise((resolve) =>
@@ -208,24 +212,30 @@ export function ListOnChannelProgressModal({
                 return;
               }
             } else {
-              const response = await fetch(
-                `/api/shopify/listings?storeItemId=${encodeURIComponent(storeItemId)}`,
-                { credentials: "include" }
-              );
+              const qs = new URLSearchParams({ storeItemId });
+              if (jobId) qs.set("jobId", jobId);
+              const response = await fetch(`/api/shopify/listings/create-status?${qs}`, {
+                credentials: "include",
+              });
               if (!response.ok) continue;
               const body = (await response.json().catch(() => null)) as {
-                listings?: Array<{
-                  storeItemId: string;
+                job?: {
+                  state?: string;
+                  errorMessage?: string | null;
+                } | null;
+                listing?: {
                   readiness?: string | null;
                   inventoryInitState?: string | null;
                   remoteProductStatus?: string | null;
                   issueMessage?: string | null;
-                }>;
+                } | null;
               } | null;
               if (!body) continue;
-              const listing =
-                body.listings?.find((row) => row.storeItemId === storeItemId) ?? null;
-              const step = resolveShopifySyncProgress({ enqueueStatus, listing });
+              const step = resolveShopifySyncProgress({
+                enqueueStatus,
+                jobState: body.job?.state,
+                listing: body.listing,
+              });
               if (cancelledRef.current) return;
               setStatusLabel(shopifySyncProgressLabel(step));
               if (isShopifyTerminal(step, enqueueStatus)) {
@@ -235,7 +245,8 @@ export function ListOnChannelProgressModal({
                   finish(
                     "attention",
                     shopifySyncProgressLabel(step),
-                    listing?.issueMessage ??
+                    body.listing?.issueMessage ??
+                      body.job?.errorMessage ??
                       "Open Synced Listings to review what needs attention."
                   );
                 }
@@ -273,6 +284,55 @@ export function ListOnChannelProgressModal({
     jobIdProp,
     initialError,
   ]);
+
+  async function openOnThirdParty() {
+    setViewBusy(true);
+    setViewError(null);
+    try {
+      if (channel === "etsy") {
+        const qs = new URLSearchParams({ storeItemId });
+        const response = await fetch(`/api/etsy/listings/create-status?${qs}`, {
+          credentials: "include",
+        });
+        const body = (await response.json().catch(() => null)) as {
+          listing?: { etsyListingId?: string | null; remoteListingState?: string | null } | null;
+        } | null;
+        const listing = body?.listing;
+        const url =
+          etsyListingPublicUrl({
+            etsyListingId: listing?.etsyListingId,
+            remoteListingState: listing?.remoteListingState,
+          }) ||
+          (listing?.etsyListingId && /^\d+$/.test(String(listing.etsyListingId))
+            ? `https://www.etsy.com/listing/${listing.etsyListingId}`
+            : null);
+        if (!url) {
+          setViewError("Etsy listing page is not ready yet.");
+          return;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      const response = await fetch(`/api/shopify/listings/${encodeURIComponent(storeItemId)}/view-url`, {
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as {
+        primaryUrl?: string | null;
+        storefrontUrl?: string | null;
+        adminUrl?: string | null;
+      } | null;
+      const url = body?.primaryUrl || body?.storefrontUrl || body?.adminUrl;
+      if (!response.ok || !url) {
+        setViewError("Shopify listing page is not ready yet.");
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      setViewError("Could not open the listing.");
+    } finally {
+      setViewBusy(false);
+    }
+  }
 
   function handleDone() {
     if (!finishedRef.current) {
@@ -333,7 +393,7 @@ export function ListOnChannelProgressModal({
             </span>
           ) : (
             <span
-              className={`inline-block h-12 w-12 rounded-full border-4 ${spinnerTone}`}
+              className={`inline-block h-12 w-12 rounded-full border-4 animate-spin ${spinnerTone}`}
               aria-hidden
             />
           )}
@@ -354,10 +414,28 @@ export function ListOnChannelProgressModal({
           </div>
         </div>
 
+        {done && outcome === "success" ? (
+          <div className="mt-6">
+            <button
+              type="button"
+              className="btn w-full"
+              style={{
+                color: "var(--color-earth)",
+                backgroundColor: "transparent",
+                border: "2px solid var(--color-earth)",
+              }}
+              disabled={viewBusy}
+              onClick={() => void openOnThirdParty()}
+            >
+              {viewBusy ? "Opening…" : "View on 3rd Party"}
+            </button>
+            {viewError ? <p className="mt-2 text-xs text-red-700">{viewError}</p> : null}
+          </div>
+        ) : null}
         {done ? (
           <button
             type="button"
-            className="btn mt-6 w-full"
+            className={`btn w-full ${outcome === "success" ? "mt-2" : "mt-6"}`}
             style={{ color: "#fff" }}
             onClick={handleDone}
           >

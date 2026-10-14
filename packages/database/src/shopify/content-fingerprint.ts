@@ -119,6 +119,25 @@ export function shopifyVariantContentFingerprint(input: {
   return sha256Hex(JSON.stringify(payload));
 }
 
+/** Listing price when combinations share one price; otherwise the variant's own price. */
+export function shopifyPushPriceCents(input: {
+  variants: unknown;
+  listingPriceCents: number;
+  variantPriceCents: number;
+}): number {
+  if (
+    input.variants &&
+    typeof input.variants === "object" &&
+    !Array.isArray(input.variants) &&
+    (input.variants as { pricesVary?: unknown }).pricesVary === false &&
+    Number.isFinite(input.listingPriceCents) &&
+    input.listingPriceCents > 0
+  ) {
+    return Math.round(input.listingPriceCents);
+  }
+  return input.variantPriceCents;
+}
+
 export function shopifyUpdateListingContentDedupeKey(input: {
   connectionId: string;
   storeItemId: string;

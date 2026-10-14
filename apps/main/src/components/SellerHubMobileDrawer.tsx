@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { IonIcon } from "@/components/IonIcon";
+import { APPS_AIRPORT_ETSY_HUB } from "@/lib/etsy/apps-airport";
+import { APPS_AIRPORT_SHOPIFY_HUB } from "@/lib/shopify/apps-airport";
 
 type NavItem = {
   href: string;
@@ -112,11 +114,15 @@ export function SellerHubMobileDrawer({
   onClose,
   onStripeDashboard,
   hasLocalDelivery,
+  etsyConnected = false,
+  shopifyConnected = false,
 }: {
   open: boolean;
   onClose: () => void;
   onStripeDashboard: () => void;
   hasLocalDelivery: boolean;
+  etsyConnected?: boolean;
+  shopifyConnected?: boolean;
 }) {
   const [pendingShip, setPendingShip] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
@@ -138,6 +144,24 @@ export function SellerHubMobileDrawer({
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/seller-hub/apps", label: "Sync Airport", icon: "apps-outline" },
+    ...(etsyConnected
+      ? [
+          {
+            href: APPS_AIRPORT_ETSY_HUB.listingsPath,
+            label: APPS_AIRPORT_ETSY_HUB.displayName,
+            icon: APPS_AIRPORT_ETSY_HUB.icon,
+          },
+        ]
+      : []),
+    ...(shopifyConnected
+      ? [
+          {
+            href: APPS_AIRPORT_SHOPIFY_HUB.listingsPath,
+            label: APPS_AIRPORT_SHOPIFY_HUB.displayName,
+            icon: APPS_AIRPORT_SHOPIFY_HUB.icon,
+          },
+        ]
+      : []),
   ];
 
   const ordersItems: NavItem[] = [

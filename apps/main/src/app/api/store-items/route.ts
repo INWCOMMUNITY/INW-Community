@@ -138,6 +138,16 @@ async function loadMineListingChannels(
   return { channelsByItemId, viewsByItemId };
 }
 
+async function storeItemIdsNeedingShopifyMetafields(itemIds: string[]): Promise<Set<string>> {
+  if (itemIds.length === 0) return new Set();
+  const rows = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: { in: itemIds } },
+    select: { storeItemId: true },
+    distinct: ["storeItemId"],
+  });
+  return new Set(rows.map((row) => row.storeItemId));
+}
+
 /** Sold tab rows = paid sales (INW orders + applied Etsy sale facts), not only sold_out listings. */
 async function loadMineSoldSales(userId: string) {
   const [orderItems, etsyFacts] = await Promise.all([
@@ -354,7 +364,11 @@ async function loadMineSoldSales(userId: string) {
   }
 
   rows.sort((a, b) => (a.soldAt < b.soldAt ? 1 : a.soldAt > b.soldAt ? -1 : 0));
-  return rows;
+  const metafieldIds = await storeItemIdsNeedingShopifyMetafields(rows.map((row) => row.storeItemId));
+  return rows.map((row) => ({
+    ...row,
+    needsShopifyMetafields: metafieldIds.has(row.storeItemId),
+  }));
 }
 
 async function countMineSoldSales(userId: string): Promise<number> {
@@ -508,13 +522,17 @@ export async function GET(req: NextRequest) {
     });
 
     const itemIds = items.map((i) => i.id);
-    const { channelsByItemId, viewsByItemId } = await loadMineListingChannels(userId, itemIds);
+    const [{ channelsByItemId, viewsByItemId }, metafieldIds] = await Promise.all([
+      loadMineListingChannels(userId, itemIds),
+      storeItemIdsNeedingShopifyMetafields(itemIds),
+    ]);
 
     const mapMineItem = (i: (typeof items)[number]) => ({
       ...i,
       photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
       channels: channelsByItemId.get(i.id) ?? ["inw"],
       views30d: viewsByItemId.get(i.id) ?? 0,
+      needsShopifyMetafields: metafieldIds.has(i.id),
     });
 
     return NextResponse.json(items.map(mapMineItem));

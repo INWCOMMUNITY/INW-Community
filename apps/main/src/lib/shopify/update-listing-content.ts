@@ -10,6 +10,7 @@ import {
   setShopifyVariantContentConflict,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
+  shopifyPushPriceCents,
   shopifyVariantContentFingerprint,
   classifyShopifyContentSemantics,
 } from "database";
@@ -483,8 +484,13 @@ export async function handleShopifyUpdateListingContentJob(
     // Must match recordShopifyListingContentDesire / mapping seed inputs.
     photos: storeItem.photos,
   });
+  const pushPriceCents = shopifyPushPriceCents({
+    variants: storeItem.variants,
+    listingPriceCents: storeItem.priceCents,
+    variantPriceCents: storeVariant.priceCents,
+  });
   const desiredVariantFp = shopifyVariantContentFingerprint({
-    priceCents: storeVariant.priceCents,
+    priceCents: pushPriceCents,
     sku: storeVariant.sku,
   });
 
@@ -588,7 +594,7 @@ export async function handleShopifyUpdateListingContentJob(
       price: {
         storeVariantId: variantMap.storeVariantId,
         base: byKey.get(`PRICE:${variantMap.storeVariantId}`)?.baseFingerprint ?? null,
-        localCents: storeVariant.priceCents,
+        localCents: pushPriceCents,
         remoteCents: remotePriceCents,
         hasLocalSemanticEdit:
           variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null,
@@ -709,7 +715,7 @@ export async function handleShopifyUpdateListingContentJob(
           productId: listing.shopifyProductId,
           variantId: variantMap.shopifyVariantId,
           ...(fieldPlan.pushPrice
-            ? { price: shopifyMoneyFromCents(storeVariant.priceCents) }
+            ? { price: shopifyMoneyFromCents(pushPriceCents) }
             : {}),
           ...(fieldPlan.pushSku ? { sku: storeVariant.sku ?? "" } : {}),
           trackInventory: storeItem.inventoryTracking !== "made_to_order",
@@ -823,7 +829,7 @@ export async function handleShopifyUpdateListingContentJob(
             connectionId: connection.id,
             productId: listing.shopifyProductId,
             variantId: variantMap.shopifyVariantId,
-            price: shopifyMoneyFromCents(storeVariant.priceCents),
+            price: shopifyMoneyFromCents(pushPriceCents),
             sku: storeVariant.sku ?? "",
             trackInventory: storeItem.inventoryTracking !== "made_to_order",
             fetchImpl: deps.fetchImpl,
@@ -879,8 +885,13 @@ export async function handleShopifyUpdateListingContentJob(
         },
       });
       if (!sibVariant) continue;
+      const sibPriceCents = shopifyPushPriceCents({
+        variants: storeItem.variants,
+        listingPriceCents: storeItem.priceCents,
+        variantPriceCents: sibVariant.priceCents,
+      });
       const sibFp = shopifyVariantContentFingerprint({
-        priceCents: sibVariant.priceCents,
+        priceCents: sibPriceCents,
         sku: sibVariant.sku,
       });
       if (sib.desiredVariantFingerprint && sib.desiredVariantFingerprint !== sibFp) {
@@ -896,7 +907,7 @@ export async function handleShopifyUpdateListingContentJob(
         connectionId: connection.id,
         productId: listing.shopifyProductId,
         variantId: sib.shopifyVariantId,
-        price: shopifyMoneyFromCents(sibVariant.priceCents),
+        price: shopifyMoneyFromCents(sibPriceCents),
         sku: sibVariant.sku ?? "",
         trackInventory: storeItem.inventoryTracking !== "made_to_order",
         fetchImpl: deps.fetchImpl,

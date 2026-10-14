@@ -38,6 +38,8 @@ import {
   type EtsyHowItsMadeFormValue,
 } from "@/components/etsy/EtsyHowItsMadeFields";
 import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
+import { ShopifyMetafieldListingDialog } from "@/components/shopify/ShopifyMetafieldListingDialog";
+import { listingNeedsShopifyMetafields } from "@/lib/shopify/metafield-listing-warning";
 import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
 import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
 import { APPS_AIRPORT_SHOPIFY_SETTINGS_PATH } from "@/lib/shopify/apps-airport";
@@ -204,6 +206,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
   const [shopifyBusy, setShopifyBusy] = useState(false);
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
+  const [shopifyMetafieldPrompt, setShopifyMetafieldPrompt] = useState<null | "list" | "save">(null);
+  const shopifyMetafieldAckRef = useRef(false);
   const initialMatrix = initEditorFromVariants(existing?.variants, existing?.storeVariants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const optionsEnabledRef = useRef(initialMatrix.optionsEnabled);
@@ -581,6 +585,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const handleListOnShopifyClick = useCallback(async () => {
     const storeItemId = existing?.id;
     if (!storeItemId) return;
+    if (listingNeedsShopifyMetafields(buyerFields) && !shopifyMetafieldAckRef.current) {
+      setShopifyMetafieldPrompt("list");
+      return;
+    }
     setShopifyBusy(true);
     setShopifyMessage(null);
     try {
@@ -597,7 +605,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     } finally {
       setShopifyBusy(false);
     }
-  }, [existing?.id, enqueueShopifyListing]);
+  }, [existing?.id, enqueueShopifyListing, buyerFields]);
 
   const handleViewOnShopifyClick = useCallback(async () => {
     const storeItemId = existing?.id;
@@ -896,6 +904,20 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setError("");
     const payload = buildPayload();
     if (!payload) return;
+
+    const willListOnShopify =
+      !isEdit &&
+      listOnShopifyAfterSave &&
+      shopifyConn?.status === "ACTIVE" &&
+      Boolean(shopifyConn.inventoryReady);
+    if (
+      willListOnShopify &&
+      listingNeedsShopifyMetafields(buyerFields) &&
+      !shopifyMetafieldAckRef.current
+    ) {
+      setShopifyMetafieldPrompt("save");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -1994,6 +2016,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           </div>
         </div>
       )}
+      <ShopifyMetafieldListingDialog
+        open={shopifyMetafieldPrompt != null}
+        onCancel={() => setShopifyMetafieldPrompt(null)}
+        onConfirm={() => {
+          shopifyMetafieldAckRef.current = true;
+          const mode = shopifyMetafieldPrompt;
+          setShopifyMetafieldPrompt(null);
+          if (mode === "list") void handleListOnShopifyClick();
+          if (mode === "save") void handleSubmit({ preventDefault() {} } as React.FormEvent);
+        }}
+      />
     </>
   );
 }

@@ -75,6 +75,20 @@ describe("Shopify sync progress and labels", () => {
     expect(
       resolveShopifySyncProgress({
         enqueueStatus: "queued",
+        jobState: "PENDING",
+        listing: null,
+      })
+    ).toBe("queued");
+    expect(
+      resolveShopifySyncProgress({
+        enqueueStatus: "queued",
+        jobState: "DEAD",
+        listing: null,
+      })
+    ).toBe("needs_attention");
+    expect(
+      resolveShopifySyncProgress({
+        enqueueStatus: "queued",
         listing: { readiness: "SYNCING", inventoryInitState: "PENDING" },
       })
     ).toBe("inventory_initializing");
