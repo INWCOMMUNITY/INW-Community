@@ -284,6 +284,7 @@ export async function importShopifyListing(input: {
         bootstrapStartedAt,
         stockMode: input.stockMode,
         memberId: input.memberId,
+        shippingCostCents: input.shippingCostCents,
       })
     : await importSingleVariant({
         snap,
@@ -293,6 +294,7 @@ export async function importShopifyListing(input: {
         bootstrapStartedAt,
         stockMode: input.stockMode,
         memberId: input.memberId,
+        shippingCostCents: input.shippingCostCents,
       });
 
   if (imported.status !== "IMPORTED") {
@@ -327,8 +329,9 @@ async function importSingleVariant(ctx: {
   bootstrapStartedAt: Date;
   stockMode: ImportShopifyListingStockMode;
   memberId: string;
+  shippingCostCents?: number;
 }): Promise<ImportShopifyListingResult> {
-  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId } = ctx;
+  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId, shippingCostCents } = ctx;
 
   if (
     !snap.shopifyVariantId ||
@@ -406,7 +409,7 @@ async function importSingleVariant(ctx: {
           status: "active",
           slug: uniqueSlug(slugify(title)),
           condition: "new",
-          ...shippingWrite(input.shippingCostCents),
+          ...shippingWrite(shippingCostCents),
         },
         select: { id: true },
       });
@@ -490,8 +493,9 @@ async function importMultiVariant(ctx: {
   bootstrapStartedAt: Date;
   stockMode: ImportShopifyListingStockMode;
   memberId: string;
+  shippingCostCents?: number;
 }): Promise<ImportShopifyListingResult> {
-  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId } = ctx;
+  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId, shippingCostCents } = ctx;
 
   if (snap.axes.length === 0 || snap.variants.length === 0 || !snap.matrix) {
     await failShopifyListingImportAttempt(prisma, {
@@ -598,7 +602,7 @@ async function importMultiVariant(ctx: {
           slug: uniqueSlug(slugify(title)),
           condition: "new",
           variants: matrix as object,
-          ...shippingWrite(input.shippingCostCents),
+          ...shippingWrite(shippingCostCents),
         },
         select: { id: true },
       });
