@@ -458,6 +458,7 @@ export {
   completeEtsySyncJobRetry,
   completeEtsySyncJobSuccess,
   enqueueEtsySyncJob,
+  reopenEtsySyncJob,
   etsyEvidenceJobDedupeKey,
   etsyJobBackoffMs,
   hashEtsyJobPayload,

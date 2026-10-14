@@ -168,7 +168,6 @@ export function ListingBuyerAnswers({
   if (fields.length === 0) return null;
   return (
     <div className="flex flex-col gap-5" data-testid="listing-buyer-answers">
-      <p className="text-sm font-medium text-gray-900">Custom Options</p>
       {fields.map((field) => {
         const draft = drafts[field.id] ?? { fieldId: field.id };
         return (

@@ -203,30 +203,39 @@ export async function applyEtsyListingContentInbound(
   const observedState = String(input.remote.state ?? "")
     .trim()
     .toLowerCase();
+  const remoteLive = observedState === "active" || observedState === "sold_out";
+  const remoteNotLive =
+    observedState === "draft" ||
+    observedState === "inactive" ||
+    observedState === "expired" ||
+    observedState === "removed";
   if (observedState && observedState !== String(listing.remoteListingState ?? "").toLowerCase()) {
     await db.etsyListingLink.update({
       where: { id: listing.id },
-      data:
-        observedState === "active"
+      data: remoteLive
+        ? {
+            remoteListingState: observedState,
+            ...(listing.issueCode === "DRAFT_NOT_ACTIVE" || listing.issueCode === "ACTIVATE_FAILED"
+              ? {
+                  readiness: "READY_TO_PUBLISH" as const,
+                  contentHealth: "HEALTHY" as const,
+                  issueCode: null,
+                  issueMessage: null,
+                }
+              : {}),
+          }
+        : remoteNotLive
           ? {
-              remoteListingState: "active",
-              ...(listing.issueCode === "DRAFT_NOT_ACTIVE" || listing.issueCode === "ACTIVATE_FAILED"
-                ? {
-                    readiness: "READY_TO_PUBLISH" as const,
-                    contentHealth: "HEALTHY" as const,
-                    issueCode: null,
-                    issueMessage: null,
-                  }
-                : {}),
-            }
-          : {
               remoteListingState: observedState,
               readiness: "ACTION_REQUIRED" as const,
               contentHealth: "DEGRADED" as const,
               issueCode: "DRAFT_NOT_ACTIVE",
               issueMessage:
-                "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish.",
-            },
+                observedState === "draft"
+                  ? "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish."
+                  : `Etsy listing is ${observedState} (not live). Re-list from Sync Airport to publish.`,
+            }
+          : { remoteListingState: observedState },
     });
     listing.remoteListingState = observedState;
   }

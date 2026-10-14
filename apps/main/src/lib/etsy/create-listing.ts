@@ -1,7 +1,7 @@
 import {
   captureEtsyInventoryProjectionDesire,
   createEtsyImportedListingMapping,
-  enqueueEtsySyncJob,
+  reopenEtsySyncJob,
   EtsyMappingConflictError,
   EtsySyncJobConflictError,
   lookupEtsyListingByRemoteId,
@@ -36,6 +36,47 @@ import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
+
+/** Pull listing.state from a bare listing object or Etsy `{ results: [...] }` envelope. */
+export function extractEtsyListingState(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.state === "string" && rec.state.trim()) {
+    return rec.state.trim().toLowerCase();
+  }
+  const results = rec.results;
+  if (Array.isArray(results) && results[0] && typeof results[0] === "object") {
+    const state = (results[0] as Record<string, unknown>).state;
+    if (typeof state === "string" && state.trim()) return state.trim().toLowerCase();
+  }
+  const listing = rec.listing;
+  if (listing && typeof listing === "object") {
+    const state = (listing as Record<string, unknown>).state;
+    if (typeof state === "string" && state.trim()) return state.trim().toLowerCase();
+  }
+  return null;
+}
+
+async function fetchConfirmedEtsyListingState(input: {
+  connectionId: string;
+  memberId: string;
+  etsyListingId: string;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<string | null> {
+  const res = await etsyConnectionRequest<unknown>({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/listings/${encodeURIComponent(input.etsyListingId)}`,
+    query: { legacy: false },
+    maxAttempts: 2,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!res.ok) return null;
+  return extractEtsyListingState(res.data);
+}
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -206,7 +247,9 @@ export async function enqueueEtsyCreateListing(input: {
   }
 
   try {
-    const job = await enqueueEtsySyncJob(prisma, {
+    // Same as Shopify create: reopen replaces sticky jobs when variants/payload changed
+    // after a prior attempt (even when no Etsy listing link is visible yet).
+    const job = await reopenEtsySyncJob(prisma, {
       etsyConnectionId: connection.id,
       kind: "CREATE_LISTING",
       dedupeKey: etsyCreateListingDedupeKey(connection.id, storeItem.id),
@@ -227,7 +270,9 @@ export async function enqueueEtsyCreateListing(input: {
       return {
         status: "ERROR",
         code: "CONFLICT",
-        message: "A create-listing job already exists with different payload",
+        message:
+          error.message?.trim() ||
+          "A create-listing job is already running. Wait a moment and try again.",
       };
     }
     throw error;
@@ -965,7 +1010,7 @@ async function finalizeEtsyListingActivation(input: {
     return { outcome: "SUCCESS" };
   }
 
-  const activate = await etsyConnectionRequest<{ state?: string }>({
+  const activate = await etsyConnectionRequest<unknown>({
     connectionId: connection.id,
     memberId: connection.memberId,
     method: "PATCH",
@@ -992,10 +1037,18 @@ async function finalizeEtsyListingActivation(input: {
     now: input.now,
   });
   if (activate.ok) {
-    const activatedState = String(activate.data?.state ?? "")
-      .trim()
-      .toLowerCase();
-    // Only mark Live when Etsy confirms active — HTTP 200 alone is not enough.
+    // PATCH often succeeds without returning `state`. Confirm with GET before marking draft.
+    let activatedState = extractEtsyListingState(activate.data);
+    if (activatedState !== "active") {
+      activatedState =
+        (await fetchConfirmedEtsyListingState({
+          connectionId: connection.id,
+          memberId: connection.memberId,
+          etsyListingId,
+          fetchImpl: input.fetchImpl,
+          now: input.now,
+        })) ?? activatedState;
+    }
     if (activatedState === "active") {
       await prisma.etsyListingLink.updateMany({
         where: { etsyConnectionId: connection.id, etsyListingId },
@@ -1022,15 +1075,41 @@ async function finalizeEtsyListingActivation(input: {
     return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
   }
 
+  // Last chance: activate HTTP failed but listing may already be live (race / prior attempt).
+  const confirmedAfterFailure = await fetchConfirmedEtsyListingState({
+    connectionId: connection.id,
+    memberId: connection.memberId,
+    etsyListingId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (confirmedAfterFailure === "active") {
+    await prisma.etsyListingLink.updateMany({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      data: {
+        remoteListingState: "active",
+        readiness: "READY_TO_PUBLISH",
+        contentHealth: "HEALTHY",
+        inventoryHealth: "HEALTHY",
+        issueCode: null,
+        issueMessage: null,
+      },
+    });
+    const personalization = await pushPersonalization();
+    if (personalization) return personalization;
+    return { outcome: "SUCCESS" };
+  }
+
+  const observedState = confirmedAfterFailure || extractEtsyListingState(activate.data) || "draft";
   const issueMessage = (
     activate.ok
-      ? `Etsy left the listing as ${String(activate.data?.state ?? "draft")} instead of active. Add photos and re-list to publish.`
+      ? `Etsy left the listing as ${observedState} instead of active. Add photos and re-list to publish.`
       : activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy"
   ).slice(0, 500);
   await prisma.etsyListingLink.updateMany({
     where: { etsyConnectionId: connection.id, etsyListingId },
     data: {
-      remoteListingState: "draft",
+      remoteListingState: observedState === "active" ? "active" : observedState || "draft",
       readiness: "ACTION_REQUIRED",
       issueCode: "ACTIVATE_FAILED",
       issueMessage,

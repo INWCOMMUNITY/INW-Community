@@ -87,9 +87,21 @@ export function etsyEvidenceJobDedupeKey(webhookId: string): string {
   return `PROCESS_PROVIDER_EVIDENCE:${webhookId}`;
 }
 
+function etsyJobLeaseActive(job: {
+  state: string;
+  leaseExpiresAt: Date | null;
+}): boolean {
+  return (
+    job.state === "RUNNING" &&
+    job.leaseExpiresAt != null &&
+    job.leaseExpiresAt.getTime() > Date.now()
+  );
+}
+
 /**
  * Idempotent enqueue. Same dedupeKey + same payloadHash returns existing job.
- * Same dedupeKey + different payloadHash fails closed.
+ * Same dedupeKey + different payloadHash fails closed — use reopenEtsySyncJob for
+ * seller CREATE_LISTING retries when variants/payload changed.
  */
 export async function enqueueEtsySyncJob(
   db: EtsyJobDb,
@@ -167,6 +179,48 @@ export async function enqueueEtsySyncJob(
     }
     throw error;
   }
+}
+
+/**
+ * Seller CREATE_LISTING / IMPORT_BATCH retry: replace a sticky job even when the
+ * payload changed (e.g. variants edited after a failed attempt). Refuses only when
+ * another worker still holds a live lease.
+ */
+export async function reopenEtsySyncJob(
+  db: EtsyJobDb,
+  input: EnqueueEtsySyncJobInput
+): Promise<EtsySyncJob> {
+  const existing = await db.etsySyncJob.findUnique({ where: { dedupeKey: input.dedupeKey } });
+  if (!existing) {
+    return enqueueEtsySyncJob(db, input);
+  }
+  if (etsyJobLeaseActive(existing) && existing.kind === input.kind) {
+    throw new EtsySyncJobConflictError(
+      "A create-listing job is already running. Wait a moment and try again."
+    );
+  }
+  const payloadHash = hashEtsyJobPayload(input.payload ?? null);
+  return db.etsySyncJob.update({
+    where: { id: existing.id },
+    data: {
+      etsyConnectionId: input.etsyConnectionId,
+      kind: input.kind,
+      evidenceId: input.evidenceId ?? null,
+      payload: input.payload ?? undefined,
+      payloadHash,
+      state: "PENDING",
+      attemptCount: 0,
+      maxAttempts: input.maxAttempts ?? existing.maxAttempts,
+      nextAttemptAt: input.nextAttemptAt ?? new Date(),
+      completedAt: null,
+      leaseOwner: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      lastErrorClass: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    },
+  });
 }
 
 /**
