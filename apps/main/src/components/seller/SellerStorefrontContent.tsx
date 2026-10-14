@@ -12,6 +12,10 @@ import { ShareButton } from "@/components/ShareButton";
 import { StorefrontCard } from "@/components/store/StorefrontCard";
 import { buildProductLinkWithReferrer } from "@/lib/product-referrer";
 import { buildBusinessHref } from "@/lib/business-referrer";
+import {
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
+} from "@/lib/store-return";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -98,14 +102,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
 
   const hasHours =
     seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
-  const hasPolicies =
-    seller.sellerShippingPolicy ||
-    seller.sellerLocalDeliveryPolicy ||
-    seller.sellerPickupPolicy ||
-    seller.sellerReturnPolicy ||
-    seller.acceptReturns === false ||
-    seller.acceptReturnsDays != null ||
-    seller.chargeReturnShipping;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
 
   useEffect(() => {
@@ -598,12 +594,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
         ) : null}
 
         {activeTab === "policies" ? (
-          !hasPolicies ? (
-            <div className="flex flex-col items-center py-12 text-center">
-              <IonIcon name="document-text-outline" size={48} className="text-[#ccc]" />
-              <p className="mt-3 text-[15px] text-[#888]">This seller hasn&apos;t set up policies yet.</p>
-            </div>
-          ) : (
             <div className="space-y-4">
               {seller.sellerShippingPolicy ? (
                 <PolicyCard icon="airplane-outline" title="Shipping Policy" text={seller.sellerShippingPolicy} />
@@ -636,8 +626,14 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                   }
                 />
               ) : null}
+              <PolicyCard
+                icon="card-outline"
+                title={NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE}
+                text={NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT}
+                collapsible
+                collapsedHint="Tap to view marketplace refund rules"
+              />
             </div>
-          )
         ) : null}
       </div>
 
@@ -687,18 +683,58 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
   );
 }
 
-function PolicyCard({ icon, title, text }: { icon: string; title: string; text: string }) {
+function PolicyCard({
+  icon,
+  title,
+  text,
+  collapsible = false,
+  collapsedHint,
+}: {
+  icon: string;
+  title: string;
+  text: string;
+  collapsible?: boolean;
+  collapsedHint?: string;
+}) {
+  const [open, setOpen] = useState(!collapsible);
   return (
     <div className="rounded-xl border border-[#e0e0e0] bg-white p-4 shadow-sm">
-      <div className="mb-2.5 flex items-center gap-2.5">
-        <IonIcon name={icon} size={20} className="text-[var(--color-primary)]" />
-        <h3 className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
-          {title}
-        </h3>
-      </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-text)" }}>
-        {text}
-      </p>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="mb-2.5 flex w-full items-center justify-between gap-2 text-left"
+          aria-expanded={open}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <IonIcon name={icon} size={20} className="shrink-0 text-[var(--color-primary)]" />
+            <h3 className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
+              {title}
+            </h3>
+          </span>
+          <IonIcon
+            name={open ? "chevron-up" : "chevron-down"}
+            size={18}
+            className="shrink-0 text-[var(--color-primary)]"
+          />
+        </button>
+      ) : (
+        <div className="mb-2.5 flex items-center gap-2.5">
+          <IonIcon name={icon} size={20} className="text-[var(--color-primary)]" />
+          <h3 className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
+            {title}
+          </h3>
+        </div>
+      )}
+      {open ? (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-text)" }}>
+          {text}
+        </p>
+      ) : collapsedHint ? (
+        <p className="text-sm opacity-70" style={{ color: "var(--color-text)" }}>
+          {collapsedHint}
+        </p>
+      ) : null}
     </div>
   );
 }

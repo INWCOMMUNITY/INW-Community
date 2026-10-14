@@ -20,15 +20,18 @@ import {
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 import {
-  fullRefundChargeCents,
+  buyerRefundCentsForFeeBearer,
+  nonRefundableStripeFeeCents,
   returnRefundAmountCents,
   sellerLedgerDebitForReturnCents,
   sellerTransferReversalCents,
+  type StorefrontStripeFeeBearer,
 } from "@/lib/store-return";
 import { timestampsFromStripeRefund } from "@/lib/store-order-refund-status";
 
+/** Default buyer-initiated refund (Stripe fees deducted from the card refund). */
 export function refundAmountCents(order: { totalCents: number; taxCents?: number | null }): number {
-  return fullRefundChargeCents(order);
+  return buyerRefundCentsForFeeBearer(order, "buyer");
 }
 
 export function sellerLedgerDebitCents(order: {
@@ -41,6 +44,20 @@ export function sellerLedgerDebitCents(order: {
     order.subtotalCents,
     order.taxCents ?? 0
   ).sellerTransferCents;
+}
+
+/** My Funds debit: original transfer, plus Stripe fees when the seller bears them. */
+export function sellerLedgerDebitCentsForFeeBearer(
+  order: {
+    totalCents: number;
+    subtotalCents: number;
+    taxCents?: number | null;
+  },
+  bearer: StorefrontStripeFeeBearer
+): number {
+  const transfer = sellerLedgerDebitCents(order);
+  if (bearer !== "seller") return transfer;
+  return transfer + nonRefundableStripeFeeCents(order);
 }
 
 export const STOREFRONT_TRANSFER_REVERSAL_IDEMPOTENCY_PREFIX = "nwc_store_reversal_";
@@ -664,11 +681,16 @@ export async function refundPaidStorefrontOrder(args: {
   };
   reason?: string;
   note?: string | null;
-  /** Override Stripe refund amount. Defaults to full charge (item + tax). */
+  /**
+   * Who absorbs Stripe’s non-refundable processing fees.
+   * Default `buyer` (cancel/return by buyer). Use `seller` for seller cancel / courtesy refund.
+   */
+  stripeFeeBearer?: StorefrontStripeFeeBearer;
+  /** Override Stripe refund amount. Defaults from {@link stripeFeeBearer}. */
   amountCents?: number;
   /** Override Connect transfer reversal. Defaults to the full original transfer. */
   transferReversalCents?: number;
-  /** Override My Funds debit. Defaults to the full original seller transfer. */
+  /** Override My Funds debit. Defaults from transfer (+ fees when seller bears them). */
   ledgerDebitCents?: number;
   /** When false, buyer keeps the item (courtesy refund). Default true. */
   restock?: boolean;
@@ -681,7 +703,8 @@ export async function refundPaidStorefrontOrder(args: {
     return { ok: false, error: "Order already refunded", status: 400 };
   }
 
-  const amount = args.amountCents ?? refundAmountCents(order);
+  const feeBearer: StorefrontStripeFeeBearer = args.stripeFeeBearer ?? "buyer";
+  const amount = args.amountCents ?? buyerRefundCentsForFeeBearer(order, feeBearer);
   if (amount < 0) {
     return {
       ok: false,
@@ -694,7 +717,9 @@ export async function refundPaidStorefrontOrder(args: {
   }
 
   const originalTransfer = sellerLedgerDebitCents(order);
+  // Connect can only reverse up to the original transfer; seller-borne fees hit My Funds ledger.
   const reversalAmount = args.transferReversalCents ?? originalTransfer;
+  const defaultLedgerDebit = sellerLedgerDebitCentsForFeeBearer(order, feeBearer);
 
   const cutover = await getCommerceFoundationCutoverState(prisma);
   const writerRoute = commerceInventoryWriterRoute(cutover.mode);
@@ -725,6 +750,8 @@ export async function refundPaidStorefrontOrder(args: {
       throw e;
     }
   }
+
+  const ledgerDebitCents = args.ledgerDebitCents ?? defaultLedgerDebit;
 
   if (amount === 0) {
     await persistLocalStorefrontRefundCompletion({
@@ -769,7 +796,7 @@ export async function refundPaidStorefrontOrder(args: {
           restockKind: args.restockKind,
           restockOperationId: args.restockOperationId,
           amountCents: args.amountCents,
-          fullAmountCents: refundAmountCents(order),
+          fullAmountCents: buyerRefundCentsForFeeBearer(order, feeBearer),
         }),
         restockRequested: args.restock !== false,
         reason: args.reason ?? null,
@@ -891,7 +918,7 @@ export async function refundPaidStorefrontOrder(args: {
     restock: args.restock,
     restockKind: args.restockKind,
     restockOperationId: args.restockOperationId,
-    ledgerDebitCents: args.ledgerDebitCents,
+    ledgerDebitCents,
     skipSellerLedgerDebit,
     stripeRefund,
   });

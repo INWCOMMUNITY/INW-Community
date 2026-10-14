@@ -4,7 +4,7 @@ export const BUYER_REFUND_TIMING_NOTE =
   "Most card refunds take 5–10 business days to appear on your statement, depending on your bank.";
 
 export const BUYER_CANCEL_CARD_HINT =
-  "This will cancel your order and initiate a refund to your original payment method. Most card refunds take 5–10 business days to appear on your statement.";
+  "This will cancel your order and initiate a refund to your original payment method. Stripe’s non-refundable card processing fees are deducted from the refund (INW does not take a storefront sales commission and does not absorb those fees). Most card refunds take 5–10 business days to appear on your statement.";
 
 export type StoreOrderRefundFields = {
   status: string;

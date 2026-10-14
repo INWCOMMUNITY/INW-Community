@@ -30,6 +30,10 @@ import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { NestedHorizontalGallery } from "@/components/NestedHorizontalGallery";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
+} from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -109,6 +113,7 @@ export default function SellerStorefrontScreen() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [aboutExpanded, setAboutExpanded] = useState(true);
+  const [nwcRefundPolicyOpen, setNwcRefundPolicyOpen] = useState(false);
   const [messageModalOpen, setMessageModalOpen] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -271,10 +276,6 @@ export default function SellerStorefrontScreen() {
   const logoUrl = resolveUrl(seller.logoUrl);
   const addressDisplay = [seller.address, seller.city].filter(Boolean).join(", ");
   const hasHours = seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
-  const hasPolicies = seller.sellerShippingPolicy || seller.sellerLocalDeliveryPolicy || 
-                      seller.sellerPickupPolicy || seller.sellerReturnPolicy ||
-                      seller.acceptReturns === false || seller.chargeReturnShipping ||
-                      seller.acceptReturnsDays != null;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
 
   const renderProductsTab = () => (
@@ -546,66 +547,84 @@ export default function SellerStorefrontScreen() {
 
   const renderPoliciesTab = () => (
     <View style={styles.tabContent}>
-      {!hasPolicies ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="document-text-outline" size={48} color="#ccc" />
-          <Text style={styles.emptyStateText}>This seller hasn't set up policies yet.</Text>
+      <View style={styles.policiesContainer}>
+        {seller.sellerShippingPolicy && (
+          <View style={styles.policyCard}>
+            <View style={styles.policyHeader}>
+              <Ionicons name="airplane-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.policyTitle}>Shipping Policy</Text>
+            </View>
+            <Text style={styles.policyText}>{seller.sellerShippingPolicy}</Text>
+          </View>
+        )}
+        {seller.sellerLocalDeliveryPolicy && (
+          <View style={styles.policyCard}>
+            <View style={styles.policyHeader}>
+              <Ionicons name="car-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.policyTitle}>Local Delivery Policy</Text>
+            </View>
+            <Text style={styles.policyText}>{seller.sellerLocalDeliveryPolicy}</Text>
+          </View>
+        )}
+        {seller.sellerPickupPolicy && (
+          <View style={styles.policyCard}>
+            <View style={styles.policyHeader}>
+              <Ionicons name="storefront-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.policyTitle}>Pickup Policy</Text>
+            </View>
+            <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
+          </View>
+        )}
+        {(seller.acceptReturns === false ||
+          seller.sellerReturnPolicy ||
+          seller.chargeReturnShipping ||
+          seller.acceptReturnsDays != null) && (
+          <View style={styles.policyCard}>
+            <View style={styles.policyHeader}>
+              <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.policyTitle}>Return Policy</Text>
+            </View>
+            <Text style={styles.policyText}>
+              {seller.acceptReturns === false
+                ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
+                : [
+                    `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
+                    seller.chargeReturnShipping
+                      ? "Return shipping may be deducted from your refund."
+                      : null,
+                    seller.sellerReturnPolicy?.trim() || null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n")}
+            </Text>
+          </View>
+        )}
+        <View style={styles.policyCard}>
+          <Pressable
+            style={styles.policyHeader}
+            onPress={() => setNwcRefundPolicyOpen((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: nwcRefundPolicyOpen }}
+          >
+            <Ionicons name="card-outline" size={20} color={theme.colors.primary} />
+            <Text style={[styles.policyTitle, { flex: 1 }]}>
+              {NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE}
+            </Text>
+            <Ionicons
+              name={nwcRefundPolicyOpen ? "chevron-up" : "chevron-down"}
+              size={18}
+              color={theme.colors.primary}
+            />
+          </Pressable>
+          {nwcRefundPolicyOpen ? (
+            <Text style={styles.policyText}>{NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT}</Text>
+          ) : (
+            <Text style={[styles.policyText, { color: "#888" }]}>
+              Tap to view marketplace refund rules
+            </Text>
+          )}
         </View>
-      ) : (
-        <View style={styles.policiesContainer}>
-          {seller.sellerShippingPolicy && (
-            <View style={styles.policyCard}>
-              <View style={styles.policyHeader}>
-                <Ionicons name="airplane-outline" size={20} color={theme.colors.primary} />
-                <Text style={styles.policyTitle}>Shipping Policy</Text>
-              </View>
-              <Text style={styles.policyText}>{seller.sellerShippingPolicy}</Text>
-            </View>
-          )}
-          {seller.sellerLocalDeliveryPolicy && (
-            <View style={styles.policyCard}>
-              <View style={styles.policyHeader}>
-                <Ionicons name="car-outline" size={20} color={theme.colors.primary} />
-                <Text style={styles.policyTitle}>Local Delivery Policy</Text>
-              </View>
-              <Text style={styles.policyText}>{seller.sellerLocalDeliveryPolicy}</Text>
-            </View>
-          )}
-          {seller.sellerPickupPolicy && (
-            <View style={styles.policyCard}>
-              <View style={styles.policyHeader}>
-                <Ionicons name="storefront-outline" size={20} color={theme.colors.primary} />
-                <Text style={styles.policyTitle}>Pickup Policy</Text>
-              </View>
-              <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
-            </View>
-          )}
-          {(seller.acceptReturns === false ||
-            seller.sellerReturnPolicy ||
-            seller.chargeReturnShipping ||
-            seller.acceptReturnsDays != null) && (
-            <View style={styles.policyCard}>
-              <View style={styles.policyHeader}>
-                <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
-                <Text style={styles.policyTitle}>Return Policy</Text>
-              </View>
-              <Text style={styles.policyText}>
-                {seller.acceptReturns === false
-                  ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
-                  : [
-                      `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
-                      seller.chargeReturnShipping
-                        ? "Return shipping may be deducted from your refund."
-                        : null,
-                      seller.sellerReturnPolicy?.trim() || null,
-                    ]
-                      .filter(Boolean)
-                      .join("\n\n")}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
+      </View>
     </View>
   );
 

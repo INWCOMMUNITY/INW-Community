@@ -1,5 +1,10 @@
 /** Storefront return status machine and refund-amount helpers. */
 
+import {
+  computeStripeProcessingFeeCents,
+  computeStripeTaxProductFeeCents,
+} from "@/lib/storefront-payout";
+
 export const STORE_RETURN_STATUSES = [
   "requested",
   "awaiting_return",
@@ -131,6 +136,31 @@ export function returnWindowEndsAt(
   return end;
 }
 
+/**
+ * Mail, pickup, or local delivery has left the pre-shipment cancel stage.
+ * A purchased label counts even when StoreOrder.status is still "paid"
+ * (status often stays paid until tracking is delivered).
+ */
+export function buyerFulfillmentHasStarted(order: {
+  status: string;
+  shipment?: {
+    createdAt?: string | Date | null;
+    trackingNumber?: string | null;
+    trackingStatus?: string | null;
+  } | null;
+  pickupSellerConfirmedAt?: string | Date | null;
+  pickupBuyerConfirmedAt?: string | Date | null;
+  deliveryConfirmedAt?: string | Date | null;
+  deliveryBuyerConfirmedAt?: string | Date | null;
+}): boolean {
+  if (order.status === "shipped" || order.status === "delivered") return true;
+  if (order.status !== "paid") return false;
+  if (order.shipment) return true;
+  if (order.pickupSellerConfirmedAt && order.pickupBuyerConfirmedAt) return true;
+  if (order.deliveryConfirmedAt && order.deliveryBuyerConfirmedAt) return true;
+  return false;
+}
+
 export function isReturnWindowOpen(
   order: ReturnWindowOrder,
   days?: number | null,
@@ -174,7 +204,7 @@ export function buyerCanRequestRefund(
   if (order.sellerAcceptsReturns === false) return false;
   if (order.isCashOrder) return false;
   if (order.stripePaymentIntentId === null) return false;
-  if (order.status !== "shipped" && order.status !== "delivered") return false;
+  if (!buyerFulfillmentHasStarted(order)) return false;
   if (order.storeReturn && isActiveStoreReturnStatus(order.storeReturn.status)) return false;
   if (order.storeReturn?.status === "refunded") return false;
   if (!order.storeReturn && order.refundRequestedAt) return false;
@@ -195,8 +225,46 @@ export function fullRefundChargeCents(order: {
 }
 
 /**
+ * Stripe keeps card processing (~2.9%+$0.30) and the Stripe Tax product fee (0.5% when tax
+ * was collected) when a charge is refunded. Those amounts are deducted from the buyer's
+ * refund so the platform is not left covering Stripe's non-refundable fees.
+ */
+export function nonRefundableStripeFeeCents(order: {
+  totalCents: number;
+  taxCents?: number | null;
+}): number {
+  const charge = fullRefundChargeCents(order);
+  const taxCents = Math.max(0, order.taxCents ?? 0);
+  return (
+    computeStripeProcessingFeeCents(charge) + computeStripeTaxProductFeeCents(charge, taxCents)
+  );
+}
+
+/** Buyer card refund before optional return-shipping deduction (buyer bears Stripe fees). */
+export function buyerCardRefundCents(order: {
+  totalCents: number;
+  taxCents?: number | null;
+}): number {
+  return Math.max(0, fullRefundChargeCents(order) - nonRefundableStripeFeeCents(order));
+}
+
+/**
+ * Who absorbs Stripe’s non-refundable processing fees on a storefront refund.
+ * - buyer: deducted from the card refund (buyer cancel / buyer return)
+ * - seller: buyer is refunded in full; seller’s My Funds debit includes the fee
+ */
+export type StorefrontStripeFeeBearer = "buyer" | "seller";
+
+export function buyerRefundCentsForFeeBearer(
+  order: { totalCents: number; taxCents?: number | null },
+  bearer: StorefrontStripeFeeBearer
+): number {
+  return bearer === "seller" ? fullRefundChargeCents(order) : buyerCardRefundCents(order);
+}
+
+/**
  * Buyer refund when a return completes.
- * Deducts the return-label cost only when chargeReturnShipping was snapshotted on.
+ * Deducts non-refundable Stripe fees, then the return-label cost when chargeReturnShipping is on.
  */
 export function returnRefundAmountCents(args: {
   totalCents: number;
@@ -204,9 +272,9 @@ export function returnRefundAmountCents(args: {
   chargeReturnShipping: boolean;
   returnLabelCostCents?: number | null;
 }): number {
-  const full = fullRefundChargeCents(args);
-  if (!args.chargeReturnShipping) return full;
-  return Math.max(0, full - Math.max(0, args.returnLabelCostCents ?? 0));
+  const base = buyerCardRefundCents(args);
+  if (!args.chargeReturnShipping) return base;
+  return Math.max(0, base - Math.max(0, args.returnLabelCostCents ?? 0));
 }
 
 /**
@@ -252,6 +320,56 @@ export function postReturnSellerEntitlementCents(args: {
 
 export const BUYER_RETURN_SHIPPING_WARNING =
   "This seller charges return shipping. The Shippo return-label price will be deducted from your refund once the seller buys the label. The exact amount is set at that time.";
+
+/** Title for the buyer cancel / refund policy confirmation popup. */
+export const BUYER_REFUND_POLICY_POPUP_TITLE = "NWC Marketplace Refund Policy";
+
+/**
+ * Body for the buyer cancel / refund policy confirmation popup.
+ * Exact fee is shown separately via {@link formatBuyerRefundFeeDeductionLine}.
+ */
+export const BUYER_REFUND_POLICY_POPUP_BODY =
+  "NWC does not personally profit off of items sold in the storefront. Stripe’s credit card processing does not refund their portion, and therefore that processing fee will be eaten by the buyer on a refund request — rather than charging the seller for that fee twice.";
+
+export const BUYER_REFUND_POLICY_CONTINUE_LABEL = "Understood";
+export const BUYER_REFUND_POLICY_NEVERMIND_LABEL = "Nevermind.";
+
+/** @deprecated Use BUYER_REFUND_POLICY_POPUP_BODY — kept for any lingering imports. */
+export const BUYER_STRIPE_FEE_NON_REFUNDABLE_NOTICE = BUYER_REFUND_POLICY_POPUP_BODY;
+
+export function formatBuyerRefundFeeDeductionLine(order: {
+  totalCents: number;
+  taxCents?: number | null;
+}): string {
+  const feeCents = nonRefundableStripeFeeCents(order);
+  return `Fee deducted from your refund: $${(feeCents / 100).toFixed(2)}`;
+}
+
+/** Title for seller cancel / courtesy refund policy confirmation. */
+export const SELLER_REFUND_POLICY_POPUP_TITLE = "NWC Marketplace Refund Policy";
+
+export const SELLER_REFUND_POLICY_POPUP_BODY =
+  "NWC does not personally profit off of items sold in the storefront. Stripe’s credit card processing does not refund their portion when you cancel and refund an order. The buyer is refunded in full, and that processing fee is absorbed on the seller side — rather than deducting it from the buyer.";
+
+export const SELLER_REFUND_POLICY_FEE_LINE_PREFIX = "Stripe fee you absorb on this refund:";
+
+export function formatSellerRefundFeeAbsorptionLine(order: {
+  totalCents: number;
+  taxCents?: number | null;
+}): string {
+  const feeCents = nonRefundableStripeFeeCents(order);
+  return `${SELLER_REFUND_POLICY_FEE_LINE_PREFIX} $${(feeCents / 100).toFixed(2)}`;
+}
+
+/**
+ * Shown on product / seller “Seller Policy” sections so buyers know NWC’s marketplace refund rules.
+ */
+export const NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE = "NWC Marketplace Refund Policy";
+
+export const NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT =
+  "NWC does not personally profit off of items sold in the storefront. Stripe does not return its card processing fees when a payment is refunded.\n\n" +
+  "If you (the buyer) cancel or request a refund/return, Stripe’s non-refundable processing fee is deducted from your refund. If the seller cancels and refunds the order, you are refunded in full and the seller absorbs that fee.\n\n" +
+  "Typical Stripe fees are about 2.9% + $0.30 of the original charge, plus Stripe Tax’s 0.5% product fee when sales tax was collected. Return shipping may also be deducted when the seller’s return policy charges it.";
 
 export function sellerReturnPolicySummary(seller: {
   acceptReturns?: boolean;
