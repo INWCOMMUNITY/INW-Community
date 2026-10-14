@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { listingDescriptionPlainText } from "../listing-description-plain";
 
 /** Convert integer minor units to Shopify money decimal string without float error. */
 export function shopifyMoneyFromCents(cents: number): string {
@@ -23,8 +24,9 @@ export function normalizeShopifyTitle(title: string | null | undefined): string 
   return typeof title === "string" ? title.trim() : "";
 }
 
+/** Plain listing text. Shopify `<p>` wrappers compare equal to the same words. */
 export function normalizeShopifyDescription(description: string | null | undefined): string {
-  return typeof description === "string" ? description : "";
+  return listingDescriptionPlainText(description);
 }
 
 export function normalizeShopifyVendor(vendor: string | null | undefined): string {

@@ -5,6 +5,7 @@ import {
   correlateVariantsByOptionCombination,
   createShopifyImportedListingMapping,
   failShopifyListingImportAttempt,
+  normalizeShopifyDescription,
   prisma,
   provisionNativeFoundationListing,
   reconcileShopifyImportBootstrapSales,
@@ -358,7 +359,8 @@ async function importSingleVariant(ctx: {
   const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
   const inventoryMode = stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
   const title = snap.title.slice(0, 200);
-  const description = snap.descriptionHtml.trim().length > 0 ? snap.descriptionHtml : null;
+  const importedDescription = normalizeShopifyDescription(snap.descriptionHtml);
+  const description = importedDescription.length > 0 ? importedDescription : null;
   const photos = snap.imageUrl ? [snap.imageUrl] : [];
   const sku = snap.sku ? snap.sku.trim().slice(0, 50) || null : null;
 
@@ -534,7 +536,8 @@ async function importMultiVariant(ctx: {
   const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
   const inventoryMode = stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
   const title = snap.title.slice(0, 200);
-  const description = snap.descriptionHtml.trim().length > 0 ? snap.descriptionHtml : null;
+  const importedDescription = normalizeShopifyDescription(snap.descriptionHtml);
+  const description = importedDescription.length > 0 ? importedDescription : null;
   const photos = snap.imageUrl ? [snap.imageUrl] : [];
 
   const matrix = shopifyTopologyToInwMatrix({

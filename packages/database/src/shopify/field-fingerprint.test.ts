@@ -20,5 +20,6 @@ describe("shopifyFieldFingerprint", () => {
     const a = shopifyDescriptionFieldFingerprint("<p>Hello</p>\n\n");
     const b = shopifyDescriptionFieldFingerprint("<p>Hello</p> ");
     expect(a).toBe(b);
+    expect(a).toBe(shopifyDescriptionFieldFingerprint("Hello"));
   });
 });

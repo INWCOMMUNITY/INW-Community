@@ -5,6 +5,7 @@ import {
   EtsyMappingConflictError,
   EtsySyncJobConflictError,
   lookupEtsyListingByRemoteId,
+  normalizeEtsyDescription,
   prisma,
   provisionNativeFoundationListing,
   replaceEtsyListingVariantMaps,
@@ -461,7 +462,8 @@ export async function handleEtsyCreateListingJob(
   const createBody: Record<string, unknown> = {
     quantity: qty,
     title: storeItem.title.trim().slice(0, 140),
-    description: (storeItem.description ?? storeItem.title).trim() || storeItem.title,
+    description:
+      normalizeEtsyDescription(storeItem.description) || storeItem.title.trim(),
     price,
     who_made: how.whoMade,
     when_made: how.whenMade,

@@ -5,6 +5,7 @@ import {
   failEtsyListingImportAttempt,
   isEtsyWhenMade,
   isEtsyWhoMade,
+  normalizeEtsyDescription,
   prisma,
   provisionNativeFoundationListing,
   EtsyMappingConflictError,
@@ -179,7 +180,7 @@ export async function importEtsyListing(input: {
         : snap.variants.reduce((sum, variant) => sum + Math.max(0, variant.quantity), 0)
       : 0;
   const title = snap.title.slice(0, 200);
-  const description = snap.description.trim() ? snap.description : null;
+  const description = normalizeEtsyDescription(snap.description) || null;
   const photos = await ensureInwHostedListingPhotos(snap.photos.slice(0, 20));
   const priceCents = snap.variants[0]?.priceCents ?? snap.priceCents ?? 0;
   const sku = snap.variants[0]?.sku ?? null;
