@@ -847,7 +847,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         : enabledSkus
           ? quantitiesVary
             ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
-            : Math.max(0, enabledSkus.find((sku) => sku.enabled)?.quantity ?? quantity)
+            : Math.max(0, enabledSkus[0]?.quantity ?? quantity)
           : quantity,
       ...(isEdit && !optionsConfirmed
         ? {}
