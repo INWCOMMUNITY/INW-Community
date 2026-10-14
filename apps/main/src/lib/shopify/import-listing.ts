@@ -446,7 +446,7 @@ async function importSingleVariant(ctx: {
       });
 
       return { already: false as const, storeItemId: storeItem.id, listingLinkId: mapping.listingLink.id };
-    });
+    }, { timeout: 20_000 });
   } catch (error) {
     const code =
       error instanceof ShopifyMappingConflictError
@@ -762,7 +762,7 @@ async function importMultiVariant(ctx: {
           shopifyVariantId: p.shopifyVariantId,
         })),
       };
-    });
+    }, { timeout: 20_000 });
   } catch (error) {
     const code =
       error instanceof ShopifyMappingConflictError
