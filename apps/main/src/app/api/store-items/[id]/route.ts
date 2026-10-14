@@ -27,7 +27,7 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import {
   hasOptionQuantities,
-  sumOptionQuantities,
+  listingQuantityFromVariants,
 } from "@/lib/store-item-variants";
 import {
   isMadeToOrderTracking,
@@ -464,7 +464,7 @@ export async function PATCH(
     if (isMadeToOrderTracking(nextTracking)) {
       update.quantity = MTO_CHANNEL_QUANTITY;
     } else if (hasOptionQuantities(data.variants)) {
-      update.quantity = sumOptionQuantities(data.variants);
+      update.quantity = listingQuantityFromVariants(data.variants);
     }
   }
   if (data.quantity !== undefined) {
@@ -515,7 +515,7 @@ export async function PATCH(
     data.status !== undefined ? data.status : existing.status;
   let mergedQuantity = existing.quantity;
   if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
-    mergedQuantity = sumOptionQuantities(data.variants);
+    mergedQuantity = listingQuantityFromVariants(data.variants);
   } else if (data.quantity !== undefined) {
     const variantsForQuantity =
       data.variants !== undefined ? data.variants : existing.variants;

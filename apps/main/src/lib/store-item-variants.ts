@@ -155,7 +155,11 @@ export function getAvailableQuantity(
     const sel = asSelection(selectedVariant);
     if (!sel) return 0;
     const row = findSkuRow(matrix, sel);
-    return row ? Math.max(0, row.quantity) : 0;
+    if (!row) return 0;
+    if (matrix.sharedQuantity === true && matrix.skus.length > 1) {
+      return sharedPoolAvailable(storeItem);
+    }
+    return Math.max(0, row.quantity);
   }
 
   if (!hasOptionQuantities(storeItem.variants)) {
@@ -410,6 +414,43 @@ export function sumOptionQuantities(variants: unknown): number {
     }
   }
   return sum;
+}
+
+/** True when every combination draws from one listing quantity (Etsy "quantities vary" off). */
+export function listingUsesSharedQuantity(variants: unknown): boolean {
+  const matrix = normalizeVariantMatrix(variants);
+  return matrix?.sharedQuantity === true && matrix.skus.length > 1;
+}
+
+function matrixSkuPool(matrix: VariantMatrix): number {
+  const positive = matrix.skus
+    .map((sku) => Math.max(0, Math.floor(sku.quantity)))
+    .filter((qty) => qty > 0);
+  if (positive.length === 0) return 0;
+  return Math.min(...positive);
+}
+
+/**
+ * Listing quantity to store. A shared pool is that one number.
+ * Per-combination stock is the sum of the rows.
+ */
+export function listingQuantityFromVariants(variants: unknown): number {
+  const matrix = normalizeVariantMatrix(variants);
+  if (matrix?.sharedQuantity === true && matrix.skus.length > 1) return matrixSkuPool(matrix);
+  return sumOptionQuantities(variants);
+}
+
+/**
+ * How many of a shared listing can still be bought, any combination.
+ * When the stored listing quantity is still the old sum of rows, the pool on each row wins.
+ * When the listing quantity is already the pool (or lower, after a hold), that number wins.
+ */
+export function sharedPoolAvailable(storeItem: { variants?: unknown; quantity: number }): number {
+  const matrix = normalizeVariantMatrix(storeItem.variants);
+  if (!matrix || matrix.skus.length === 0) return Math.max(0, storeItem.quantity);
+  const pool = matrixSkuPool(matrix);
+  const facade = Math.max(0, Math.floor(storeItem.quantity));
+  return facade <= pool ? facade : pool;
 }
 
 /** Option labels for one variant row (string[] or { value, quantity }[]). */

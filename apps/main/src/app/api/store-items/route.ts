@@ -4,7 +4,7 @@ import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutove
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
-import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { hasOptionQuantities, listingQuantityFromVariants } from "@/lib/store-item-variants";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   isMadeToOrderTracking,
@@ -774,7 +774,7 @@ export async function POST(req: NextRequest) {
         ? 0
         : MTO_CHANNEL_QUANTITY
       : useOptionQuantities
-        ? sumOptionQuantities(storedVariants ?? data.variants)
+        ? listingQuantityFromVariants(storedVariants ?? data.variants)
         : Number(data.quantity ?? 1);
     if (!Number.isInteger(priceCents) || priceCents < 0 || (!isDraft && priceCents < 1)) {
       return NextResponse.json(

@@ -20,7 +20,14 @@ import {
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
-import { getAvailableQuantity, getSkuPriceCents, hasMeaningfulVariantSelection, hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  getAvailableQuantity,
+  getSkuPriceCents,
+  hasMeaningfulVariantSelection,
+  hasOptionQuantities,
+  listingUsesSharedQuantity,
+  sharedPoolAvailable,
+} from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import { cartSkuQuantityKey, findCartRowForCheckoutLine, formatCartVariantLabel } from "@/lib/cart-line-identity";
 import {
@@ -240,8 +247,17 @@ export async function POST(req: NextRequest) {
   }
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
-    const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
-    const needed = qtyBySku.get(cartSkuQuantityKey(item.storeItemId, item.variant)) ?? item.quantity;
+    const shared = storeItem ? listingUsesSharedQuantity(storeItem.variants) : false;
+    const available = !storeItem
+      ? 0
+      : shared
+        ? sharedPoolAvailable(storeItem)
+        : getAvailableQuantity(storeItem, item.variant);
+    const needed = shared
+      ? items
+          .filter((row) => row.storeItemId === item.storeItemId)
+          .reduce((sum, row) => sum + row.quantity, 0)
+      : (qtyBySku.get(cartSkuQuantityKey(item.storeItemId, item.variant)) ?? item.quantity);
     if (!storeItem || item.quantity < 1 || needed > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }

@@ -37,7 +37,10 @@ import {
   decrementOptionQuantity,
   getAvailableQuantity,
   getSkuPriceCents,
+  listingQuantityFromVariants,
+  listingUsesSharedQuantity,
   listingVariantDisplayAxes,
+  sharedPoolAvailable,
   sumOptionQuantities,
 } from "./store-item-variants";
 
@@ -852,5 +855,36 @@ describe("removed variant leftover options", () => {
       getAvailableQuantity(item, { "Primary color": "Red", Size: "Small" })
     ).toBe(4);
     expect(getSkuPriceCents(item, { "Primary color": "Brown", Size: "Medium" })).toBe(300);
+  });
+});
+
+describe("shared listing quantity", () => {
+  const variants = {
+    axes: [
+      { name: "Primary color", values: ["Brown", "Black"] },
+      { name: "Secondary color", values: ["Black", "Blue"] },
+    ],
+    skus: [
+      { options: { "Primary color": "Brown", "Secondary color": "Black" }, quantity: 10 },
+      { options: { "Primary color": "Brown", "Secondary color": "Blue" }, quantity: 10 },
+      { options: { "Primary color": "Black", "Secondary color": "Black" }, quantity: 10 },
+      { options: { "Primary color": "Black", "Secondary color": "Blue" }, quantity: 10 },
+    ],
+    quantitiesVary: false,
+    pricesVary: false,
+    sharedQuantity: true,
+  };
+
+  it("keeps one pool when every combination stores that number", () => {
+    const item = { variants, quantity: 40, priceCents: 500 };
+    expect(listingUsesSharedQuantity(variants)).toBe(true);
+    expect(listingQuantityFromVariants(variants)).toBe(10);
+    expect(sharedPoolAvailable(item)).toBe(10);
+    expect(getAvailableQuantity(item, { "Primary color": "Brown", "Secondary color": "Black" })).toBe(10);
+    expect(getAvailableQuantity(item, { "Primary color": "Black", "Secondary color": "Blue" })).toBe(10);
+  });
+
+  it("uses the listing quantity once projection has already collapsed the sum", () => {
+    expect(sharedPoolAvailable({ variants, quantity: 4 })).toBe(4);
   });
 });

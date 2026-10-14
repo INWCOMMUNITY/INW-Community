@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, relistFoundationListing } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { hasOptionQuantities, listingQuantityFromVariants } from "@/lib/store-item-variants";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
@@ -120,7 +120,7 @@ export async function POST(
   if (hasOptionQuantities(existing.variants)) {
     const variants = variantsForRelist(existing.variants, perOptionQty);
     update.variants = variants;
-    update.quantity = sumOptionQuantities(variants);
+    update.quantity = listingQuantityFromVariants(variants);
   }
 
   const item = await prisma.storeItem.update({

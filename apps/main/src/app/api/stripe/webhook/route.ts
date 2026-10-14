@@ -14,7 +14,7 @@ import {
   markFoundationStoreOrderPaidAfterConvert,
 } from "database";
 import type { Plan } from "database";
-import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { getAvailableQuantity, listingUsesSharedQuantity, sharedPoolAvailable } from "@/lib/store-item-variants";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import {
@@ -883,10 +883,20 @@ export async function POST(req: NextRequest) {
       });
       const storeItemMapValidation = new Map(storeItemsForValidation.map((s) => [s.id, s]));
       const insufficientItems: { title: string }[] = [];
+      const requestedByItem = new Map<string, number>();
+      for (const oi of order.items) {
+        requestedByItem.set(oi.storeItemId, (requestedByItem.get(oi.storeItemId) ?? 0) + oi.quantity);
+      }
       for (const oi of order.items) {
         const storeItem = storeItemMapValidation.get(oi.storeItemId);
-        const available = storeItem ? getAvailableQuantity(storeItem, oi.variant) : 0;
-        if (available < oi.quantity) {
+        const shared = storeItem ? listingUsesSharedQuantity(storeItem.variants) : false;
+        const available = !storeItem
+          ? 0
+          : shared
+            ? sharedPoolAvailable(storeItem)
+            : getAvailableQuantity(storeItem, oi.variant);
+        const needed = shared ? (requestedByItem.get(oi.storeItemId) ?? oi.quantity) : oi.quantity;
+        if (available < needed) {
           insufficientItems.push({ title: storeItem?.title ?? "Item" });
         }
       }
