@@ -668,21 +668,21 @@ export function ListingVariantMatrixEditor({
         <span className="text-sm text-gray-900 font-medium">Enable options (Size, Color, …)</span>
       </div>
 
-      {!optionsEnabled ? (
-        madeToOrder ? (
-          <p className="text-sm text-gray-500">Quantity is not required for made-to-order listings.</p>
-        ) : (
-          <>
-            <label className={listingLabelClass}>Quantity *</label>
-            <VariantQtyInput
-              qty={simpleQuantity}
-              onCommitQty={onSimpleQuantityChange}
-              className={`${listingInputClass} max-w-xs`}
-              placeholder="1"
-            />
-          </>
-        )
-      ) : (
+      {madeToOrder ? (
+        <p className="text-sm text-gray-500">Quantity is not required for made-to-order listings.</p>
+      ) : !optionsEnabled || !quantitiesVary ? (
+        <>
+          <label className={listingLabelClass}>Quantity *</label>
+          <VariantQtyInput
+            qty={simpleQuantity}
+            onCommitQty={optionsEnabled ? commitSharedQuantity : onSimpleQuantityChange}
+            className={`${listingInputClass} max-w-xs`}
+            placeholder="1"
+          />
+        </>
+      ) : null}
+
+      {optionsEnabled ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-gray-700">{summary}</p>
@@ -699,21 +699,6 @@ export function ListingVariantMatrixEditor({
           </div>
 
           <ChannelNotes notes={channelNotes} />
-
-          {skus.length > 0 && !quantitiesVary && !madeToOrder ? (
-            <>
-              <label className={listingLabelClass}>Quantity *</label>
-              <VariantQtyInput
-                qty={simpleQuantity}
-                onCommitQty={commitSharedQuantity}
-                className={`${listingInputClass} max-w-xs`}
-                placeholder="1"
-              />
-              <p className="text-xs text-gray-500">
-                This quantity is shared. Choosing a different combination does not add more stock.
-              </p>
-            </>
-          ) : null}
 
           {skus.length > 0 ? (
             <div className="space-y-2">
@@ -862,7 +847,7 @@ export function ListingVariantMatrixEditor({
             </p>
           )}
         </>
-      )}
+      ) : null}
 
       {manageOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
