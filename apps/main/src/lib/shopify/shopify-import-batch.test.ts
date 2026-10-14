@@ -116,12 +116,51 @@ describe("startShopifyImportBatch", () => {
       stockModePolicy: "PHYSICAL",
     });
     expect(result.status).toBe("STARTED");
+    expect(prisma.shopifyImportBatch.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          shippingPricesJson: {},
+        }),
+      })
+    );
     expect(enqueueShopifySyncJob).toHaveBeenCalledWith(
       prisma,
       expect.objectContaining({
         kind: "IMPORT_BATCH",
         dedupeKey: "IMPORT_BATCH:conn-1:batch-1",
         payload: { batchId: "batch-1" },
+      })
+    );
+  });
+
+  it("stores selected products and their shipping prices", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      primaryLocationId: "gid://shopify/Location/1",
+    } as never);
+    vi.mocked(findActiveShopifyImportBatch).mockResolvedValue(null);
+    vi.mocked(prisma.shopifyImportBatch.create).mockResolvedValue({
+      id: "batch-priced",
+      state: "PENDING",
+      shopifyConnectionId: "conn-1",
+    } as never);
+    vi.mocked(enqueueShopifySyncJob).mockResolvedValue({ id: "job-1" } as never);
+
+    const result = await startShopifyImportBatch({
+      memberId: "m1",
+      stockModePolicy: "PHYSICAL",
+      productIds: ["gid://shopify/Product/111"],
+      shippingPrices: { "gid://shopify/Product/111": 799 },
+    });
+    expect(result.status).toBe("STARTED");
+    expect(prisma.shopifyImportBatch.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          queueJson: ["gid://shopify/Product/111"],
+          total: 1,
+          discoverComplete: true,
+          shippingPricesJson: { "gid://shopify/Product/111": 799 },
+        }),
       })
     );
   });
@@ -166,6 +205,10 @@ describe("handleShopifyImportBatchJob", () => {
       discoverCursor: "done",
       discoverComplete: true,
       queueJson: ["gid://shopify/Product/111", "gid://shopify/Product/222"],
+      shippingPricesJson: {
+        "gid://shopify/Product/111": 799,
+        "gid://shopify/Product/222": 0,
+      },
       failuresJson: [],
       avgItemMs: null,
       startedAt: new Date(),
@@ -187,6 +230,20 @@ describe("handleShopifyImportBatchJob", () => {
 
     const result = await handleShopifyImportBatchJob(claim);
     expect(importShopifyListing).toHaveBeenCalledTimes(2);
+    expect(importShopifyListing).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        shopifyProductId: "gid://shopify/Product/111",
+        shippingCostCents: 799,
+      })
+    );
+    expect(importShopifyListing).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        shopifyProductId: "gid://shopify/Product/222",
+        shippingCostCents: 0,
+      })
+    );
     expect(result.outcome).toBe("SUCCESS");
   });
 

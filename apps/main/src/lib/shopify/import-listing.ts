@@ -28,6 +28,11 @@ import {
 
 export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
 
+function shippingWrite(cents: number | undefined): { shippingCostCents: number; shippingDisabled: false } | Record<string, never> {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) return {};
+  return { shippingCostCents: Math.max(0, Math.round(cents)), shippingDisabled: false };
+}
+
 export type ImportShopifyListingResult =
   | {
       status: "IMPORTED" | "ALREADY_IMPORTED";
@@ -88,6 +93,8 @@ export async function importShopifyListing(input: {
   memberId: string;
   shopifyProductId: string;
   stockMode: ImportShopifyListingStockMode;
+  /** Seller-chosen INW shipping charge. Omitted leaves the listing's shipping unset. */
+  shippingCostCents?: number;
   fetchImpl?: ShopifyFetch;
 }): Promise<ImportShopifyListingResult> {
   if (input.stockMode !== "PHYSICAL" && input.stockMode !== "MADE_TO_ORDER") {
@@ -399,6 +406,7 @@ async function importSingleVariant(ctx: {
           status: "active",
           slug: uniqueSlug(slugify(title)),
           condition: "new",
+          ...shippingWrite(input.shippingCostCents),
         },
         select: { id: true },
       });
@@ -590,6 +598,7 @@ async function importMultiVariant(ctx: {
           slug: uniqueSlug(slugify(title)),
           condition: "new",
           variants: matrix as object,
+          ...shippingWrite(input.shippingCostCents),
         },
         select: { id: true },
       });

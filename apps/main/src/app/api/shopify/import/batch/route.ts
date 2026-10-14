@@ -43,16 +43,29 @@ export async function POST(req: NextRequest) {
   }
 
   let stockModePolicy = "RECOMMENDED";
+  let productIds: unknown;
+  let shippingPrices: unknown;
   try {
-    const body = (await req.json().catch(() => ({}))) as { stockModePolicy?: unknown };
+    const body = (await req.json().catch(() => ({}))) as {
+      stockModePolicy?: unknown;
+      productIds?: unknown;
+      shippingPrices?: unknown;
+    };
     if (typeof body.stockModePolicy === "string" && body.stockModePolicy.trim()) {
       stockModePolicy = body.stockModePolicy.trim();
     }
+    productIds = body.productIds;
+    shippingPrices = body.shippingPrices;
   } catch {
     // empty body ok
   }
 
-  const result = await startShopifyImportBatch({ memberId, stockModePolicy });
+  const result = await startShopifyImportBatch({
+    memberId,
+    stockModePolicy,
+    productIds,
+    shippingPrices,
+  });
   if (result.status === "ERROR") {
     return NextResponse.json(
       { error: result.message, code: result.code },

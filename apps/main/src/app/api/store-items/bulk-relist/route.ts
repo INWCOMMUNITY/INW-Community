@@ -101,12 +101,6 @@ export async function POST(req: NextRequest) {
               `StoreItem ${item.id} has no Variants`
             );
           }
-          if (variants.length !== 1) {
-            throw new FoundationInventoryError(
-              "ambiguous_bulk_quantity",
-              "FOUNDATION matrix bulk relist requires per-Variant quantities"
-            );
-          }
           await relistFoundationListing(tx, {
             storeItemId: item.id,
             memberId: userId,

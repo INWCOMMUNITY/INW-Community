@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { disconnectChannelsForEndedStoreItems } from "@/lib/disconnect-ended-listing-channels";
 import { etsyConnectionRequest } from "./connection-request";
 import { clampEtsySku } from "@/lib/listing-sku";
 import { etsyListingPackageFromRaw, type EtsyListingPackage } from "./import-shipping";
@@ -361,6 +362,12 @@ export async function discoverEtsyImportCandidates(input: {
     };
   }
 
+  try {
+    await disconnectChannelsForEndedStoreItems(input.memberId);
+  } catch (error) {
+    console.error("[etsy-import] could not drop ended channel links", error);
+  }
+
   const limit = Math.min(Math.max(input.limit ?? 25, 1), 50);
   const offset = Math.max(input.offset ?? 0, 0);
 
@@ -440,9 +447,11 @@ async function buildDiscoverResult(
 ): Promise<Extract<DiscoverEtsyImportCandidatesResult, { status: "OK" }>> {
   const linked = await prisma.etsyListingLink.findMany({
     where: { etsyConnectionId: connection.id },
-    select: { etsyListingId: true },
+    select: { etsyListingId: true, storeItem: { select: { status: true } } },
   });
-  const mappedIds = new Set(linked.map((row) => row.etsyListingId));
+  const mappedIds = new Set(
+    linked.filter((row) => row.storeItem.status !== "inactive").map((row) => row.etsyListingId)
+  );
 
   const candidates: EtsyImportCandidate[] = [];
   let alreadyLinkedOnPage = 0;

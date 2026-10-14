@@ -1682,6 +1682,27 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
       },
     });
     await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, matrix.id));
+    await prisma.$transaction((tx) =>
+      endFoundationListing(tx, { storeItemId: matrix.id, currentStatus: "active" })
+    );
+    await prisma.$transaction((tx) =>
+      relistFoundationListing(tx, {
+        storeItemId: matrix.id,
+        memberId: member.id,
+        commandId: `bulk-relist-ended-mx-${matrix.id}`,
+        simpleTarget: 1,
+      })
+    );
+    const restoredMatrix = await prisma.storeVariant.findMany({
+      where: { storeItemId: matrix.id, status: "ACTIVE" },
+      select: { id: true },
+    });
+    expect(restoredMatrix).toHaveLength(2);
+    const restoredQty = await prisma.inventoryState.findMany({
+      where: { variantId: { in: restoredMatrix.map((row) => row.id) } },
+      select: { onHand: true },
+    });
+    expect(restoredQty.map((row) => row.onHand).sort()).toEqual([1, 1]);
     await expect(
       prisma.$transaction((tx) =>
         applyFoundationSellerQuantitySets(tx, {

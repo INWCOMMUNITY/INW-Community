@@ -92,8 +92,8 @@ export async function POST(
     try {
       await prisma.$transaction(async (tx) => {
         const variants = await tx.storeVariant.findMany({ where: { storeItemId: itemId } });
-        if (variants.length !== 1) {
-          throw new Error("ambiguous_bulk_quantity");
+        if (variants.length === 0) {
+          throw new Error(`StoreItem ${itemId} has no Variants`);
         }
         await relistFoundationListing(tx, {
           storeItemId: itemId,

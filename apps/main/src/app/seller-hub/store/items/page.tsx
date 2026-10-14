@@ -736,7 +736,7 @@ function MyItemsPageInner() {
         </div>
       ) : null}
 
-      {!loading && !fetchError && filtered.length > 0 ? (
+      {!loading && filtered.length > 0 ? (
         <>
           {/* Mobile: stacked cards — avoids horizontal table scroll */}
           <ul className="md:hidden relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 divide-y divide-neutral-200 border-y border-neutral-200">

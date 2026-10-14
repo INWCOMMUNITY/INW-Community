@@ -10,6 +10,7 @@ import {
   APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
   formatCents,
 } from "@/lib/shopify/apps-airport";
+import { parseSellerShippingDollars } from "@/lib/etsy/import-shipping";
 
 type Candidate = {
   shopifyProductId: string;
@@ -19,6 +20,7 @@ type Candidate = {
   unsupportedReason: string | null;
   priceCents: number | null;
   sku: string | null;
+  imageUrl: string | null;
   inventoryTracked: boolean | null;
   primaryLocationAvailable: number | null;
   recommendedStockMode: "PHYSICAL" | "MADE_TO_ORDER" | null;
@@ -78,6 +80,22 @@ function batchIsActive(batch: BatchProgress | null): boolean {
   return batch != null && (batch.state === "PENDING" || batch.state === "RUNNING");
 }
 
+function importBarPercent(batch: BatchProgress, nowMs: number): number {
+  if (batch.state === "COMPLETED" || batch.state === "CANCELLED") return 100;
+  if (batch.scanning) {
+    const wave = (Math.sin(nowMs / 450) + 1) / 2;
+    return 10 + wave * 22;
+  }
+  const total = Math.max(1, batch.total);
+  const done = batch.processed;
+  if (!batchIsActive(batch)) return batch.percent ?? Math.round((done / total) * 100);
+  const anchor = batch.lastProgressAt ?? batch.startedAt;
+  const elapsed = anchor ? Math.max(0, nowMs - new Date(anchor).getTime()) : 0;
+  const itemMs = batch.avgItemMs && batch.avgItemMs > 0 ? batch.avgItemMs : 12_000;
+  const slice = batch.remaining > 0 ? Math.min(0.9, elapsed / itemMs) : 0;
+  return Math.min(99, ((done + slice) / total) * 100);
+}
+
 export default function AppsAirportShopifyImportPage() {
   const router = useRouter();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -89,7 +107,15 @@ export default function AppsAirportShopifyImportPage() {
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [stockMode, setStockMode] = useState<StockMode | null>(null);
   const [importing, setImporting] = useState(false);
-  const [step, setStep] = useState<"discover" | "review">("discover");
+  const [step, setStep] = useState<"discover" | "review" | "shipping">("discover");
+  const [shopDomain, setShopDomain] = useState<string | null>(null);
+  const [shippingItems, setShippingItems] = useState<Candidate[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [priceById, setPriceById] = useState<Record<string, string>>({});
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [singleShippingPrice, setSingleShippingPrice] = useState("");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [metafieldNotice, setMetafieldNotice] = useState<MetafieldNotice | null>(null);
   const shownBulkNotice = useRef<string | null>(null);
   const [bulkPolicy, setBulkPolicy] = useState<StockModePolicy>("RECOMMENDED");
@@ -120,6 +146,7 @@ export default function AppsAirportShopifyImportPage() {
       const body = (await response.json()) as {
         error?: string;
         code?: string;
+        shopDomain?: string | null;
         candidates?: Candidate[];
         pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
       };
@@ -132,6 +159,7 @@ export default function AppsAirportShopifyImportPage() {
         if (!append) setCandidates([]);
         return;
       }
+      setShopDomain(body.shopDomain ?? null);
       setCandidates((prev) =>
         append ? [...prev, ...(body.candidates ?? [])] : body.candidates ?? []
       );
@@ -156,6 +184,12 @@ export default function AppsAirportShopifyImportPage() {
     }, 2500);
     return () => window.clearInterval(id);
   }, [batch, loadBatch]);
+
+  useEffect(() => {
+    if (!batchIsActive(batch)) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 200);
+    return () => window.clearInterval(id);
+  }, [batch]);
 
   useEffect(() => {
     if (!batch) return;
@@ -185,13 +219,27 @@ export default function AppsAirportShopifyImportPage() {
     if (!candidate.supported) return;
     setSelected(candidate);
     setStockMode(candidate.recommendedStockMode);
+    setSingleShippingPrice("");
     setStep("review");
     setError(null);
   }
 
-  async function onImport() {
+  function selectableCandidates(): Candidate[] {
+    return candidates.filter((candidate) => candidate.supported);
+  }
+
+  function selectedCandidates(): Candidate[] {
+    return selectableCandidates().filter((candidate) => selectedIds.has(candidate.shopifyProductId));
+  }
+
+  async function onImport(shippingCostCents?: number) {
     if (!selected || !stockMode) {
-      setError("Needs stock-mode selection.");
+      setError("Choose a stock mode before importing.");
+      return;
+    }
+    const cents = shippingCostCents ?? parseSellerShippingDollars(singleShippingPrice);
+    if (cents == null) {
+      setError("Enter a shipping price, or ship for free.");
       return;
     }
     setImporting(true);
@@ -204,6 +252,7 @@ export default function AppsAirportShopifyImportPage() {
         body: JSON.stringify({
           shopifyProductId: selected.shopifyProductId,
           stockMode,
+          shippingCostCents: cents,
         }),
       });
       const body = (await response.json()) as {
@@ -235,7 +284,7 @@ export default function AppsAirportShopifyImportPage() {
     }
   }
 
-  async function onImportAll() {
+  async function onImportAll(priced?: { productIds: string[]; shippingPrices: Record<string, number> }) {
     setBulkStarting(true);
     setError(null);
     setConnectionError(null);
@@ -244,7 +293,12 @@ export default function AppsAirportShopifyImportPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stockModePolicy: bulkPolicy }),
+        body: JSON.stringify({
+          stockModePolicy: bulkPolicy,
+          ...(priced
+            ? { productIds: priced.productIds, shippingPrices: priced.shippingPrices }
+            : {}),
+        }),
       });
       const body = (await response.json()) as {
         error?: string;
@@ -260,11 +314,74 @@ export default function AppsAirportShopifyImportPage() {
         return;
       }
       setBatch(body.batch);
+      setStep("discover");
     } catch {
       setError("Could not start bulk import.");
     } finally {
       setBulkStarting(false);
     }
+  }
+
+  function openShippingPage() {
+    const chosen = selectedCandidates();
+    if (chosen.length === 0) {
+      setError("Select the listings to import.");
+      return;
+    }
+    setError(null);
+    setShippingItems(chosen);
+    setCheckedIds(new Set());
+    setPriceById({});
+    setBulkPrice("");
+    setStep("shipping");
+  }
+
+  function shipFree(items: Candidate[]) {
+    if (items.length === 0) {
+      setError("Select the listings to import.");
+      return;
+    }
+    const shippingPrices: Record<string, number> = {};
+    for (const item of items) shippingPrices[item.shopifyProductId] = 0;
+    void onImportAll({
+      productIds: items.map((item) => item.shopifyProductId),
+      shippingPrices,
+    });
+  }
+
+  function applyBulkPrice() {
+    const cents = parseSellerShippingDollars(bulkPrice);
+    if (checkedIds.size === 0) {
+      setError("Check the listings that should share this shipping price.");
+      return;
+    }
+    if (cents == null) {
+      setError("Enter a shipping price to apply.");
+      return;
+    }
+    const formatted = (cents / 100).toFixed(2);
+    setPriceById((prev) => {
+      const next = { ...prev };
+      for (const id of checkedIds) next[id] = formatted;
+      return next;
+    });
+    setError(null);
+  }
+
+  function importWithPrices() {
+    const shippingPrices: Record<string, number> = {};
+    for (const item of shippingItems) {
+      const cents = parseSellerShippingDollars(priceById[item.shopifyProductId] ?? "");
+      if (cents == null) {
+        setError("Enter a shipping price for every listing, or ship for free.");
+        return;
+      }
+      shippingPrices[item.shopifyProductId] = cents;
+    }
+    void onImportAll({
+      productIds: shippingItems.map((item) => item.shopifyProductId),
+      shippingPrices,
+    });
   }
 
   async function onCancelBulk() {
@@ -296,8 +413,8 @@ export default function AppsAirportShopifyImportPage() {
 
   return (
     <AppsAirportChrome
-      title="Import listings"
-      subtitle="Bring Shopify products into INW — import all at once with progress, or review one at a time. Import does not publish them to other marketplaces."
+      title="Import from Shopify"
+      subtitle="Bring Shopify products into INW. Import does not publish them to Etsy or other marketplaces."
       crumbs={[
         { href: APPS_AIRPORT_SHOPIFY_PATH, label: "Shopify" },
         { href: `${APPS_AIRPORT_SHOPIFY_PATH}/import`, label: "Import" },
@@ -355,8 +472,7 @@ export default function AppsAirportShopifyImportPage() {
             {activeBulk ? (
               <button
                 type="button"
-                className="btn border border-gray-300 bg-white hover:bg-gray-50 text-sm"
-                style={{ color: "var(--color-heading)" }}
+                className="btn btn-pill-primary text-sm"
                 disabled={bulkCancelling || batch.cancelRequested}
                 onClick={() => void onCancelBulk()}
               >
@@ -366,17 +482,9 @@ export default function AppsAirportShopifyImportPage() {
           </div>
           <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-neutral-200">
             <div
-              className="h-full rounded-full transition-all duration-500"
+              className="h-full rounded-full transition-[width] duration-200"
               style={{
-                width: `${
-                  batch.scanning
-                    ? 8
-                    : batch.percent != null
-                      ? batch.percent
-                      : activeBulk
-                        ? 12
-                        : 100
-                }%`,
+                width: `${importBarPercent(batch, nowMs)}%`,
                 background: "var(--color-primary)",
               }}
             />
@@ -415,12 +523,16 @@ export default function AppsAirportShopifyImportPage() {
         <>
           <div className="mb-6 rounded-[10px] border border-neutral-200 p-4">
             <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
-              Import all products
+              Choose listings to import
             </p>
             <p className="mt-1 text-sm text-neutral-600">
-              Import every unmapped Shopify product on this shop. Unsupported products are skipped
-              with a reason. Progress and time remaining appear above.
+              {`Check the listings you want${
+                selectableCandidates().length > 0
+                  ? ` (${selectableCandidates().length} ready to import)`
+                  : ""
+              }. The next page sets a shipping price for each one. Ship for free to import the checked listings now.`}
             </p>
+            <p className="mt-2 text-sm text-neutral-600">INW does not sync shipping prices.</p>
             <fieldset className="mt-3 space-y-2" disabled={activeBulk || bulkStarting}>
               <legend className="sr-only">Stock mode for bulk import</legend>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -430,9 +542,7 @@ export default function AppsAirportShopifyImportPage() {
                   checked={bulkPolicy === "RECOMMENDED"}
                   onChange={() => setBulkPolicy("RECOMMENDED")}
                 />
-                <span className="text-sm">
-                  Recommended per product (tracked inventory → physical)
-                </span>
+                <span className="text-sm">Recommended per listing (usually physical stock)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -441,7 +551,7 @@ export default function AppsAirportShopifyImportPage() {
                   checked={bulkPolicy === "PHYSICAL"}
                   onChange={() => setBulkPolicy("PHYSICAL")}
                 />
-                <span className="text-sm">All physical stock</span>
+                <span className="text-sm">All physical stock (tracked quantity)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -453,95 +563,97 @@ export default function AppsAirportShopifyImportPage() {
                 <span className="text-sm">All made to order</span>
               </label>
             </fieldset>
-            <button
-              type="button"
-              className="btn mt-4"
-              disabled={activeBulk || bulkStarting || Boolean(connectionError)}
-              onClick={() => void onImportAll()}
-              data-testid="shopify-import-all"
-            >
-              {bulkStarting
-                ? "Starting…"
-                : activeBulk
-                  ? "Import running…"
-                  : "Import all products"}
-            </button>
-          </div>
-
-          <div className="mb-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              className="btn border border-gray-300 bg-white hover:bg-gray-50"
-              style={{ color: "var(--color-heading)" }}
-              disabled={loading || activeBulk}
-              onClick={() => void load(null, false)}
-            >
-              {loading ? "Loading…" : "Refresh products"}
-            </button>
-            <Link
-              href="/seller-hub/store/items"
-              className="text-sm underline self-center"
-              prefetch={false}
-              style={{ color: "var(--color-primary)" }}
-            >
-              My items
-            </Link>
           </div>
 
           <p className="mb-4 text-sm text-neutral-600">
-            Or review one product at a time to choose stock mode before importing.
+            Or open Review on one listing to choose its stock mode and shipping price.
           </p>
-
-          {!loading && !connectionError && candidates.length === 0 ? (
-            <p className="text-sm text-neutral-600" data-testid="shopify-import-empty">
-              No unmapped Shopify products found on this page. Already-synced products stay hidden.
-            </p>
+          {shopDomain ? (
+            <p className="mb-3 text-sm text-neutral-600">Shop: {shopDomain}.</p>
           ) : null}
-
+          {loading && candidates.length === 0 ? (
+            <p className="text-sm text-neutral-600">Loading…</p>
+          ) : null}
           {candidates.length > 0 ? (
-            <div className="overflow-x-auto" data-testid="shopify-import-candidates">
-              <table className="min-w-full text-sm border-collapse">
-                <thead>
-                  <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
-                    <th className="py-2 pr-3 font-semibold">Title</th>
-                    <th className="py-2 pr-3 font-semibold">Shopify status</th>
-                    <th className="py-2 pr-3 font-semibold">Price</th>
-                    <th className="py-2 pr-3 font-semibold">SKU</th>
-                    <th className="py-2 pr-3 font-semibold">Inventory</th>
-                    <th className="py-2 pr-3 font-semibold">Support</th>
-                    <th className="py-2 font-semibold">Action</th>
+            <div className="overflow-x-auto rounded-[10px] border border-neutral-200" data-testid="shopify-import-candidates">
+              <table className="min-w-full text-sm">
+                <thead className="bg-neutral-50 text-left">
+                  <tr>
+                    <th className="px-3 py-2 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all listings"
+                        checked={
+                          selectableCandidates().length > 0 &&
+                          selectedIds.size === selectableCandidates().length
+                        }
+                        onChange={(e) => {
+                          setSelectedIds(
+                            e.target.checked
+                              ? new Set(selectableCandidates().map((candidate) => candidate.shopifyProductId))
+                              : new Set()
+                          );
+                        }}
+                      />
+                    </th>
+                    <th className="px-3 py-2">Listing</th>
+                    <th className="px-3 py-2">State</th>
+                    <th className="px-3 py-2">Price</th>
+                    <th className="px-3 py-2">Qty</th>
+                    <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {candidates.map((row) => (
-                    <tr key={row.shopifyProductId} className="border-b border-neutral-200 align-top">
-                      <td className="py-3 pr-3 font-medium">{row.title}</td>
-                      <td className="py-3 pr-3">{row.status}</td>
-                      <td className="py-3 pr-3">{formatCents(row.priceCents)}</td>
-                      <td className="py-3 pr-3">{row.sku ?? "—"}</td>
-                      <td className="py-3 pr-3">
-                        {row.inventoryTracked == null
-                          ? "—"
-                          : row.inventoryTracked
-                            ? `Tracked · ${row.primaryLocationAvailable ?? "—"} at location`
-                            : "Not tracked"}
+                  {candidates.map((candidate) => (
+                    <tr key={candidate.shopifyProductId} className="border-t border-neutral-100">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${candidate.title}`}
+                          disabled={!candidate.supported || activeBulk}
+                          checked={selectedIds.has(candidate.shopifyProductId)}
+                          onChange={(e) => {
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(candidate.shopifyProductId);
+                              else next.delete(candidate.shopifyProductId);
+                              return next;
+                            });
+                          }}
+                        />
                       </td>
-                      <td className="py-3 pr-3">
-                        {row.supported ? (
-                          <span className="text-green-800">Supported</span>
-                        ) : (
-                          <span className="text-amber-800">
-                            Unsupported
-                            {row.unsupportedReason ? ` — ${row.unsupportedReason}` : ""}
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {candidate.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={candidate.imageUrl}
+                              alt=""
+                              className="h-12 w-12 shrink-0 rounded object-cover border border-neutral-200"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 shrink-0 rounded border border-neutral-200 bg-neutral-50" />
+                          )}
+                          <span className="min-w-0">
+                            <span className="block truncate">{candidate.title}</span>
+                            {!candidate.supported ? (
+                              <span className="block text-xs text-amber-800">
+                                Unsupported
+                                {candidate.unsupportedReason ? ` — ${candidate.unsupportedReason}` : ""}
+                              </span>
+                            ) : null}
                           </span>
-                        )}
+                        </div>
                       </td>
-                      <td className="py-3">
+                      <td className="px-3 py-2">{candidate.status}</td>
+                      <td className="px-3 py-2">{formatCents(candidate.priceCents)}</td>
+                      <td className="px-3 py-2">{candidate.primaryLocationAvailable ?? "—"}</td>
+                      <td className="px-3 py-2 text-right">
                         <button
                           type="button"
                           className="btn"
-                          disabled={!row.supported || activeBulk}
-                          onClick={() => openReview(row)}
+                          disabled={!candidate.supported || activeBulk}
+                          onClick={() => openReview(candidate)}
                         >
                           Review
                         </button>
@@ -551,8 +663,11 @@ export default function AppsAirportShopifyImportPage() {
                 </tbody>
               </table>
             </div>
+          ) : !loading && !connectionError ? (
+            <p className="text-sm text-neutral-600" data-testid="shopify-import-empty">
+              No unmapped Shopify products found on this page. Already-synced products stay hidden.
+            </p>
           ) : null}
-
           {hasNextPage ? (
             <button
               type="button"
@@ -564,74 +679,236 @@ export default function AppsAirportShopifyImportPage() {
               Load more
             </button>
           ) : null}
+          {candidates.length > 0 ? (
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="btn"
+                disabled={activeBulk || bulkStarting || Boolean(connectionError)}
+                onClick={openShippingPage}
+                data-testid="shopify-import-set-shipping"
+              >
+                Set Shipping Prices
+              </button>
+              <button
+                type="button"
+                className="btn btn-pill-earth"
+                disabled={activeBulk || bulkStarting || Boolean(connectionError)}
+                onClick={() => shipFree(selectedCandidates())}
+                data-testid="shopify-import-ship-free"
+              >
+                {bulkStarting ? "Starting…" : activeBulk ? "Import Running…" : "Ship for Free with INW (Appreciated)"}
+              </button>
+            </div>
+          ) : null}
         </>
       ) : null}
 
-      {step === "review" && selected ? (
-        <div
-          className="rounded-[10px] border-2 p-5 max-w-xl"
-          style={{ borderColor: "var(--color-primary)" }}
-          data-testid="shopify-import-review"
-        >
-          <h2 className="font-bold text-lg" style={{ color: "var(--color-heading)" }}>
-            Review import
-          </h2>
-          <dl className="mt-4 grid gap-2 text-sm">
-            <div>
-              <dt className="text-neutral-500">Title</dt>
-              <dd className="font-medium">{selected.title}</dd>
-            </div>
-            <div>
-              <dt className="text-neutral-500">Shopify status</dt>
-              <dd>{selected.status}</dd>
-            </div>
-            <div>
-              <dt className="text-neutral-500">Price</dt>
-              <dd>{formatCents(selected.priceCents)}</dd>
-            </div>
-            <div>
-              <dt className="text-neutral-500">SKU</dt>
-              <dd>{selected.sku ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-neutral-500">Location quantity</dt>
-              <dd>{selected.primaryLocationAvailable ?? "—"}</dd>
-            </div>
-          </dl>
-
-          <fieldset className="mt-6">
-            <legend className="font-semibold text-sm" style={{ color: "var(--color-heading)" }}>
-              Stock mode
-            </legend>
-            <p className="mt-1 text-xs text-neutral-600">
-              Recommendation is based on Shopify inventory tracking, but you choose the INW mode.
+      {step === "shipping" ? (
+        <div className="space-y-4" data-testid="shopify-import-shipping">
+          <div>
+            <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+              Shipping prices
             </p>
-            <label className="mt-3 flex gap-2 items-start text-sm">
+            <p className="mt-1 text-sm text-neutral-600">
+              Set what buyers pay to ship each listing on INW. Check listings to apply one price to all of them.
+              INW does not sync shipping prices.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3 rounded-[10px] border border-neutral-200 p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={shippingItems.length > 0 && checkedIds.size === shippingItems.length}
+                onChange={(e) => {
+                  setCheckedIds(
+                    e.target.checked
+                      ? new Set(shippingItems.map((item) => item.shopifyProductId))
+                      : new Set()
+                  );
+                }}
+              />
+              Select all
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-neutral-600">Price for checked listings</span>
+              <span className="inline-flex items-center gap-1">
+                <span>$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-28 rounded border px-2 py-1.5"
+                  placeholder="0.00"
+                  value={bulkPrice}
+                  onChange={(e) => setBulkPrice(e.target.value)}
+                />
+              </span>
+            </label>
+            <button type="button" className="btn" onClick={applyBulkPrice} disabled={bulkStarting}>
+              Apply to selected
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-[10px] border border-neutral-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-neutral-50 text-left">
+                <tr>
+                  <th className="px-3 py-2 w-10" />
+                  <th className="px-3 py-2">Listing</th>
+                  <th className="px-3 py-2">Shipping price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shippingItems.map((item) => (
+                  <tr key={item.shopifyProductId} className="border-t border-neutral-100">
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${item.title}`}
+                        checked={checkedIds.has(item.shopifyProductId)}
+                        onChange={(e) => {
+                          setCheckedIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(item.shopifyProductId);
+                            else next.delete(item.shopifyProductId);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="h-12 w-12 shrink-0 rounded object-cover border border-neutral-200"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 shrink-0 rounded border border-neutral-200 bg-neutral-50" />
+                        )}
+                        <span className="truncate">{item.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center gap-1">
+                        <span>$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          aria-label={`Shipping price for ${item.title}`}
+                          className="w-28 rounded border px-2 py-1.5"
+                          placeholder="0.00"
+                          value={priceById[item.shopifyProductId] ?? ""}
+                          onChange={(e) =>
+                            setPriceById((prev) => ({
+                              ...prev,
+                              [item.shopifyProductId]: e.target.value,
+                            }))
+                          }
+                        />
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="btn"
+              disabled={bulkStarting || activeBulk}
+              onClick={importWithPrices}
+            >
+              {bulkStarting ? "Starting…" : "Import listings"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-pill-earth"
+              disabled={bulkStarting || activeBulk}
+              onClick={() => shipFree(shippingItems)}
+            >
+              Ship for Free with INW (Appreciated)
+            </button>
+            <button
+              type="button"
+              className="btn btn-pill-primary"
+              disabled={bulkStarting}
+              onClick={() => {
+                setStep("discover");
+                setError(null);
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === "review" && selected ? (
+        <div className="max-w-lg space-y-4" data-testid="shopify-import-review">
+          <div className="flex items-start gap-4">
+            {selected.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={selected.imageUrl}
+                alt=""
+                className="h-28 w-28 shrink-0 rounded-[10px] object-cover border border-neutral-200"
+              />
+            ) : (
+              <div className="h-28 w-28 shrink-0 rounded-[10px] border border-neutral-200 bg-neutral-50" />
+            )}
+            <div className="min-w-0">
+              <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+                {selected.title}
+              </p>
+              <p className="mt-1 text-sm text-neutral-600">
+                {formatCents(selected.priceCents)} · qty {selected.primaryLocationAvailable ?? "—"}
+              </p>
+            </div>
+          </div>
+          <p className="text-sm text-neutral-600">
+            Choose how INW should track inventory for this imported listing.
+          </p>
+          <fieldset className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="stockMode"
                 checked={stockMode === "PHYSICAL"}
                 onChange={() => setStockMode("PHYSICAL")}
               />
-              <span>
-                <strong>Physical</strong> — use Shopify selected-location available quantity as opening
-                stock.
-              </span>
+              <span className="text-sm">Physical stock (tracked quantity)</span>
             </label>
-            <label className="mt-2 flex gap-2 items-start text-sm">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="stockMode"
                 checked={stockMode === "MADE_TO_ORDER"}
                 onChange={() => setStockMode("MADE_TO_ORDER")}
               />
-              <span>
-                <strong>Made to order</strong> — nonfinite INW inventory (no fake stock quantity).
-              </span>
+              <span className="text-sm">Made to order</span>
             </label>
           </fieldset>
-
-          <div className="mt-6 flex flex-wrap gap-3">
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium" style={{ color: "var(--color-heading)" }}>
+              Shipping price on INW
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span>$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="w-28 rounded border px-2 py-1.5"
+                placeholder="0.00"
+                value={singleShippingPrice}
+                onChange={(e) => setSingleShippingPrice(e.target.value)}
+              />
+            </span>
+            <span className="mt-1 block text-neutral-600">INW does not sync shipping prices.</span>
+          </label>
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               className="btn"
@@ -643,15 +920,23 @@ export default function AppsAirportShopifyImportPage() {
             </button>
             <button
               type="button"
-              className="btn border border-gray-300 bg-white hover:bg-gray-50"
-              style={{ color: "var(--color-heading)" }}
+              className="btn btn-pill-earth"
+              disabled={importing || !stockMode || activeBulk}
+              onClick={() => void onImport(0)}
+            >
+              Ship for Free with INW (Appreciated)
+            </button>
+            <button
+              type="button"
+              className="btn btn-pill-primary"
               disabled={importing}
               onClick={() => {
                 setStep("discover");
                 setSelected(null);
+                setError(null);
               }}
             >
-              Back to products
+              Back
             </button>
           </div>
         </div>

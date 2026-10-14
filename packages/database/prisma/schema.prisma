@@ -2656,6 +2656,8 @@ model ShopifyImportBatch {
   queueJson          Json                          @default("[]") @map("queue_json")
   /// Recent failures: [{ shopifyProductId, message }]
   failuresJson       Json                          @default("[]") @map("failures_json")
+  /// shopifyProductId -> shipping cents. Empty means every imported listing ships free.
+  shippingPricesJson Json                          @default("{}") @map("shipping_prices_json")
   avgItemMs          Int?                          @map("avg_item_ms")
   startedAt          DateTime?                     @map("started_at")
   finishedAt         DateTime?                     @map("finished_at")

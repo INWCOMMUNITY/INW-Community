@@ -335,7 +335,7 @@ export async function importEtsyListing(input: {
         storeItemId: storeItem.id,
         listingLinkId: mapping.listingLinkId,
       };
-    });
+    }, { timeout: 20_000 });
 
     let personalizationWarning: string | null = null;
     if (!created.already) {

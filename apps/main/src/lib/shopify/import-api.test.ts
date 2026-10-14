@@ -65,6 +65,7 @@ describe("Shopify import APIs", () => {
         body: JSON.stringify({
           shopifyProductId: "gid://shopify/Product/300",
           stockMode: "PHYSICAL",
+          shippingCostCents: 799,
         }),
       })
     );
@@ -73,6 +74,7 @@ describe("Shopify import APIs", () => {
       memberId: "member-a",
       shopifyProductId: "gid://shopify/Product/300",
       stockMode: "PHYSICAL",
+      shippingCostCents: 799,
     });
     expect(await response.json()).toMatchObject({ status: "imported", storeItemId: "item-1" });
   });

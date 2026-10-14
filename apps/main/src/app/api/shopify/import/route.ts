@@ -19,10 +19,12 @@ export async function POST(req: NextRequest) {
 
   let shopifyProductId = "";
   let stockMode: "PHYSICAL" | "MADE_TO_ORDER" | "" = "";
+  let shippingCostCents: number | null = null;
   try {
     const body = (await req.json()) as {
       shopifyProductId?: unknown;
       stockMode?: unknown;
+      shippingCostCents?: unknown;
     };
     shopifyProductId =
       typeof body.shopifyProductId === "string" ? body.shopifyProductId.trim() : "";
@@ -30,6 +32,10 @@ export async function POST(req: NextRequest) {
       body.stockMode === "PHYSICAL" || body.stockMode === "MADE_TO_ORDER"
         ? body.stockMode
         : "";
+    shippingCostCents =
+      typeof body.shippingCostCents === "number" && Number.isFinite(body.shippingCostCents)
+        ? Math.round(body.shippingCostCents)
+        : null;
   } catch {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
@@ -43,11 +49,18 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  if (shippingCostCents == null || shippingCostCents < 0 || shippingCostCents > 10_000_000) {
+    return NextResponse.json(
+      { error: "Enter a shipping price, or ship for free.", code: "SHIPPING_REQUIRED" },
+      { status: 400 }
+    );
+  }
 
   const result = await importShopifyListing({
     memberId,
     shopifyProductId,
     stockMode,
+    shippingCostCents,
   });
 
   if (result.status === "ERROR") {
