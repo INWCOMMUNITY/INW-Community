@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { ChannelImportProgress } from "@/components/apps-airport/ChannelImportProgress";
 import { AppsAirportListingMobileCard } from "@/components/apps-airport/AppsAirportListingMobileCard";
 import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
@@ -199,6 +200,7 @@ export default function AppsAirportEtsyPage() {
           {toast}
         </p>
       ) : null}
+      {connected ? <ChannelImportProgress channel="etsy" onProgress={() => void load()} /> : null}
 
       {!loading && uiStatus === "disconnected" ? (
         <p className="mb-6 text-sm text-neutral-600">

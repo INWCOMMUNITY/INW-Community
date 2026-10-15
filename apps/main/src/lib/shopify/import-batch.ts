@@ -5,17 +5,13 @@ import {
   nextShopifyImportBatchAvgItemMs,
   parseShopifyImportBatchQueue,
   prisma,
-  resolveShopifyImportStockMode,
   shopifyImportBatchDedupeKey,
   shopifyImportBatchProgressView,
   type ShopifyImportBatchProgressView,
   type ShopifyJobHandlerResult,
   type ShopifySyncJobClaim,
 } from "database";
-import {
-  discoverShopifyImportCandidates,
-  fetchShopifyImportProductDetail,
-} from "./import-discovery";
+import { discoverShopifyImportCandidates } from "./import-discovery";
 import { formatShopifyMetafieldNotice } from "./buyer-metafields";
 import { importShopifyListing } from "./import-listing";
 
@@ -449,23 +445,12 @@ export async function handleShopifyImportBatchJob(
 
     const shopifyProductId = queue.shift()!;
     const itemStarted = Date.now();
-    let recommended: "PHYSICAL" | "MADE_TO_ORDER" | null = "PHYSICAL";
-    if (batch.stockModePolicy === "RECOMMENDED") {
-      const detail = await fetchShopifyImportProductDetail({
-        memberId: batch.memberId,
-        shopifyProductId,
-      }).catch(() => null);
-      if (detail?.status === "OK") {
-        recommended = detail.candidate.recommendedStockMode;
-      }
-    }
-    const stockMode = resolveShopifyImportStockMode(batch.stockModePolicy, recommended);
 
     try {
       const result = await importShopifyListing({
         memberId: batch.memberId,
         shopifyProductId,
-        stockMode,
+        stockMode: batch.stockModePolicy,
         shippingCostCents: shippingCentsFromBatch(batch.shippingPricesJson, shopifyProductId),
       });
       const itemMs = Date.now() - itemStarted;

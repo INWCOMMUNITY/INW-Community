@@ -7,12 +7,11 @@ import {
   nextEtsyImportBatchAvgItemMs,
   parseEtsyImportBatchQueue,
   prisma,
-  resolveEtsyImportStockMode,
   type EtsyImportBatchProgressView,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
-import { discoverEtsyImportCandidates, fetchEtsyImportListingDetail } from "./import-discovery";
+import { discoverEtsyImportCandidates } from "./import-discovery";
 import { importEtsyListing } from "./import-listing";
 
 type EtsyImportStockModePolicy = "RECOMMENDED" | "PHYSICAL" | "MADE_TO_ORDER";
@@ -416,23 +415,12 @@ export async function handleEtsyImportBatchJob(
 
     const etsyListingId = queue.shift()!;
     const itemStarted = Date.now();
-    let recommended: "PHYSICAL" | "MADE_TO_ORDER" | null = "PHYSICAL";
-    if (batch.stockModePolicy === "RECOMMENDED") {
-      const detail = await fetchEtsyImportListingDetail({
-        memberId: batch.memberId,
-        etsyListingId,
-      }).catch(() => null);
-      if (detail?.status === "OK") {
-        recommended = detail.candidate.recommendedStockMode;
-      }
-    }
-    const stockMode = resolveEtsyImportStockMode(batch.stockModePolicy, recommended);
 
     try {
       const result = await importEtsyListing({
         memberId: batch.memberId,
         etsyListingId,
-        stockMode,
+        stockMode: batch.stockModePolicy,
         shippingCostCents: shippingCentsFromBatch(batch.shippingPricesJson, etsyListingId),
       });
       const itemMs = Date.now() - itemStarted;

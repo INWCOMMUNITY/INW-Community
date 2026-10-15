@@ -26,7 +26,15 @@ import {
   type IncompatibleShopifyMetafield,
 } from "./buyer-metafields";
 
-export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
+export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER" | "RECOMMENDED";
+
+function resolvedImportStockMode(
+  requested: ImportShopifyListingStockMode,
+  recommended: "PHYSICAL" | "MADE_TO_ORDER" | null | undefined
+): "PHYSICAL" | "MADE_TO_ORDER" {
+  if (requested === "PHYSICAL" || requested === "MADE_TO_ORDER") return requested;
+  return recommended === "MADE_TO_ORDER" ? "MADE_TO_ORDER" : "PHYSICAL";
+}
 
 /** Variant provisioning plus mapping runs past Prisma's 20s interactive-transaction limit on Neon. */
 const SHOPIFY_IMPORT_TX_TIMEOUT_MS = 60_000;
@@ -100,7 +108,11 @@ export async function importShopifyListing(input: {
   shippingCostCents?: number;
   fetchImpl?: ShopifyFetch;
 }): Promise<ImportShopifyListingResult> {
-  if (input.stockMode !== "PHYSICAL" && input.stockMode !== "MADE_TO_ORDER") {
+  if (
+    input.stockMode !== "PHYSICAL" &&
+    input.stockMode !== "MADE_TO_ORDER" &&
+    input.stockMode !== "RECOMMENDED"
+  ) {
     return {
       status: "ERROR",
       code: "STOCK_MODE_REQUIRED",
@@ -140,11 +152,12 @@ export async function importShopifyListing(input: {
   }
 
   // 1) Durable attempt + cutoff BEFORE any Shopify inventory snapshot.
+  const beginStockMode = input.stockMode === "RECOMMENDED" ? "PHYSICAL" : input.stockMode;
   const begin = await beginShopifyListingImportAttempt(prisma, {
     memberId: input.memberId,
     connectionId: connection.id,
     shopifyProductId: productId,
-    stockMode: input.stockMode,
+    stockMode: beginStockMode,
   });
 
   if (begin.status === "ALREADY_COMPLETED") {
@@ -198,7 +211,7 @@ export async function importShopifyListing(input: {
         memberId: input.memberId,
         connectionId: connection.id,
         shopifyProductId: productId,
-        stockMode: input.stockMode,
+        stockMode: beginStockMode,
       });
       if (
         healed.status === "ALREADY_COMPLETED" &&
@@ -271,6 +284,14 @@ export async function importShopifyListing(input: {
     };
   }
 
+  const stockMode = resolvedImportStockMode(input.stockMode, snap.recommendedStockMode);
+  if (stockMode !== beginStockMode) {
+    await prisma.shopifyListingImportAttempt.update({
+      where: { id: attempt.id },
+      data: { stockMode },
+    });
+  }
+
   const multi = isMultiVariant(snap);
 
   const connectionWithLocation = {
@@ -285,7 +306,7 @@ export async function importShopifyListing(input: {
         connection: connectionWithLocation,
         productId,
         bootstrapStartedAt,
-        stockMode: input.stockMode,
+        stockMode,
         memberId: input.memberId,
         shippingCostCents: input.shippingCostCents,
       })
@@ -295,7 +316,7 @@ export async function importShopifyListing(input: {
         connection: connectionWithLocation,
         productId,
         bootstrapStartedAt,
-        stockMode: input.stockMode,
+        stockMode,
         memberId: input.memberId,
         shippingCostCents: input.shippingCostCents,
       });
@@ -330,7 +351,7 @@ async function importSingleVariant(ctx: {
   connection: { id: string; primaryLocationId: string };
   productId: string;
   bootstrapStartedAt: Date;
-  stockMode: ImportShopifyListingStockMode;
+  stockMode: "PHYSICAL" | "MADE_TO_ORDER";
   memberId: string;
   shippingCostCents?: number;
 }): Promise<ImportShopifyListingResult> {
@@ -494,7 +515,7 @@ async function importMultiVariant(ctx: {
   connection: { id: string; primaryLocationId: string };
   productId: string;
   bootstrapStartedAt: Date;
-  stockMode: ImportShopifyListingStockMode;
+  stockMode: "PHYSICAL" | "MADE_TO_ORDER";
   memberId: string;
   shippingCostCents?: number;
 }): Promise<ImportShopifyListingResult> {

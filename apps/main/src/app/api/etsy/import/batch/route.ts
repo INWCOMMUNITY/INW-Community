@@ -31,6 +31,13 @@ export async function GET(req: NextRequest) {
   }
 
   const batch = await getEtsyImportBatchStatus({ memberId });
+  if (
+    batch &&
+    (batch.state === "PENDING" || batch.state === "RUNNING") &&
+    !batch.cancelRequested
+  ) {
+    void kickImportBatchWorker(1).catch(() => undefined);
+  }
   return NextResponse.json({ batch });
 }
 
