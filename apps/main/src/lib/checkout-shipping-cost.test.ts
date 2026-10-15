@@ -53,6 +53,19 @@ describe("sellerOrderShippingCents", () => {
     ).toBe(0);
   });
 
+  it("caps one listing bought in quantity above one", () => {
+    expect(
+      sellerOrderShippingCents({
+        lines: [{ quantity: 3, fulfillmentType: "ship", shippingCostCents: 500 }],
+        merchandiseCents: 1500,
+        rules: {
+          combineShipping: true,
+          combinedShippingMaxCents: 1250,
+          freeShippingMinimumCents: 3500,
+        },
+      })
+    ).toBe(1250);
+  });
   it("ignores pickup lines", () => {
     expect(
       sellerOrderShippingCents({

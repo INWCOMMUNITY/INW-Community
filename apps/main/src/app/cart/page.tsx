@@ -477,13 +477,38 @@ export default function CartPage() {
                               Agreed offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
                             </span>
                           ) : null}
-                          {(item.fulfillmentType === "ship" &&
-                            item.storeItem.shippingCostCents != null &&
-                            item.storeItem.shippingCostCents > 0) && (
-                            <span className="text-sm font-normal ml-1" style={{ color: "var(--color-text)" }}>
-                              + ${((item.storeItem.shippingCostCents * item.quantity) / 100).toFixed(2)} shipping
-                            </span>
-                          )}
+                          {item.fulfillmentType === "ship" && (() => {
+                            const sellerId = item.storeItem.memberId ?? item.storeItemId;
+                            const shipped = items.filter(
+                              (row) =>
+                                (row.storeItem.memberId ?? row.storeItemId) === sellerId &&
+                                (row.fulfillmentType ?? "ship") === "ship"
+                            );
+                            if (shipped.length !== 1 || shipped[0]?.id !== item.id) return null;
+                            const member = item.storeItem.member;
+                            const cents = sellerOrderShippingCents({
+                              lines: shipped.map((row) => ({
+                                quantity: row.quantity,
+                                fulfillmentType: row.fulfillmentType,
+                                shippingCostCents: row.storeItem.shippingCostCents,
+                              })),
+                              merchandiseCents: shipped.reduce(
+                                (sum, row) => sum + cartLineUnitPriceCents(row) * row.quantity,
+                                0
+                              ),
+                              rules: {
+                                combineShipping: Boolean(member?.combineShipping),
+                                combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+                                freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+                              },
+                            });
+                            if (cents <= 0) return null;
+                            return (
+                              <span className="text-sm font-normal ml-1" style={{ color: "var(--color-text)" }}>
+                                + ${(cents / 100).toFixed(2)} shipping
+                              </span>
+                            );
+                          })()}
                           {item.fulfillmentType === "local_delivery" &&
                             item.storeItem.localDeliveryFeeCents != null &&
                             item.storeItem.localDeliveryFeeCents > 0 && (

@@ -9,38 +9,29 @@ describe("freeShippingBannerForStore", () => {
     expect(itemHasFreeShipping({ shippingDisabled: true, shippingCostCents: 0 })).toBe(false);
   });
 
-  it("shows the purchase-amount line only when every item ships free and a minimum is set", () => {
+  it("shows the purchase-amount line when a minimum is set, even if an item charges shipping", () => {
     expect(
       freeShippingBannerForStore({
         freeShippingMinimumCents: 3500,
-        items: [{ shippingCostCents: 0 }, { shippingCostCents: 0 }],
+        items: [{ shippingCostCents: 0 }, { shippingCostCents: 500 }],
       })
     ).toBe("threshold");
   });
 
-  it("hides the banner when a shipping price was never set, even if a minimum is saved", () => {
-    expect(
-      freeShippingBannerForStore({
-        freeShippingMinimumCents: 3500,
-        items: [{ shippingCostCents: 0 }, { shippingCostCents: null }],
-      })
-    ).toBeNull();
-  });
-
-  it("hides the banner when every item ships free but no minimum is set", () => {
+  it("shows the storewide line when every item ships free and no minimum is set", () => {
     expect(
       freeShippingBannerForStore({
         freeShippingMinimumCents: null,
         items: [{ shippingCostCents: 0 }, { shippingCostCents: 0 }],
       })
-    ).toBeNull();
+    ).toBe("storewide");
   });
 
-  it("hides the banner when any item charges shipping, even if a minimum is set", () => {
+  it("hides the banner when a shipping price was never set and no minimum is saved", () => {
     expect(
       freeShippingBannerForStore({
-        freeShippingMinimumCents: 3500,
-        items: [{ shippingCostCents: 0 }, { shippingCostCents: 500 }],
+        freeShippingMinimumCents: null,
+        items: [{ shippingCostCents: 0 }, { shippingCostCents: null }],
       })
     ).toBeNull();
   });
@@ -54,12 +45,12 @@ describe("freeShippingBannerForStore", () => {
     ).toBeNull();
   });
 
-  it("hides the banner when the store has no items", () => {
+  it("shows the purchase-amount line when a minimum is set and the store has no items yet", () => {
     expect(
       freeShippingBannerForStore({
         freeShippingMinimumCents: 3500,
         items: [],
       })
-    ).toBeNull();
+    ).toBe("threshold");
   });
 });

@@ -12,15 +12,17 @@ export function itemHasFreeShipping(item: ShippingItem): boolean {
 }
 
 /**
- * The banner is shown only when both are true:
- * every active item ships free, and the seller saved a free-shipping purchase amount.
+ * Show the purchase-amount banner when the seller saved one.
+ * Otherwise show the storewide line only when every active item ships free.
+ * Hide it when some items charge for shipping and no amount is set.
  */
 export function freeShippingBannerForStore(args: {
   freeShippingMinimumCents?: number | null;
   items: ShippingItem[];
 }): FreeShippingBanner | null {
+  if ((args.freeShippingMinimumCents ?? 0) > 0) return "threshold";
   const allFree = args.items.length > 0 && args.items.every(itemHasFreeShipping);
-  if (allFree && (args.freeShippingMinimumCents ?? 0) > 0) return "threshold";
+  if (allFree) return "storewide";
   return null;
 }
 
