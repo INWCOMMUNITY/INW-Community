@@ -40,7 +40,7 @@ import {
   getSkuPhotos,
   getSkuPriceCents,
 } from "@/lib/product-variants";
-import { sellerOrderShippingCents } from "@/lib/seller-shipping-rules";
+import { sellerOrderShippingCents, sellerOrderShippingQuote } from "@/lib/seller-shipping-rules";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -188,6 +188,23 @@ function formatVariantLabel(variant: unknown): string | null {
   return Object.entries(sel)
     .map(([k, v]) => `${k}: ${v}`)
     .join(" · ");
+}
+
+function sellerShippingArgs(group: CartItem[]) {
+  const member = group[0]?.storeItem.member;
+  return {
+    lines: group.map((row) => ({
+      quantity: row.quantity,
+      fulfillmentType: row.fulfillmentType,
+      shippingCostCents: row.storeItem.shippingCostCents,
+    })),
+    merchandiseCents: group.reduce((sum, row) => sum + cartLineUnitPriceCents(row) * row.quantity, 0),
+    rules: {
+      combineShipping: Boolean(member?.combineShipping),
+      combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+      freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+    },
+  };
 }
 
 function cartLineUnitPriceCents(item: CartItem): number {
@@ -1093,6 +1110,16 @@ export default function CartScreen() {
                 const variantLabel = formatVariantLabel(item.variant);
                 const fulfillment = fulfillmentMeta(item.fulfillmentType);
                 const maxQty = cartLineMaxQuantity(item);
+                const sellerId = item.storeItem.memberId ?? item.storeItemId;
+                const sellerGroup = items.filter(
+                  (row) => (row.storeItem.memberId ?? row.storeItemId) === sellerId
+                );
+                const shippingArgs = sellerShippingArgs(sellerGroup);
+                const shippingQuote = sellerOrderShippingQuote(shippingArgs);
+                const isSellerLead = sellerGroup[0]?.id === item.id;
+                const freeShippingMinimumCents = shippingArgs.rules.freeShippingMinimumCents ?? 0;
+                const freeShippingReached =
+                  freeShippingMinimumCents > 0 && shippingArgs.merchandiseCents >= freeShippingMinimumCents;
                 return (
                   <View key={item.id} style={styles.itemCard}>
                     <Pressable
@@ -1121,7 +1148,15 @@ export default function CartScreen() {
                           <Ionicons name={fulfillment.icon} size={13} color={theme.colors.earth} />
                           <Text style={styles.fulfillmentChipText}>{fulfillment.label}</Text>
                         </View>
-                        <Text style={styles.itemLineTotal}>{formatPrice(lineCents)}</Text>
+                        <Text style={styles.itemLineTotal}>
+                          {formatPrice(lineCents)}
+                          {isSellerLead && shippingQuote.combinedCapApplied ? (
+                            <Text style={styles.itemShipAdd}>
+                              {" "}
+                              + {formatPrice(shippingQuote.cents)} combined shipping
+                            </Text>
+                          ) : null}
+                        </Text>
                         {item.quantity > 1 ? (
                           <Text style={styles.itemUnitPrice}>
                             {formatPrice(unitCents)} each
@@ -1191,6 +1226,19 @@ export default function CartScreen() {
                         <Ionicons name="trash-outline" size={18} color="#8a3a3a" />
                       </Pressable>
                     </View>
+                    {isSellerLead && freeShippingMinimumCents > 0 ? (
+                      <View style={styles.itemRuleBlock}>
+                        <View style={styles.freeShipBanner}>
+                          <Ionicons name="gift-outline" size={13} color="#fff" />
+                          <Text style={styles.freeShipBannerText}>
+                            {freeShippingReached
+                              ? "Free Shipping Enabled!"
+                              : `If you order $${(freeShippingMinimumCents / 100).toFixed(2)} from this store, you will receive free shipping.`}
+                          </Text>
+                          <Ionicons name="gift-outline" size={13} color="#fff" />
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
@@ -1264,23 +1312,6 @@ export default function CartScreen() {
                     ? "You’ll enter your shipping address on the next screen. Tax is calculated there."
                     : "Tax is calculated at checkout."}
                 </Text>
-                {Array.from(
-                  new Map(
-                    items
-                      .filter(
-                        (item) =>
-                          (item.storeItem.member?.freeShippingMinimumCents ?? 0) > 0 && item.storeItem.memberId
-                      )
-                      .map((item) => [
-                        item.storeItem.memberId as string,
-                        item.storeItem.member?.freeShippingMinimumCents ?? 0,
-                      ])
-                  ).entries()
-                ).map(([sellerId, minimumCents]) => (
-                  <Text key={sellerId} style={styles.taxHint}>
-                    If you order ${(minimumCents / 100).toFixed(2)} from this store, you will receive free shipping.
-                  </Text>
-                ))}
               </View>
 
               {checkoutBlockedHints.length > 0 ? (
@@ -1603,6 +1634,34 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     overflow: "hidden",
     ...theme.shadows.card,
+  },
+  itemRuleBlock: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  itemShipAdd: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: theme.colors.text,
+  },
+  freeShipBanner: {
+    alignSelf: "flex-start",
+    maxWidth: 260,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: theme.colors.earth,
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  freeShipBannerText: {
+    flexShrink: 1,
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14,
   },
   itemMain: {
     flexDirection: "row",

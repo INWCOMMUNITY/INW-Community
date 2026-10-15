@@ -11,7 +11,8 @@ import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsMo
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { buildProductHref } from "@/lib/product-referrer";
-import { sellerOrderShippingCents } from "@/lib/checkout-shipping-cost";
+import { IonIcon } from "@/components/IonIcon";
+import { sellerOrderShippingCents, sellerOrderShippingQuote } from "@/lib/checkout-shipping-cost";
 
 interface CartItemStoreItem {
   id: string;
@@ -86,6 +87,23 @@ function cartShippingCents(list: CartItem[]): number {
     });
   }
   return cents;
+}
+
+function sellerShippingArgs(group: CartItem[]) {
+  const member = group[0]?.storeItem.member;
+  return {
+    lines: group.map((item) => ({
+      quantity: item.quantity,
+      fulfillmentType: item.fulfillmentType,
+      shippingCostCents: item.storeItem.shippingCostCents,
+    })),
+    merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
+    rules: {
+      combineShipping: Boolean(member?.combineShipping),
+      combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+      freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+    },
+  };
 }
 
 function cartLineMaxQty(item: CartItem): number {
@@ -421,6 +439,20 @@ export default function CartPage() {
                 <div className="space-y-4">
                   {items.map((item) => {
                     const variantLabel = formatCartVariantLabel(item.variant);
+                    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+                    const sellerGroup = items.filter(
+                      (row) => (row.storeItem.memberId ?? row.storeItemId) === sellerId
+                    );
+                    const shippingArgs = sellerShippingArgs(sellerGroup);
+                    const shippingQuote = sellerOrderShippingQuote(shippingArgs);
+                    const isSellerLead = sellerGroup[0]?.id === item.id;
+                    const freeShippingMinimumCents = shippingArgs.rules.freeShippingMinimumCents ?? 0;
+                    const freeShippingReached =
+                      freeShippingMinimumCents > 0 &&
+                      shippingArgs.merchandiseCents >= freeShippingMinimumCents;
+                    const shippedLines = sellerGroup.filter(
+                      (row) => (row.fulfillmentType ?? "ship") === "ship"
+                    );
                     return (
                         <div
                           key={item.id}
@@ -477,38 +509,16 @@ export default function CartPage() {
                               Agreed offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
                             </span>
                           ) : null}
-                          {item.fulfillmentType === "ship" && (() => {
-                            const sellerId = item.storeItem.memberId ?? item.storeItemId;
-                            const shipped = items.filter(
-                              (row) =>
-                                (row.storeItem.memberId ?? row.storeItemId) === sellerId &&
-                                (row.fulfillmentType ?? "ship") === "ship"
-                            );
-                            if (shipped.length !== 1 || shipped[0]?.id !== item.id) return null;
-                            const member = item.storeItem.member;
-                            const cents = sellerOrderShippingCents({
-                              lines: shipped.map((row) => ({
-                                quantity: row.quantity,
-                                fulfillmentType: row.fulfillmentType,
-                                shippingCostCents: row.storeItem.shippingCostCents,
-                              })),
-                              merchandiseCents: shipped.reduce(
-                                (sum, row) => sum + cartLineUnitPriceCents(row) * row.quantity,
-                                0
-                              ),
-                              rules: {
-                                combineShipping: Boolean(member?.combineShipping),
-                                combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
-                                freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
-                              },
-                            });
-                            if (cents <= 0) return null;
-                            return (
+                          {item.fulfillmentType === "ship" &&
+                            shippingQuote.cents > 0 &&
+                            (shippedLines.length === 1
+                              ? shippedLines[0]?.id === item.id
+                              : isSellerLead && shippingQuote.combinedCapApplied) && (
                               <span className="text-sm font-normal ml-1" style={{ color: "var(--color-text)" }}>
-                                + ${(cents / 100).toFixed(2)} shipping
+                                + ${(shippingQuote.cents / 100).toFixed(2)}{" "}
+                                {shippingQuote.combinedCapApplied ? "combined shipping" : "shipping"}
                               </span>
-                            );
-                          })()}
+                            )}
                           {item.fulfillmentType === "local_delivery" &&
                             item.storeItem.localDeliveryFeeCents != null &&
                             item.storeItem.localDeliveryFeeCents > 0 && (
@@ -543,130 +553,20 @@ export default function CartPage() {
                         </button>
                       </div>
                     </div>
-                    {/* Fulfillment options: only show options this item actually offers (product page can show all) */}
-                    {(() => {
-                      // Use truthy checks so we show options when API returns true, 1, etc.
-                      const offersShipping = item.storeItem.shippingDisabled !== true;
-                      const offersLocalDelivery = !!item.storeItem.localDeliveryAvailable;
-                      const offersPickup = !!item.storeItem.inStorePickupAvailable;
-                      const hasAnyOption = offersShipping || offersLocalDelivery || offersPickup;
-                      // If no option detected (e.g. missing data), show all so user can still select
-                      const showShipping = hasAnyOption ? offersShipping : true;
-                      const showLocalDelivery = hasAnyOption ? offersLocalDelivery : true;
-                      const showPickup = hasAnyOption ? offersPickup : true;
-                      return (
-                    <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--color-section-alt)", pointerEvents: "auto" }}>
-                      <p className="text-sm font-medium mb-2" style={{ color: "var(--color-text)" }}>
-                        How do you want to receive this item?
-                      </p>
-                      <div className="flex flex-wrap gap-2" role="group" aria-label="Fulfillment option">
-                        {showShipping && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              updateFulfillment(item.id, "ship");
-                            }}
-                            className="border rounded px-3 py-1.5 text-sm cursor-pointer"
-                            style={{
-                              opacity: 1,
-                              ...((item.fulfillmentType ?? "ship") === "ship"
-                                ? {
-                                    borderColor: "var(--color-primary)",
-                                    backgroundColor: "var(--color-section-alt)",
-                                    color: "var(--color-primary)",
-                                  }
-                                : { borderColor: "var(--color-primary)" }),
-                            }}
-                          >
-                            Ship
-                            {item.storeItem.shippingCostCents != null && item.storeItem.shippingCostCents > 0
-                              ? ` ($${(item.storeItem.shippingCostCents / 100).toFixed(2)})`
-                              : " (free)"}
-                          </button>
-                        )}
-                        {showLocalDelivery && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setLocalDeliveryModalItemId(item.id);
-                            }}
-                            className="border rounded px-3 py-1.5 text-sm cursor-pointer"
-                            style={{
-                              opacity: 1,
-                              ...(item.fulfillmentType === "local_delivery"
-                                ? {
-                                    borderColor: "var(--color-primary)",
-                                    backgroundColor: "var(--color-section-alt)",
-                                    color: "var(--color-primary)",
-                                  }
-                                : { borderColor: "var(--color-primary)" }),
-                            }}
-                          >
-                            Deliver locally
-                            {item.storeItem.localDeliveryFeeCents != null && item.storeItem.localDeliveryFeeCents > 0
-                              ? ` ($${(item.storeItem.localDeliveryFeeCents / 100).toFixed(2)})`
-                              : " (no fee)"}
-                          </button>
-                        )}
-                        {showPickup && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setPickupTermsModalItemId(item.id);
-                            }}
-                            className="border rounded px-3 py-1.5 text-sm cursor-pointer"
-                            style={{
-                              opacity: 1,
-                              ...(item.fulfillmentType === "pickup"
-                                ? {
-                                    borderColor: "var(--color-primary)",
-                                    backgroundColor: "var(--color-section-alt)",
-                                    color: "var(--color-primary)",
-                                  }
-                                : { borderColor: "var(--color-primary)" }),
-                            }}
-                          >
-                            Pickup
-                          </button>
-                        )}
+                    {isSellerLead && freeShippingMinimumCents > 0 && (
+                      <div
+                        className="mt-3 inline-flex w-fit max-w-[260px] items-center gap-1.5 rounded px-2 py-1 text-white"
+                        style={{ backgroundColor: "var(--color-earth)" }}
+                      >
+                        <IonIcon name="gift-outline" size={13} className="shrink-0 text-white" />
+                        <p className="text-[11px] font-medium leading-tight">
+                          {freeShippingReached
+                            ? "Free Shipping Enabled!"
+                            : `If you order $${(freeShippingMinimumCents / 100).toFixed(2)} from this store, you will receive free shipping.`}
+                        </p>
+                        <IonIcon name="gift-outline" size={13} className="shrink-0 text-white" />
                       </div>
-                      {item.fulfillmentType === "local_delivery" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setLocalDeliveryModalItemId(item.id);
-                          }}
-                          className="text-sm mt-1 hover:underline block cursor-pointer"
-                          style={{ color: "var(--color-link)", opacity: 1 }}
-                        >
-                          {item.localDeliveryDetails ? "Edit delivery details" : "Add delivery details"}
-                        </button>
-                      )}
-                      {item.fulfillmentType === "pickup" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setPickupTermsModalItemId(item.id);
-                          }}
-                          className="text-sm mt-1 hover:underline block cursor-pointer"
-                          style={{ color: "var(--color-link)", opacity: 1 }}
-                        >
-                          {item.pickupDetails?.firstName ? "Edit pickup details" : "Add pickup details"}
-                        </button>
-                      )}
-                    </div>
-                      );
-                    })()}
+                    )}
                   </div>
                   );
                   })}
@@ -713,21 +613,6 @@ export default function CartPage() {
                   <p className="text-xs" style={{ color: "var(--color-text)" }}>
                     Tax is calculated at checkout.
                   </p>
-                  {Array.from(
-                    new Map(
-                      items
-                        .filter(
-                          (item) =>
-                            (item.storeItem.member?.freeShippingMinimumCents ?? 0) > 0 &&
-                            item.storeItem.memberId
-                        )
-                        .map((item) => [item.storeItem.memberId, item.storeItem.member?.freeShippingMinimumCents ?? 0])
-                    ).entries()
-                  ).map(([sellerId, minimumCents]) => (
-                    <p key={sellerId} className="text-xs" style={{ color: "var(--color-text)" }}>
-                      If you order ${(minimumCents / 100).toFixed(2)} from this store, you will receive free shipping.
-                    </p>
-                  ))}
                 </div>
 
                 <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>

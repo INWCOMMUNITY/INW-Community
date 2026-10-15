@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sellerOrderShippingCents } from "./checkout-shipping-cost";
+import { sellerOrderShippingCents, sellerOrderShippingQuote } from "./checkout-shipping-cost";
 
 const lines = [
   { quantity: 1, fulfillmentType: "ship", shippingCostCents: 500 },
@@ -54,17 +54,31 @@ describe("sellerOrderShippingCents", () => {
   });
 
   it("caps one listing bought in quantity above one", () => {
+    const quote = sellerOrderShippingQuote({
+      lines: [{ quantity: 3, fulfillmentType: "ship", shippingCostCents: 500 }],
+      merchandiseCents: 1500,
+      rules: {
+        combineShipping: true,
+        combinedShippingMaxCents: 1250,
+        freeShippingMinimumCents: 3500,
+      },
+    });
+    expect(quote.cents).toBe(1250);
+    expect(quote.combinedCapApplied).toBe(true);
+  });
+
+  it("does not mark the cap when the uncapped total is already under it", () => {
     expect(
-      sellerOrderShippingCents({
-        lines: [{ quantity: 3, fulfillmentType: "ship", shippingCostCents: 500 }],
-        merchandiseCents: 1500,
+      sellerOrderShippingQuote({
+        lines: [{ quantity: 2, fulfillmentType: "ship", shippingCostCents: 400 }],
+        merchandiseCents: 2000,
         rules: {
           combineShipping: true,
           combinedShippingMaxCents: 1250,
-          freeShippingMinimumCents: 3500,
+          freeShippingMinimumCents: null,
         },
-      })
-    ).toBe(1250);
+      }).combinedCapApplied
+    ).toBe(false);
   });
   it("ignores pickup lines", () => {
     expect(

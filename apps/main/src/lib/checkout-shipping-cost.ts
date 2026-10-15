@@ -18,11 +18,11 @@ export type SellerShippingLine = {
   shippingCostCents?: number | null;
 };
 
-export function sellerOrderShippingCents(args: {
+export function sellerOrderShippingQuote(args: {
   lines: SellerShippingLine[];
   merchandiseCents: number;
   rules?: SellerShippingRules | null;
-}): number {
+}): { cents: number; combinedCapApplied: boolean } {
   let lineShipping = 0;
   let shippedUnits = 0;
   for (const line of args.lines) {
@@ -32,16 +32,28 @@ export function sellerOrderShippingCents(args: {
     const unit = line.shippingCostCents;
     if (unit != null && unit > 0 && qty > 0) lineShipping += unit * qty;
   }
-  if (shippedUnits === 0) return 0;
+  if (shippedUnits === 0) return { cents: 0, combinedCapApplied: false };
 
   const minimum = args.rules?.freeShippingMinimumCents;
-  if (minimum != null && minimum > 0 && args.merchandiseCents >= minimum) return 0;
+  if (minimum != null && minimum > 0 && args.merchandiseCents >= minimum) {
+    return { cents: 0, combinedCapApplied: false };
+  }
 
   const max = args.rules?.combinedShippingMaxCents;
   if (args.rules?.combineShipping && max != null && shippedUnits > 1) {
-    return Math.min(lineShipping, Math.max(0, max));
+    const cap = Math.max(0, max);
+    const cents = Math.min(lineShipping, cap);
+    return { cents, combinedCapApplied: lineShipping > cap && cents > 0 };
   }
-  return lineShipping;
+  return { cents: lineShipping, combinedCapApplied: false };
+}
+
+export function sellerOrderShippingCents(args: {
+  lines: SellerShippingLine[];
+  merchandiseCents: number;
+  rules?: SellerShippingRules | null;
+}): number {
+  return sellerOrderShippingQuote(args).cents;
 }
 
 export function shippingCentsForSellerLines(
