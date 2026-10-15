@@ -80,6 +80,11 @@ function batchIsActive(batch: BatchProgress | null): boolean {
   return batch != null && (batch.state === "PENDING" || batch.state === "RUNNING");
 }
 
+/** A finished import is not left on the page. A stopped import stays so the error is visible. */
+function batchStaysOnScreen(batch: BatchProgress | null): boolean {
+  return batch != null && batch.state !== "COMPLETED" && batch.state !== "CANCELLED";
+}
+
 function importBarPercent(batch: BatchProgress, nowMs: number): number {
   if (batch.state === "COMPLETED" || batch.state === "CANCELLED") return 100;
   if (batch.scanning) {
@@ -436,7 +441,7 @@ export default function AppsAirportShopifyImportPage() {
 
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
 
-      {batch ? (
+      {batchStaysOnScreen(batch) && batch ? (
         <div className="mb-6 rounded-[10px] border border-neutral-200 bg-neutral-50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>

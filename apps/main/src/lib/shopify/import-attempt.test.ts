@@ -46,6 +46,7 @@ describe("ShopifyListingImportAttempt durability", () => {
       id: "link-1",
       storeItemId: "item-1",
       importBootstrapStartedAt: originalCutoff,
+      storeItem: { status: "active" },
       variantMaps: [
         {
           shopifyVariantId: "gid://shopify/ProductVariant/4",
@@ -95,5 +96,44 @@ describe("ShopifyListingImportAttempt durability", () => {
       })
     );
     expect(result).toBeNull();
+  });
+
+  it("starts a new import when a completed attempt no longer has an INW listing", async () => {
+    const now = new Date("2026-10-15T19:00:00.000Z");
+    findUnique.mockResolvedValue({
+      id: "attempt-old",
+      status: "COMPLETED",
+      bootstrapStartedAt: new Date("2026-09-01T00:00:00.000Z"),
+      storeItemId: "deleted-item",
+      listingLinkId: "deleted-link",
+    });
+    findFirst.mockResolvedValue(null);
+    update.mockResolvedValue({
+      id: "attempt-old",
+      status: "STARTED",
+      storeItemId: null,
+      listingLinkId: null,
+    });
+
+    const result = await beginShopifyListingImportAttempt(db, {
+      memberId: "member-a",
+      connectionId: "conn-1",
+      shopifyProductId: "gid://shopify/Product/300",
+      stockMode: "PHYSICAL",
+      now,
+    });
+
+    expect(result.status).toBe("READY");
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "attempt-old" },
+        data: expect.objectContaining({
+          status: "STARTED",
+          storeItemId: null,
+          listingLinkId: null,
+          bootstrapStartedAt: now,
+        }),
+      })
+    );
   });
 });

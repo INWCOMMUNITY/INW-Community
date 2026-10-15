@@ -14,6 +14,10 @@ export async function disconnectStoreItemChannels(storeItemId: string): Promise<
     where: { storeItemId: id },
     select: { etsyConnectionId: true, etsyListingId: true },
   });
+  const shopifyLinks = await prisma.shopifyListingLink.findMany({
+    where: { storeItemId: id },
+    select: { shopifyConnectionId: true, shopifyProductId: true },
+  });
 
   await prisma.$transaction(async (tx) => {
     await tx.etsyVariantMap.deleteMany({ where: { storeItemId: id } });
@@ -54,6 +58,25 @@ export async function disconnectStoreItemChannels(storeItemId: string): Promise<
         listingLinkId: null,
         etsyProductId: null,
         etsyOfferingId: null,
+      },
+    });
+  }
+  if (shopifyLinks.length > 0) {
+    await prisma.shopifyListingImportAttempt.updateMany({
+      where: {
+        OR: shopifyLinks.map((link) => ({
+          shopifyConnectionId: link.shopifyConnectionId,
+          shopifyProductId: link.shopifyProductId,
+        })),
+      },
+      data: {
+        status: "FAILED",
+        failureCode: "INW_ENDED",
+        failureMessage: "INW listing ended and the channel link was removed",
+        storeItemId: null,
+        listingLinkId: null,
+        shopifyVariantId: null,
+        shopifyInventoryItemId: null,
       },
     });
   }

@@ -11,6 +11,8 @@ const { tx, prisma } = vi.hoisted(() => {
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<void>) => fn(tx)),
     etsyListingLink: { findMany: vi.fn(async () => []) },
     etsyListingImportAttempt: { updateMany: vi.fn() },
+    shopifyListingLink: { findMany: vi.fn(async () => []) },
+    shopifyListingImportAttempt: { updateMany: vi.fn() },
     etsySyncJob: { updateMany: vi.fn() },
     shopifySyncJob: { updateMany: vi.fn() },
     storeItem: { findMany: vi.fn() },
@@ -30,6 +32,7 @@ describe("disconnectStoreItemChannels", () => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation(async (fn: (client: typeof tx) => Promise<void>) => fn(tx));
     prisma.etsyListingLink.findMany.mockResolvedValue([]);
+    prisma.shopifyListingLink.findMany.mockResolvedValue([]);
   });
 
   it("deletes channel links and cancels open sync jobs without calling Etsy or Shopify", async () => {
@@ -49,6 +52,27 @@ describe("disconnectStoreItemChannels", () => {
     );
     expect(prisma.shopifySyncJob.updateMany).toHaveBeenCalled();
     expect(prisma.etsyListingImportAttempt.updateMany).not.toHaveBeenCalled();
+    expect(prisma.shopifyListingImportAttempt.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("clears the completed Shopify import attempt so the product can be imported again", async () => {
+    prisma.shopifyListingLink.findMany.mockResolvedValue([
+      { shopifyConnectionId: "conn-1", shopifyProductId: "gid://shopify/Product/300" },
+    ]);
+    await disconnectStoreItemChannels("item-1");
+    expect(prisma.shopifyListingImportAttempt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ shopifyConnectionId: "conn-1", shopifyProductId: "gid://shopify/Product/300" }],
+        },
+        data: expect.objectContaining({
+          status: "FAILED",
+          failureCode: "INW_ENDED",
+          storeItemId: null,
+          listingLinkId: null,
+        }),
+      })
+    );
   });
 
   it("clears the completed import attempt so the Etsy listing can be imported again", async () => {

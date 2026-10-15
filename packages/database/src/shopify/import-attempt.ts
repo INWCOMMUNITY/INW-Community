@@ -25,6 +25,25 @@ function attemptLockKey(connectionId: string, productId: string): string {
   return `shopify-import:${connectionId}:${productId}`;
 }
 
+function freshAttemptData(stockMode: "PHYSICAL" | "MADE_TO_ORDER", now: Date) {
+  return {
+    status: "STARTED" as const,
+    stockMode,
+    bootstrapStartedAt: now,
+    shopifyVariantId: null,
+    shopifyInventoryItemId: null,
+    storeItemId: null,
+    listingLinkId: null,
+    failureCode: null,
+    failureMessage: null,
+  };
+}
+
+async function releaseShopifyListingLink(tx: ShopifyImportAttemptDb, listingLinkId: string): Promise<void> {
+  await tx.shopifyVariantMap.deleteMany({ where: { shopifyListingLinkId: listingLinkId } });
+  await tx.shopifyListingLink.delete({ where: { id: listingLinkId } });
+}
+
 async function healCompletedFromMapping(
   tx: ShopifyImportAttemptDb,
   input: {
@@ -45,6 +64,7 @@ async function healCompletedFromMapping(
       id: true,
       storeItemId: true,
       importBootstrapStartedAt: true,
+      storeItem: { select: { status: true } },
       variantMaps: {
         select: { shopifyVariantId: true, shopifyInventoryItemId: true },
         orderBy: { createdAt: "asc" },
@@ -52,7 +72,10 @@ async function healCompletedFromMapping(
       },
     },
   });
-  if (!mapping) return null;
+  if (!mapping || mapping.storeItem.status === "inactive") {
+    if (mapping) await releaseShopifyListingLink(tx, mapping.id);
+    return null;
+  }
 
   const variant = mapping.variantMaps[0] ?? null;
   // Preserve original attempt cutoff when present; else mapping cutoff; never invent after map.
@@ -99,7 +122,8 @@ async function healCompletedFromMapping(
  * Captures bootstrapStartedAt before any remote inventory snapshot.
  *
  * Cutoff reuse rules:
- * - COMPLETED / mapping exists → never create a new cutoff
+ * - COMPLETED with a live active INW listing → never create a new cutoff
+ * - COMPLETED after the INW listing or Shopify link was removed → new cutoff
  * - STARTED fresh → reuse same attempt + cutoff (IN_PROGRESS)
  * - STARTED stale (>15m) with no mapping → explicit abandon; new cutoff allowed
  * - FAILED with no mapping → explicit abandon; new cutoff allowed
@@ -130,6 +154,26 @@ export async function beginShopifyListingImportAttempt(
       },
     });
 
+    if (existing?.status === "COMPLETED") {
+      const liveLink = await tx.shopifyListingLink.findFirst({
+        where: {
+          shopifyConnectionId: input.connectionId,
+          memberId: input.memberId,
+          shopifyProductId: input.shopifyProductId,
+        },
+        select: { id: true, storeItem: { select: { status: true } } },
+      });
+      if (liveLink && liveLink.storeItem.status !== "inactive") {
+        return { status: "ALREADY_COMPLETED", attempt: existing, reusedCompleted: true };
+      }
+      if (liveLink) await releaseShopifyListingLink(tx, liveLink.id);
+      const restarted = await tx.shopifyListingImportAttempt.update({
+        where: { id: existing.id },
+        data: freshAttemptData(input.stockMode, now),
+      });
+      return { status: "READY", attempt: restarted, reusedCompleted: false };
+    }
+
     const healed = await healCompletedFromMapping(tx, {
       memberId: input.memberId,
       connectionId: input.connectionId,
@@ -139,10 +183,6 @@ export async function beginShopifyListingImportAttempt(
     });
     if (healed) {
       return { status: "ALREADY_COMPLETED", attempt: healed, reusedCompleted: true };
-    }
-
-    if (existing?.status === "COMPLETED" && existing.storeItemId && existing.listingLinkId) {
-      return { status: "ALREADY_COMPLETED", attempt: existing, reusedCompleted: true };
     }
 
     if (existing?.status === "STARTED") {
