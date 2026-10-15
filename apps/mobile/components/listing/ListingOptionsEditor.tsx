@@ -9,6 +9,9 @@ import {
   ScrollView,
   Image,
   Modal,
+  Keyboard,
+  Platform,
+  useWindowDimensions,
   type StyleProp,
   type TextStyle,
 } from "react-native";
@@ -125,10 +128,22 @@ export function parseVariantsToEditor(
   mode: InventoryMode;
   axes: VariantAxisDef[];
   skus: EditorSkuRow[];
+  pricesVary: boolean;
+  quantitiesVary: boolean;
+  skusVary: boolean;
+  sharedQuantity: boolean;
 } {
   const matrix = normalizeVariantMatrix(raw) ?? matrixFromFoundationVariants(foundationVariants);
   if (!matrix || matrix.axes.length === 0) {
-    return { mode: "simple", axes: [], skus: [] };
+    return {
+      mode: "simple",
+      axes: [],
+      skus: [],
+      pricesVary: false,
+      quantitiesVary: true,
+      skusVary: false,
+      sharedQuantity: false,
+    };
   }
   const full = rebuildMatrixFromAxes(matrix.axes, matrix.skus, {
     pricesVary: matrix.pricesVary,
@@ -137,6 +152,8 @@ export function parseVariantsToEditor(
     imageAxis: matrix.imageAxis,
   });
   const enabledKeys = new Set(matrix.skus.map((s) => skuSelectionKey(s.options)));
+  const flags = inferMatrixVaryFlags({ ...full, sharedQuantity: matrix.sharedQuantity });
+  const sharedQuantity = matrix.sharedQuantity === true;
   return {
     mode: "options",
     axes: full.axes,
@@ -144,23 +161,48 @@ export function parseVariantsToEditor(
       ...s,
       enabled: enabledKeys.has(skuSelectionKey(s.options)),
     })),
+    pricesVary: flags.pricesVary,
+    quantitiesVary: sharedQuantity ? false : true,
+    skusVary: flags.skusVary,
+    sharedQuantity,
   };
 }
 
 export function buildVariantsPayload(
   mode: InventoryMode,
   axes: VariantAxisDef[],
-  skus: EditorSkuRow[]
+  skus: EditorSkuRow[],
+  flags?: {
+    quantitiesVary?: boolean;
+    pricesVary?: boolean;
+    skusVary?: boolean;
+    poolQuantity?: number;
+  }
 ): ReturnType<typeof serializeVariantMatrix> | null {
   if (mode !== "options") return null;
   const enabled = skus.filter((s) => s.enabled);
   if (axes.length === 0 || enabled.length === 0) return null;
+  const varyQty = flags?.quantitiesVary !== false;
+  const poolQty =
+    typeof flags?.poolQuantity === "number" && Number.isFinite(flags.poolQuantity)
+      ? Math.max(0, Math.trunc(flags.poolQuantity))
+      : (enabled.find((s) => s.quantity > 0)?.quantity ?? enabled[0]?.quantity ?? 0);
   const rebuilt = rebuildMatrixFromAxes(axes, enabled, {
+    pricesVary: flags?.pricesVary,
+    quantitiesVary: varyQty,
+    skusVary: flags?.skusVary,
     imageAxis: resolveImageAxisName({ axes, skus: enabled }),
   });
+  const rows = rebuilt.skus
+    .filter((s) => enabled.some((e) => optionsEqual(e.options, s.options)))
+    .map((s) => (varyQty ? s : { ...s, quantity: poolQty }));
   return serializeVariantMatrix({
     axes: rebuilt.axes,
-    skus: rebuilt.skus.filter((s) => enabled.some((e) => optionsEqual(e.options, s.options))),
+    skus: rows,
+    pricesVary: flags?.pricesVary,
+    quantitiesVary: varyQty,
+    skusVary: flags?.skusVary,
+    sharedQuantity: !varyQty && rows.length > 1 ? true : undefined,
   });
 }
 
@@ -185,6 +227,11 @@ type ListingOptionsEditorProps = {
   optionNamePresets?: string[];
   placeholderColor?: string;
   channelNotes?: string[];
+  initialPricesVary?: boolean;
+  initialQuantitiesVary?: boolean;
+  initialSkusVary?: boolean;
+  onPricesVaryChange?: (pricesVary: boolean) => void;
+  onQuantitiesVaryChange?: (quantitiesVary: boolean) => void;
 };
 
 function ChannelNotes({ notes }: { notes?: string[] }) {
@@ -401,24 +448,65 @@ export function ListingOptionsEditor({
   optionNamePresets = DEFAULT_OPTION_PRESETS,
   placeholderColor = PLACEHOLDER_COLOR,
   channelNotes,
+  initialPricesVary,
+  initialQuantitiesVary,
+  initialSkusVary,
+  onPricesVaryChange,
+  onQuantitiesVaryChange,
 }: ListingOptionsEditorProps) {
+  const { height: windowHeight } = useWindowDimensions();
   const presets = optionNamePresets.length > 0 ? optionNamePresets : DEFAULT_OPTION_PRESETS;
   const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
   const inferred = inferMatrixVaryFlags({ axes, skus });
-  const [pricesVary, setPricesVary] = useState(inferred.pricesVary);
-  const [quantitiesVary, setQuantitiesVary] = useState(true);
-  const [skusVary, setSkusVary] = useState(inferred.skusVary);
+  const [pricesVary, setPricesVary] = useState(initialPricesVary ?? inferred.pricesVary);
+  const [quantitiesVary, setQuantitiesVary] = useState(
+    initialQuantitiesVary === undefined ? true : initialQuantitiesVary
+  );
+  const [skusVary, setSkusVary] = useState(initialSkusVary ?? inferred.skusVary);
   const [manageOpen, setManageOpen] = useState(false);
   const [draftAxes, setDraftAxes] = useState<VariantAxisDef[]>([]);
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
+  const [keyboardPad, setKeyboardPad] = useState(0);
   const totalStock = sumEnabledSkus(skus);
 
   useEffect(() => {
-    if (skus.some((s) => s.priceCents != null && s.priceCents > 0)) setPricesVary(true);
-    if (skus.some((s) => Boolean(s.sku?.trim()))) setSkusVary(true);
-  }, [skus]);
+    if (initialPricesVary !== undefined) setPricesVary(initialPricesVary);
+  }, [initialPricesVary]);
+
+  useEffect(() => {
+    if (initialQuantitiesVary !== undefined) setQuantitiesVary(initialQuantitiesVary);
+  }, [initialQuantitiesVary]);
+
+  useEffect(() => {
+    if (initialSkusVary !== undefined) setSkusVary(initialSkusVary);
+  }, [initialSkusVary]);
+
+  useEffect(() => {
+    const distinctPrices = new Set(
+      skus.map((s) => s.priceCents).filter((price): price is number => price != null && price > 0)
+    );
+    if (distinctPrices.size > 1) {
+      setPricesVary(true);
+      onPricesVaryChange?.(true);
+    }
+    const distinctSkus = new Set(skus.map((s) => s.sku?.trim()).filter((sku): sku is string => Boolean(sku)));
+    if (distinctSkus.size > 1) setSkusVary(true);
+  }, [skus, onPricesVaryChange]);
+
+  useEffect(() => {
+    if (!manageOpen) return;
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const subShow = Keyboard.addListener(showEvt, (e) => setKeyboardPad(e.endCoordinates?.height ?? 0));
+    const subHide = Keyboard.addListener(hideEvt, () => setKeyboardPad(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+      setKeyboardPad(0);
+    };
+  }, [manageOpen]);
   const photoChoices = useMemo(
     () => listingGalleryPhotoChoices(galleryPhotos),
     [galleryPhotos]
@@ -435,14 +523,28 @@ export function ListingOptionsEditor({
       nextSkus.filter((s) => s.enabled).map((s) => skuSelectionKey(s.options))
     );
     const hadRows = nextSkus.length > 0;
+    const sharedQty = !quantitiesVary
+      ? (nextSkus.find((s) => s.enabled)?.quantity ?? variantQtyDraftToNumber(simpleQuantity))
+      : null;
     onMatrixChange(
       full.axes,
       full.skus.map((s) => ({
         ...s,
         enabled: hadRows ? prevEnabled.has(skuSelectionKey(s.options)) : true,
+        ...(sharedQty != null ? { quantity: sharedQty } : {}),
         ...(!pricesVary ? { priceCents: undefined } : {}),
         ...(!skusVary ? { sku: undefined } : {}),
       }))
+    );
+  };
+
+  const commitSharedQuantity = (raw: string) => {
+    const t = sanitizeQtyDraftInput(raw);
+    onSimpleQuantityChange(t);
+    const n = variantQtyDraftToNumber(t);
+    onMatrixChange(
+      axes,
+      skus.map((s) => ({ ...s, quantity: n }))
     );
   };
 
@@ -531,8 +633,10 @@ export function ListingOptionsEditor({
       </View>
       <Text style={styles.hint}>
         {madeToOrder
-          ? "Buyers can order without a stock count. Sales do not decrement quantity."
-          : "Each combination has its own quantity. Sales reduce that combination."}
+          ? "Buyers can order without a stock count. Quantity is not decremented after sales."
+          : mode === "options" && !quantitiesVary
+            ? "One quantity covers every combination. A sale reduces that shared quantity."
+            : "Each combination has its own quantity. Sales reduce that combination."}
       </Text>
 
       <View style={styles.modeRow}>
@@ -571,6 +675,20 @@ export function ListingOptionsEditor({
         )
       ) : (
         <>
+          {madeToOrder ? (
+            <Text style={styles.hint}>Quantity is not required for made-to-order listings.</Text>
+          ) : !quantitiesVary ? (
+            <>
+              <Text style={styles.label}>Quantity *</Text>
+              <SimpleQtyInput
+                style={styles.input}
+                placeholder="1"
+                placeholderColor={placeholderColor}
+                value={simpleQuantity}
+                onChange={commitSharedQuantity}
+              />
+            </>
+          ) : null}
           <Text style={styles.summary}>{summary}</Text>
           <View style={styles.modeRow}>
             <Pressable
@@ -651,7 +769,17 @@ export function ListingOptionsEditor({
                     ) : null}
                     {pricesVary ? <Text style={styles.headerCell}>Price</Text> : null}
                     {skusVary ? <Text style={styles.headerCell}>SKU</Text> : null}
-                    <Text style={styles.headerCell}>On</Text>
+                    <Pressable
+                      onPress={() => {
+                        const enable = skus.some((s) => !s.enabled);
+                        onMatrixChange(
+                          axes,
+                          skus.map((s) => ({ ...s, enabled: enable }))
+                        );
+                      }}
+                    >
+                      <Text style={styles.headerCell}>On</Text>
+                    </Pressable>
                   </View>
                   {skus.map((row) => {
                     const key = skuSelectionKey(row.options);
@@ -706,7 +834,7 @@ export function ListingOptionsEditor({
                   })}
                 </View>
               </ScrollView>
-              {!madeToOrder ? (
+              {!madeToOrder && quantitiesVary ? (
                 <Text style={styles.totalStock}>Total stock: {totalStock} units</Text>
               ) : null}
             </>
@@ -718,14 +846,23 @@ export function ListingOptionsEditor({
         </>
       )}
 
-      <Modal visible={manageOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <ScrollView>
+      <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={closeManage}>
+        <View style={[styles.modalBackdrop, { paddingBottom: keyboardPad }]}>
+          <ScrollView
+            style={[
+              styles.modalCard,
+              { maxHeight: Math.max(280, windowHeight - keyboardPad - 24) },
+            ]}
+            contentContainerStyle={styles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            automaticallyAdjustKeyboardInsets
+            nestedScrollEnabled
+          >
               <View style={styles.modalHeader}>
                 <Text style={styles.sectionTitle}>Manage variations</Text>
                 <Pressable onPress={closeManage}>
-                  <Text style={styles.removeText}>Close</Text>
+                  <Text style={styles.removeText}>Cancel</Text>
                 </Pressable>
               </View>
               <Text style={styles.hint}>
@@ -891,6 +1028,7 @@ export function ListingOptionsEditor({
                 onPress={() => {
                   const next = !pricesVary;
                   setPricesVary(next);
+                  onPricesVaryChange?.(next);
                   if (!next) {
                     onMatrixChange(
                       axes,
@@ -906,8 +1044,11 @@ export function ListingOptionsEditor({
                 onPress={() => {
                   const next = !quantitiesVary;
                   setQuantitiesVary(next);
+                  onQuantitiesVaryChange?.(next);
                   if (!next) {
-                    const shared = skus.find((s) => s.enabled)?.quantity ?? 0;
+                    const fromRow = skus.find((s) => s.enabled)?.quantity ?? 0;
+                    const shared = fromRow > 0 ? fromRow : variantQtyDraftToNumber(simpleQuantity);
+                    onSimpleQuantityChange(shared > 0 ? String(shared) : simpleQuantity || "0");
                     onMatrixChange(
                       axes,
                       skus.map((s) => ({ ...s, quantity: shared }))
@@ -938,8 +1079,7 @@ export function ListingOptionsEditor({
               <Pressable style={[styles.addBtn, styles.applyBtn]} onPress={applyManage}>
                 <Text style={styles.applyBtnText}>Apply</Text>
               </Pressable>
-            </ScrollView>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -1131,8 +1271,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: "90%",
+    width: "100%",
+  },
+  modalScrollContent: {
     padding: 16,
+    paddingBottom: 28,
   },
   modalHeader: {
     flexDirection: "row",

@@ -26,6 +26,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.co
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 type ListingChannelId = "inw" | "shopify" | "ebay" | "etsy";
+type EndListingPlace = "inw" | "etsy" | "shopify";
 
 const CHANNEL_LABELS: Record<ListingChannelId, string> = {
   inw: "INW",
@@ -114,6 +115,8 @@ export default function MyItemsScreen() {
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [endDialogIds, setEndDialogIds] = useState<string[] | null>(null);
+  const [endPlaces, setEndPlaces] = useState<EndListingPlace[]>([]);
   const [search, setSearch] = useState("");
   const [tabCounts, setTabCounts] = useState<{
     active: number;
@@ -326,35 +329,108 @@ export default function MyItemsScreen() {
     router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
   };
 
-  const endListings = (ids: string[]) => {
-    Alert.alert(
-      ids.length === 1 ? "End listing" : "End listings",
-      `Remove ${ids.length} listing${ids.length === 1 ? "" : "s"} from your active items?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "End",
-          style: "destructive",
-          onPress: async () => {
-            setBulkActing(true);
-            try {
-              if (ids.length === 1) {
-                await apiPatch(`/api/store-items/${ids[0]}`, { status: "inactive" });
-              } else {
-                await apiDelete("/api/store-items/bulk", { storeItemIds: ids });
-              }
-              setSelectedIds([]);
-              Alert.alert("Ended", "Listing(s) moved to Ended.");
-              load();
-            } catch (e) {
-              Alert.alert("Error", (e as { error?: string }).error ?? "Failed to end listing");
-            } finally {
-              setBulkActing(false);
-            }
-          },
-        },
-      ]
-    );
+  const openEndDialog = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMenuItemId(null);
+    setEndPlaces([]);
+    setEndDialogIds(ids);
+  };
+
+  const endPlaceOptions = useMemo(() => {
+    const ids = endDialogIds ?? [];
+    const selected = items.filter((item) => ids.includes(item.id));
+    const etsyCount = selected.filter((item) => item.channels?.includes("etsy")).length;
+    const shopifyCount = selected.filter((item) => item.channels?.includes("shopify")).length;
+    const options: { id: EndListingPlace; label: string; detail: string }[] = [
+      {
+        id: "inw",
+        label: "INW",
+        detail:
+          selected.length === 1
+            ? "Your INW storefront. Etsy and Shopify stay in their shops, and INW drops the link."
+            : `${selected.length} listings. Channel links are removed.`,
+      },
+    ];
+    if (etsyCount > 0) {
+      options.push({
+        id: "etsy",
+        label: "Etsy",
+        detail:
+          etsyCount === selected.length
+            ? "Listed on Etsy"
+            : `${etsyCount} of ${selected.length} listings`,
+      });
+    }
+    if (shopifyCount > 0) {
+      options.push({
+        id: "shopify",
+        label: "Shopify",
+        detail:
+          shopifyCount === selected.length
+            ? "Deletes the Shopify product. The INW listing stays."
+            : `${shopifyCount} of ${selected.length} listings. Deletes those Shopify products.`,
+      });
+    }
+    return options;
+  }, [endDialogIds, items]);
+
+  const toggleEndPlace = (id: EndListingPlace) => {
+    setEndPlaces((prev) => (prev.includes(id) ? prev.filter((place) => place !== id) : [...prev, id]));
+  };
+
+  const confirmEndListings = async () => {
+    const ids = endDialogIds ?? [];
+    const places = endPlaces;
+    if (ids.length === 0 || places.length === 0) return;
+    const selected = items.filter((item) => ids.includes(item.id));
+    const placeLabel: Record<EndListingPlace, string> = {
+      inw: "INW",
+      etsy: "Etsy",
+      shopify: "Shopify",
+    };
+    setBulkActing(true);
+    try {
+      const problems: string[] = [];
+      if (places.includes("etsy")) {
+        for (const item of selected) {
+          if (!item.channels?.includes("etsy")) continue;
+          try {
+            await apiPost(`/api/etsy/listings/${encodeURIComponent(item.id)}/actions`, { action: "end" });
+          } catch (e) {
+            problems.push((e as { error?: string }).error ?? `Could not end “${item.title}” on Etsy`);
+          }
+        }
+      }
+      if (places.includes("shopify")) {
+        for (const item of selected) {
+          if (!item.channels?.includes("shopify")) continue;
+          try {
+            await apiPost(`/api/shopify/listings/${encodeURIComponent(item.id)}/actions`, { action: "end" });
+          } catch (e) {
+            problems.push((e as { error?: string }).error ?? `Could not end “${item.title}” on Shopify`);
+          }
+        }
+      }
+      if (places.includes("inw")) {
+        if (ids.length === 1) {
+          await apiPatch(`/api/store-items/${ids[0]}`, { status: "inactive" });
+        } else {
+          await apiDelete("/api/store-items/bulk", { storeItemIds: ids });
+        }
+      }
+      if (problems.length > 0) {
+        throw new Error(problems[0]);
+      }
+      setEndDialogIds(null);
+      setEndPlaces([]);
+      setSelectedIds([]);
+      Alert.alert("Ended", `Ended on ${places.map((place) => placeLabel[place]).join(" and ")}.`);
+      load();
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : (e as { error?: string }).error ?? "Failed to end listing");
+    } finally {
+      setBulkActing(false);
+    }
   };
 
   const relistItems = (ids: string[]) => {
@@ -400,6 +476,34 @@ export default function MyItemsScreen() {
       return;
     }
     Alert.alert("Share to feed", "Open Community to share with a caption and tags.");
+  };
+
+  const clearEnded = () => {
+    Alert.alert(
+      "Clear all ended listings?",
+      "They leave this list now. Ended listings also disappear on their own after 14 days.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear all",
+          style: "destructive",
+          onPress: async () => {
+            setBulkActing(true);
+            try {
+              await apiPost("/api/store-items/clear-ended", {});
+              setItems([]);
+              setSelectedIds([]);
+              setTabCounts((prev) => (prev ? { ...prev, ended: 0 } : prev));
+              load();
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Could not clear ended listings.");
+            } finally {
+              setBulkActing(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const deleteItem = (id: string) => {
@@ -456,7 +560,7 @@ export default function MyItemsScreen() {
 
   const emptyCopy =
     itemsTab === "ended"
-      ? { title: "No ended listings", body: "Ended listings stay here so you can relist them." }
+      ? { title: "No ended listings", body: "Ended listings disappear after 14 days. Clear all removes them sooner." }
       : itemsTab === "sold"
         ? { title: "No sold items yet", body: "Sold listings will land here after checkout." }
         : itemsTab === "drafts"
@@ -506,6 +610,21 @@ export default function MyItemsScreen() {
           clearButtonMode="while-editing"
         />
       </View>
+
+      {itemsTab === "ended" ? (
+        <View style={styles.endedRow}>
+          <Text style={styles.endedHint}>Ended listings disappear after 14 days.</Text>
+          {items.length > 0 ? (
+            <Pressable
+              style={({ pressed }) => [styles.clearAllBtn, pressed && { opacity: 0.85 }]}
+              disabled={bulkActing}
+              onPress={clearEnded}
+            >
+              <Text style={styles.clearAllBtnText}>{bulkActing ? "Clearing…" : "Clear all"}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       {fetchError && (
         <View style={styles.errorBanner}>
@@ -740,7 +859,7 @@ export default function MyItemsScreen() {
                 <Pressable
                   style={styles.bulkBtn}
                   disabled={bulkActing}
-                  onPress={() => endListings(selectedIds)}
+                  onPress={() => openEndDialog(selectedIds)}
                 >
                   <Text style={styles.bulkBtnText}>End</Text>
                 </Pressable>
@@ -753,15 +872,6 @@ export default function MyItemsScreen() {
                 </Pressable>
               </>
             )}
-            <Pressable
-              style={styles.bulkBtn}
-              disabled={bulkActing}
-              onPress={() =>
-                Alert.alert("Manage 3rd Parties", "Coming soon — tell us what this should do next.")
-              }
-            >
-              <Text style={styles.bulkBtnText}>Manage 3rd Parties</Text>
-            </Pressable>
             {selectedIds.length === 1 && (
               <Pressable
                 style={styles.bulkBtn}
@@ -865,12 +975,12 @@ export default function MyItemsScreen() {
                 onPress={() => {
                   if (menuItemId) {
                     setMenuItemId(null);
-                    endListings([menuItemId]);
+                    openEndDialog([menuItemId]);
                   }
                 }}
               >
                 <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
-                  End Listing
+                  End listing
                 </Text>
               </Pressable>
             )}
@@ -883,6 +993,73 @@ export default function MyItemsScreen() {
             <Pressable style={styles.menuOption} onPress={() => setMenuItemId(null)}>
               <Text style={styles.menuOptionText}>Cancel</Text>
             </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={endDialogIds != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!bulkActing) setEndDialogIds(null);
+        }}
+      >
+        <Pressable
+          style={styles.menuBackdrop}
+          onPress={() => {
+            if (!bulkActing) setEndDialogIds(null);
+          }}
+        >
+          <View style={styles.endDialog} onStartShouldSetResponder={() => true}>
+            <Text style={styles.endDialogTitle}>
+              {(endDialogIds?.length ?? 0) === 1
+                ? "End listing"
+                : `End ${endDialogIds?.length ?? 0} listings`}
+            </Text>
+            <Text style={styles.endDialogHint}>
+              Choose each place to end. Unchecked places stay live.
+            </Text>
+            {endPlaceOptions.map((option) => {
+              const checked = endPlaces.includes(option.id);
+              return (
+                <Pressable
+                  key={option.id}
+                  style={styles.endOption}
+                  disabled={bulkActing}
+                  onPress={() => toggleEndPlace(option.id)}
+                >
+                  <Ionicons
+                    name={checked ? "checkbox" : "square-outline"}
+                    size={22}
+                    color={checked ? theme.colors.earth : "#737373"}
+                  />
+                  <View style={styles.endOptionText}>
+                    <Text style={styles.endOptionLabel}>{option.label}</Text>
+                    <Text style={styles.endOptionDetail}>{option.detail}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+            <View style={styles.endDialogActions}>
+              <Pressable
+                style={styles.endCancelBtn}
+                disabled={bulkActing}
+                onPress={() => setEndDialogIds(null)}
+              >
+                <Text style={styles.endCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.endConfirmBtn,
+                  (bulkActing || endPlaces.length === 0) && styles.endConfirmBtnDisabled,
+                ]}
+                disabled={bulkActing || endPlaces.length === 0}
+                onPress={() => void confirmEndListings()}
+              >
+                <Text style={styles.endConfirmText}>{bulkActing ? "Ending…" : "End selected"}</Text>
+              </Pressable>
+            </View>
           </View>
         </Pressable>
       </Modal>
@@ -945,6 +1122,20 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   searchInput: { flex: 1, fontSize: 14, color: theme.colors.heading, padding: 0 },
+  endedRow: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    gap: 8,
+  },
+  endedHint: { fontSize: 13, color: "#666", lineHeight: 18 },
+  clearAllBtn: {
+    alignSelf: "flex-start",
+    backgroundColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  clearAllBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   errorBanner: {
     marginHorizontal: 16,
     marginBottom: 8,
@@ -1065,6 +1256,58 @@ const styles = StyleSheet.create({
   menuOptionText: { fontSize: 16, color: "#333" },
   menuOptionTextGreen: { fontSize: 16, color: "#059669", fontWeight: "600" },
   menuOptionTextRed: { fontSize: 16, color: "#dc2626", fontWeight: "600" },
+  endDialog: {
+    marginHorizontal: 24,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 24,
+    maxWidth: 384,
+    width: "100%",
+    alignSelf: "center",
+  },
+  endDialogTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  endDialogHint: {
+    marginTop: 4,
+    fontSize: 14,
+    color: "#525252",
+  },
+  endOption: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  endOptionText: { flex: 1 },
+  endOptionLabel: { fontSize: 14, fontWeight: "600", color: "#171717" },
+  endOptionDetail: { fontSize: 12, color: "#525252", marginTop: 2 },
+  endDialogActions: { flexDirection: "row", gap: 8, marginTop: 20 },
+  endCancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#d4d4d4",
+    borderRadius: 6,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  endCancelText: { fontSize: 14, fontWeight: "600", color: "#262626" },
+  endConfirmBtn: {
+    flex: 1,
+    backgroundColor: theme.colors.earth,
+    borderRadius: 6,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  endConfirmBtnDisabled: { opacity: 0.5 },
+  endConfirmText: { fontSize: 14, fontWeight: "600", color: "#fff" },
   bulkBar: {
     position: "absolute",
     left: 12,

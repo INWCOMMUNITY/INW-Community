@@ -3,7 +3,7 @@
 import { memo } from "react";
 import { IonIcon } from "@/components/IonIcon";
 
-export type StoreItemFulfillmentType = "ship" | "local_delivery" | "pickup";
+export type StoreItemFulfillmentType = "ship" | "local_delivery";
 
 const fulfillmentBtnBase =
   "inline-flex items-center gap-2 border rounded px-4 py-2.5 text-base transition min-h-[2.75rem]";
@@ -16,11 +16,9 @@ type FulfillmentPickerProps = {
   onFulfillmentTypeChange: (type: StoreItemFulfillmentType) => void;
   shippingDisabled?: boolean;
   localDeliveryAvailable?: boolean;
-  inStorePickupAvailable?: boolean;
   shippingCostCents?: number | null;
   localDeliveryFeeCents?: number | null;
   localDeliveryDetailsSaved?: boolean;
-  pickupDetailsSaved?: boolean;
   /** App-style section title */
   sectionTitle?: string;
 };
@@ -30,15 +28,12 @@ export const StoreItemFulfillmentPicker = memo(function StoreItemFulfillmentPick
   onFulfillmentTypeChange,
   shippingDisabled,
   localDeliveryAvailable,
-  inStorePickupAvailable,
   shippingCostCents,
   localDeliveryFeeCents,
   localDeliveryDetailsSaved,
-  pickupDetailsSaved,
   sectionTitle = "Receive Item",
 }: FulfillmentPickerProps) {
-  const showPicker =
-    shippingDisabled || localDeliveryAvailable || inStorePickupAvailable;
+  const showPicker = Boolean(shippingDisabled || localDeliveryAvailable);
   if (!showPicker) return null;
 
   return (
@@ -64,24 +59,6 @@ export const StoreItemFulfillmentPicker = memo(function StoreItemFulfillmentPick
             {shippingCostCents != null && shippingCostCents > 0
               ? ` ($${(shippingCostCents / 100).toFixed(2)})`
               : " (free)"}
-          </button>
-        )}
-        {inStorePickupAvailable && (
-          <button
-            type="button"
-            onClick={() => onFulfillmentTypeChange("pickup")}
-            className={`${fulfillmentBtnBase} ${
-              fulfillmentType === "pickup" ? fulfillmentBtnActive : fulfillmentBtnIdle
-            }`}
-          >
-            <IonIcon
-              name="storefront-outline"
-              size={20}
-              className={
-                fulfillmentType === "pickup" ? "text-[var(--color-primary)]" : "text-gray-600"
-              }
-            />
-            Pickup
           </button>
         )}
         {localDeliveryAvailable && (
@@ -110,13 +87,8 @@ export const StoreItemFulfillmentPicker = memo(function StoreItemFulfillmentPick
           </button>
         )}
       </div>
-      {((fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) ||
-        (fulfillmentType === "pickup" && !pickupDetailsSaved)) && (
-        <p className="text-amber-600 text-sm">
-          {fulfillmentType === "pickup"
-            ? "Complete the pickup form when you add to cart."
-            : "Complete delivery details when you add to cart."}
-        </p>
+      {fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved && (
+        <p className="text-amber-600 text-sm">Complete delivery details when you add to cart.</p>
       )}
     </div>
   );

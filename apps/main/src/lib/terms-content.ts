@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "October 13, 2026";
+export const TERMS_LAST_UPDATED = "October 15, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -29,10 +29,13 @@ Businesses and Sellers must:
 ● Operate within the regions NWC serves
 ● Represent that all information they submit is accurate and does not belong to another individual unless they have authorization.
 
+2.3 Unfinished accounts
+If you start an account and do not finish sign-in or onboarding, that account is not shown publicly. If you do not come back, NWC deletes it after 24 hours. If you sign in before then, you continue onboarding where you left off. Accounts that already have a paid plan, payout setup, or commerce history are not deleted on that timer.
+
 3. USER-GENERATED CONTENT (UGC) POLICY
 3.1 Your Content
 Users may post blogs, listings, messages, feed posts, group posts, and event information.
-Uploads (such as images for listings, logos, business gallery photos, or calendar/event photos) are subject to technical limits posted in the app or on the website, including a maximum of 250MB per listing photo and 120MB per file for other image uploads, and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, GIF, and HEIC/HEIF where our upload endpoints support them, unless we state otherwise.
+Uploads (such as images for listings, logos, business gallery photos, custom-option files a buyer uploads on a listing, or calendar/event photos) are subject to technical limits posted in the app or on the website, including a maximum of 250MB per listing photo and per custom-option file, and 120MB per file for other image uploads, and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, GIF, and HEIC/HEIF where our upload endpoints support them, and custom-option files may also be SVG or PDF, unless we state otherwise.
 By submitting content, you grant NWC a non-exclusive, worldwide, royalty-free license to:
 ● Display, distribute, share, and promote your content
 ● Modify content only for formatting or minor grammatical corrections. You retain ownership of your content.

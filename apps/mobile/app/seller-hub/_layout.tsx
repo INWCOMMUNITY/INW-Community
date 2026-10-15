@@ -33,6 +33,8 @@ function useHeaderTitle() {
   if (path.includes("before-you-start") || String(last) === "before-you-start") return "Before You Start";
   if (path.includes("seller-page-settings") || String(last) === "seller-page-settings") return "Seller Page Settings";
   if (path.includes("quantity-history")) return "Quantity History";
+  if (path.includes("/apps") || String(last) === "apps") return "Sync Airport";
+  if (path.includes("etsy") || String(last) === "etsy") return "Etsy";
   if (path.includes("shopify") || String(last) === "shopify") return "Shopify";
   return "Seller Hub";
 }
@@ -63,6 +65,8 @@ export default function SellerHubLayout() {
         />
         {/* Inner layouts supply their own stack header + back; hide outer title bar here. */}
         <Stack.Screen name="store" options={{ headerShown: false }} />
+        <Stack.Screen name="shopify" options={{ headerShown: false }} />
+        <Stack.Screen name="etsy" options={{ headerShown: false }} />
         <Stack.Screen name="quantity-history/[itemId]" options={{ title: "Quantity History" }} />
       </Stack>
     </>

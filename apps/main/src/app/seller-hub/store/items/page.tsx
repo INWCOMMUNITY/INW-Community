@@ -617,6 +617,10 @@ function MyItemsPageInner() {
         })}
       </div>
 
+      {tab === "ended" ? (
+        <p className="mb-3 text-sm text-neutral-600">Ended listings disappear after 14 days.</p>
+      ) : null}
+
       <div className="mb-4 flex flex-wrap items-center gap-3 min-h-[2.75rem]">
         <label className="sr-only" htmlFor="my-items-search">
           Search items
@@ -640,6 +644,32 @@ function MyItemsPageInner() {
             Select all
             {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
           </label>
+        ) : null}
+        {tab === "ended" && items.length > 0 ? (
+          <button
+            type="button"
+            disabled={acting}
+            className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            onClick={() => {
+              if (
+                !window.confirm(
+                  "Clear all ended listings? They leave this list now. Ended listings also disappear on their own after 14 days."
+                )
+              ) {
+                return;
+              }
+              void runAction(async () => {
+                const res = await fetch("/api/store-items/clear-ended", {
+                  method: "POST",
+                  credentials: "include",
+                });
+                const data = (await res.json().catch(() => ({}))) as { error?: string };
+                if (!res.ok) throw new Error(data.error ?? "Could not clear ended listings.");
+              }, "Cleared ended listings.");
+            }}
+          >
+            Clear all
+          </button>
         ) : null}
         {hasSelection ? (
           <div className="flex flex-wrap items-center gap-2 text-sm">

@@ -19,6 +19,12 @@ import { resolveEtsyListingPackageFields } from "./listing-package";
 import { etsyListingHasImages, uploadEtsyListingPhotosFromUrls } from "./listing-images";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "./apps-airport";
+import {
+  ETSY_PRODUCTION_PARTNER_DRAFT_MESSAGE,
+  ETSY_PRODUCTION_PARTNER_REQUIRED_MESSAGE,
+  requiresEtsyProductionPartner,
+  sellerEtsyErrorMessage,
+} from "./marketplace-rejection";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
@@ -323,6 +329,39 @@ function classifyFailure(
   };
 }
 
+async function loadEtsyProductionPartnerIds(input: {
+  connectionId: string;
+  memberId: string;
+  shopId: string;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<
+  | { ok: true; ids: number[] }
+  | { ok: false; failure: Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }
+> {
+  const res = await etsyConnectionRequest<{
+    results?: Array<{ production_partner_id?: number | string }>;
+  }>({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/shops/${encodeURIComponent(input.shopId)}/production-partners`,
+    maxAttempts: 2,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!res.ok) {
+    if (res.class === "THROTTLED" || res.class === "TRANSIENT" || res.class === "NETWORK") {
+      return { ok: false, failure: classifyFailure(res.class, res.retryAfterMs, res.message) };
+    }
+    return { ok: true, ids: [] };
+  }
+  const ids = (res.data?.results ?? [])
+    .map((row) => Number(row.production_partner_id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  return { ok: true, ids: [...new Set(ids)] };
+}
+
 /**
  * CREATE_LISTING handler: draft listing with How it's made → map → optional activate.
  */
@@ -448,6 +487,7 @@ export async function handleEtsyCreateListingJob(
       readinessStateId: readiness.readinessStateId,
       packageFields,
       taxonomyId: how.taxonomyId,
+      holdAsDraft: requiresEtsyProductionPartner(how),
       fetchImpl: deps.fetchImpl,
       now: deps.now,
     });
@@ -480,6 +520,33 @@ export async function handleEtsyCreateListingJob(
   };
   if (connection.defaultShippingProfileId) {
     createBody.shipping_profile_id = connection.defaultShippingProfileId;
+  }
+
+  const partnerRequired = requiresEtsyProductionPartner(how);
+  if (partnerRequired) {
+    const partners = await loadEtsyProductionPartnerIds({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      shopId: connection.shopId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!partners.ok) return partners.failure;
+    if (partners.ids.length === 0) {
+      if (storeItem.status === "active") {
+        await prisma.storeItem.update({
+          where: { id: storeItem.id },
+          data: { status: "draft" },
+        });
+      }
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "PRODUCTION_PARTNER_REQUIRED",
+        errorMessage: ETSY_PRODUCTION_PARTNER_REQUIRED_MESSAGE,
+      };
+    }
+    createBody.production_partner_ids = partners.ids;
   }
 
   const createRes = await etsyConnectionRequest<{
@@ -535,11 +602,23 @@ export async function handleEtsyCreateListingJob(
         return classifyFailure(
           createRes.class,
           createRes.retryAfterMs,
-          createRes.message || retry.message
+          sellerEtsyErrorMessage(createRes.message || retry.message, {
+            whoMade: how.whoMade,
+            whenMade: how.whenMade,
+            isSupply: how.isSupply,
+          }) ?? undefined
         );
       }
     } else {
-      return classifyFailure(createRes.class, createRes.retryAfterMs, createRes.message);
+      return classifyFailure(
+        createRes.class,
+        createRes.retryAfterMs,
+        sellerEtsyErrorMessage(createRes.message, {
+          whoMade: how.whoMade,
+          whenMade: how.whenMade,
+          isSupply: how.isSupply,
+        }) ?? undefined
+      );
     }
   }
 
@@ -802,6 +881,7 @@ export async function handleEtsyCreateListingJob(
     readinessStateId: readiness.readinessStateId,
     packageFields,
     taxonomyId: (createBody.taxonomy_id as number | undefined) ?? how.taxonomyId,
+    holdAsDraft: partnerRequired,
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
@@ -880,6 +960,8 @@ async function finalizeEtsyListingActivation(input: {
   readinessStateId: number | string;
   packageFields: ReturnType<typeof resolveEtsyListingPackageFields>;
   taxonomyId: number;
+  /** Leave the Etsy listing as a draft and tell the seller to add a production partner. */
+  holdAsDraft?: boolean;
   fetchImpl?: EtsyFetch;
   now?: Date;
 }): Promise<EtsyJobHandlerResult> {
@@ -895,7 +977,7 @@ async function finalizeEtsyListingActivation(input: {
       now: input.now,
     });
 
-  if (!connection.defaultShippingProfileId) {
+  if (!connection.defaultShippingProfileId && !input.holdAsDraft) {
     const issueMessage =
       "Listing created as an Etsy draft. Set a default shipping profile on the Etsy connection to activate.";
     await prisma.etsyListingLink.updateMany({
@@ -1004,6 +1086,38 @@ async function finalizeEtsyListingActivation(input: {
         connectionId: connection.id,
         subjectId: link.id,
         issueCode: "IMAGES_REQUIRED",
+        issueFingerprint: issueMessage,
+        severity: "ACTION_REQUIRED",
+        message: issueMessage,
+      }).catch(() => undefined);
+    }
+    const personalization = await pushPersonalization();
+    if (personalization) return personalization;
+    return { outcome: "SUCCESS" };
+  }
+
+  if (input.holdAsDraft) {
+    const issueMessage = ETSY_PRODUCTION_PARTNER_DRAFT_MESSAGE;
+    await prisma.etsyListingLink.updateMany({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      data: {
+        remoteListingState: "draft",
+        readiness: "ACTION_REQUIRED",
+        issueCode: "PRODUCTION_PARTNER_REQUIRED",
+        issueMessage,
+      },
+    });
+    const link = await prisma.etsyListingLink.findFirst({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      select: { id: true },
+    });
+    if (link) {
+      await notifyEtsyListingIssueOnce({
+        memberId: connection.memberId,
+        storeItemId: storeItem.id,
+        connectionId: connection.id,
+        subjectId: link.id,
+        issueCode: "PRODUCTION_PARTNER_REQUIRED",
         issueFingerprint: issueMessage,
         severity: "ACTION_REQUIRED",
         message: issueMessage,

@@ -20,7 +20,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
+import { uploadBuyerFileFromUri } from "@/lib/upload-buyer-file";
 import * as ImagePicker from "expo-image-picker";
 import type { PublicBuyerField } from "@/lib/listing-buyer-fields";
 import { useAuth } from "@/contexts/AuthContext";
@@ -503,7 +504,7 @@ export default function ProductScreen() {
         const draft = buyerAnswers[field.id];
         const labeled = field.kind === "FILE" && field.labelEachFile && field.options.length > 0;
         const labeledFiles = labeled
-          ? field.options.flatMap((option, index) => {
+          ? field.options.slice(0, 10).flatMap((option, index) => {
               const file = draft?.files?.[index];
               return file?.url ? [{ url: file.url, label: option.label }] : [];
             })
@@ -513,7 +514,7 @@ export default function ProductScreen() {
           text: draft?.text ?? "",
           optionLabel: draft?.optionLabel ?? "",
           files: labeled
-            ? labeledFiles.length === field.options.length
+            ? labeledFiles.length === Math.min(10, field.options.length)
               ? labeledFiles
               : []
             : (draft?.files ?? []).filter((file) => file?.url),
@@ -846,12 +847,6 @@ export default function ProductScreen() {
                 </Text>
               </View>
             )}
-            {item.inStorePickupAvailable && (
-              <View style={styles.shippingPreviewItem}>
-                <Ionicons name="storefront-outline" size={16} color={theme.colors.earth} />
-                <Text style={styles.shippingPreviewText}>Local Pickup Available</Text>
-              </View>
-            )}
           </View>
 
           {(item.saveCount != null && item.saveCount > 0) || !itemUnavailable ? (
@@ -917,7 +912,7 @@ export default function ProductScreen() {
                     : null}
                   {field.kind === "FILE"
                     ? (field.labelEachFile && field.options.length > 0
-                        ? field.options
+                        ? field.options.slice(0, 10)
                         : Array.from({ length: Math.min(10, Math.max(1, field.maxFiles ?? 1)) }, (_, index) => ({
                             id: `${field.id}-file-${index}`,
                             label: "Add a file",
@@ -926,7 +921,7 @@ export default function ProductScreen() {
                         const saved = buyerAnswers[field.id]?.files?.[index];
                         return (
                           <Pressable
-                            key={slot.id}
+                            key={`${field.id}-slot-${index}`}
                             onPress={async () => {
                               const picked = await ImagePicker.launchImageLibraryAsync({
                                 mediaTypes: ["images"],
@@ -934,24 +929,31 @@ export default function ProductScreen() {
                               });
                               if (picked.canceled || !picked.assets[0]) return;
                               const asset = picked.assets[0];
-                              const form = new FormData();
-                              form.append("file", {
-                                uri: asset.uri,
-                                name: asset.fileName ?? "upload.jpg",
-                                type: asset.mimeType ?? "image/jpeg",
-                              } as unknown as Blob);
-                              const uploaded = await apiUploadFile("/api/upload/buyer-file", form);
-                              setBuyerAnswers((prev) => {
-                                const nextFiles = [...(prev[field.id]?.files ?? [])];
-                                nextFiles[index] = {
-                                  url: uploaded.url,
-                                  label: field.labelEachFile ? slot.label : null,
-                                };
-                                return {
-                                  ...prev,
-                                  [field.id]: { ...prev[field.id], files: nextFiles },
-                                };
-                              });
+                              try {
+                                const uploaded = await uploadBuyerFileFromUri({
+                                  localUri: asset.uri,
+                                  mimeType: asset.mimeType ?? "image/jpeg",
+                                  fileName: asset.fileName ?? "upload.jpg",
+                                  fileSize: asset.fileSize,
+                                });
+                                setBuyerAnswers((prev) => {
+                                  const nextFiles = [...(prev[field.id]?.files ?? [])];
+                                  nextFiles[index] = {
+                                    url: uploaded.url,
+                                    label: field.labelEachFile ? slot.label : null,
+                                  };
+                                  return {
+                                    ...prev,
+                                    [field.id]: { ...prev[field.id], files: nextFiles },
+                                  };
+                                });
+                              } catch (error) {
+                                const message =
+                                  error && typeof error === "object" && "error" in error
+                                    ? String((error as { error?: string }).error)
+                                    : "Upload failed";
+                                Alert.alert("Upload failed", message);
+                              }
                             }}
                             style={{
                               flexDirection: "row",
@@ -1015,9 +1017,7 @@ export default function ProductScreen() {
                             ]}
                           >
                             {opt.value}
-                            {soldOut ? " (Out)" : opt.quantity > 0 && opt.quantity < 10
-                              ? ` (${opt.quantity})`
-                              : ""}
+                            {soldOut ? " (Out)" : ""}
                           </Text>
                         </Pressable>
                       );
@@ -1190,7 +1190,7 @@ export default function ProductScreen() {
                 {effectiveLocalDeliveryPolicy ? (
                   <View style={styles.policyBlock}>
                     <Text style={styles.policyLabel}>
-                      Local Delivery / Pick Up Policy
+                      Local Delivery Policy
                     </Text>
                     <Text style={styles.policyText}>
                       {effectiveLocalDeliveryPolicy}

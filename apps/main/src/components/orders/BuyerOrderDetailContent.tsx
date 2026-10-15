@@ -28,7 +28,7 @@ import {
   trackingStatusLabel,
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
-import { orderHasLocalDeliveryLine, orderHasPickupLine } from "@/lib/store-order-fulfillment";
+import { orderHasLocalDeliveryLine } from "@/lib/store-order-fulfillment";
 
 const outlineBtn =
   "inline-flex items-center justify-center gap-1 rounded-lg border-2 border-[var(--color-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--color-primary)] hover:opacity-90";
@@ -116,9 +116,7 @@ export function BuyerOrderDetailContent() {
   const trackingNumber = order.shipment?.trackingNumber?.trim() || null;
   const address = formatShippingAddress(order.shippingAddress);
   const items = order.items ?? [];
-  const pickupItem = items.find((i) => (i.fulfillmentType ?? "") === "pickup");
   const activeFulfillment = order.status === "paid" || order.status === "shipped" || order.status === "delivered";
-  const showPickup = orderHasPickupLine(items) && pickupItem && activeFulfillment;
   const showDelivery = orderHasLocalDeliveryLine(items) && activeFulfillment;
   const firstSlug = items.find((i) => i.storeItem?.slug)?.storeItem?.slug;
   const productRef = { type: "order" as const, orderId: order.id, orderKind: "buyer" as const };
@@ -277,8 +275,8 @@ export function BuyerOrderDetailContent() {
               </button>
             </div>
           </>
-        ) : orderHasPickupLine(items) || orderHasLocalDeliveryLine(items) ? (
-          <p className="text-sm opacity-80">No mail shipment — use the ticket below.</p>
+        ) : orderHasLocalDeliveryLine(items) ? (
+          <p className="text-sm opacity-80">No mail shipment — use the delivery ticket below.</p>
         ) : (
           <p className="text-sm opacity-80">Seller hasn’t shipped yet.</p>
         )}
@@ -330,11 +328,6 @@ export function BuyerOrderDetailContent() {
       ) : null}
 
       <div className="flex flex-wrap gap-2 mb-8">
-        {showPickup && pickupItem ? (
-          <button type="button" className={outlineBtn} onClick={() => setModal({ kind: "pickup", order, item: pickupItem })}>
-            Pick up ticket
-          </button>
-        ) : null}
         {showDelivery ? (
           <button type="button" className={outlineBtn} onClick={() => setModal({ kind: "delivery", order })}>
             Delivery ticket

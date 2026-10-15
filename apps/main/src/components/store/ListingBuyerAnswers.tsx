@@ -18,7 +18,7 @@ export function answersPayload(
     const draft = drafts[field.id];
     const files =
       field.kind === "FILE" && field.labelEachFile && field.options.length > 0
-        ? field.options.flatMap((option, index) => {
+        ? field.options.slice(0, 10).flatMap((option, index) => {
             const file = draft?.files?.[index];
             return file?.url ? [{ url: file.url, label: option.label }] : [];
           })
@@ -27,7 +27,7 @@ export function answersPayload(
       field.kind !== "FILE" ||
       !field.labelEachFile ||
       field.options.length === 0 ||
-      files.length === field.options.length;
+      files.length === Math.min(10, field.options.length);
     return {
       fieldId: field.id,
       text: draft?.text ?? "",
@@ -37,11 +37,16 @@ export function answersPayload(
   });
 }
 
+const FILE_SLOT_MAX = 10;
+
 function fileSlots(field: ListingBuyerFieldPublic): Array<{ key: string; label: string }> {
   if (field.labelEachFile && field.options.length > 0) {
-    return field.options.map((option) => ({ key: option.id, label: option.label }));
+    return field.options.slice(0, FILE_SLOT_MAX).map((option, index) => ({
+      key: `${field.id}-slot-${index}`,
+      label: option.label,
+    }));
   }
-  const count = Math.min(10, Math.max(1, field.maxFiles ?? 1));
+  const count = Math.min(FILE_SLOT_MAX, Math.max(1, field.maxFiles ?? 1));
   return Array.from({ length: count }, (_, index) => ({
     key: `${field.id}-file-${index}`,
     label: "Add a file",
@@ -74,35 +79,10 @@ function BuyerFileSlot({
 
   return (
     <div className="relative flex min-h-12 items-center gap-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-100 px-3 py-2.5">
-      <input
-        type="file"
-        aria-label={label}
-        accept=".jpg,.jpeg,.png,.svg,.pdf,.heic,.webp,image/*,application/pdf"
-        disabled={uploading}
-        className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
-        onChange={async (e) => {
-          const picked = e.target.files?.[0];
-          e.target.value = "";
-          if (!picked) return;
-          setPickedName(picked.name);
-          setProgress(4);
-          try {
-            const url = await onUpload(picked, (percent) => {
-              setProgress(Math.max(4, Math.min(99, percent)));
-            });
-            setProgress(100);
-            onUploaded(url, picked.name);
-          } catch (error) {
-            setProgress(null);
-            setPickedName(savedName ?? null);
-            window.alert(error instanceof Error ? error.message : "Upload failed");
-          }
-        }}
-      />
-      <span className="w-4 text-center text-lg leading-none text-neutral-700" aria-hidden>
+      <span className="pointer-events-none w-4 text-center text-lg leading-none text-neutral-700" aria-hidden>
         +
       </span>
-      <span className="min-w-0 flex-1">
+      <span className="pointer-events-none min-w-0 flex-1">
         <span className="flex items-center text-sm text-neutral-800">
           {label}
           {savedUrl && !uploading ? (
@@ -122,7 +102,7 @@ function BuyerFileSlot({
       {savedUrl && !uploading ? (
         <button
           type="button"
-          className="relative z-10 text-xs text-neutral-600 underline"
+          className="relative z-20 text-xs text-neutral-600 underline"
           onClick={() => {
             setPickedName(null);
             onRemove();
@@ -131,9 +111,36 @@ function BuyerFileSlot({
           Remove
         </button>
       ) : null}
+      <label className={`absolute inset-0 z-10 ${uploading ? "pointer-events-none" : "cursor-pointer"}`}>
+        <input
+          type="file"
+          aria-label={label}
+          accept=".jpg,.jpeg,.png,.svg,.pdf,.heic,.heif,.webp,image/*,application/pdf"
+          disabled={uploading}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+          onChange={async (e) => {
+            const picked = e.target.files?.[0];
+            e.target.value = "";
+            if (!picked) return;
+            setPickedName(picked.name);
+            setProgress(4);
+            try {
+              const url = await onUpload(picked, (percent) => {
+                setProgress(Math.max(4, Math.min(99, percent)));
+              });
+              setProgress(100);
+              onUploaded(url, picked.name);
+            } catch (error) {
+              setProgress(null);
+              setPickedName(savedName ?? null);
+              window.alert(error instanceof Error ? error.message : "Upload failed");
+            }
+          }}
+        />
+      </label>
       {uploading ? (
         <div
-          className="absolute inset-x-3 bottom-1.5 h-1 overflow-hidden rounded-full bg-neutral-200"
+          className="absolute inset-x-3 bottom-1.5 z-20 h-1 overflow-hidden rounded-full bg-neutral-200"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
@@ -248,7 +255,7 @@ export function ListingBuyerAnswers({
                     }}
                   />
                 ))}
-                <p className="text-xs text-gray-500">jpg, png, svg, pdf, or heic.</p>
+                <p className="text-xs text-gray-500">jpg, png, svg, pdf, or heic. Up to 250MB each.</p>
               </div>
             ) : null}
           </div>

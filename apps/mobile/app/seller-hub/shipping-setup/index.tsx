@@ -135,7 +135,6 @@ export default function ShippingScreen() {
   const [createOpen, setCreateOpen] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [importing, setImporting] = useState<"etsy" | "shopify" | null>(null);
   const [editing, setEditing] = useState<ShippingOption | null>(null);
   const [combineShipping, setCombineShipping] = useState(false);
   const [combineMaxInput, setCombineMaxInput] = useState("");
@@ -227,28 +226,6 @@ export default function ShippingScreen() {
       setData(json);
     } catch (e: unknown) {
       setError((e as { error?: string })?.error || "Could not save");
-    }
-  }
-
-  async function importFrom(provider: "etsy" | "shopify") {
-    setError(null);
-    setImporting(provider);
-    try {
-      const json = await apiPost<{
-        options?: ShippingOption[];
-        error?: string;
-      }>("/api/shipping-options/import", { provider });
-      if (Array.isArray(json.options)) {
-        setData((prev) => (prev ? { ...prev, options: json.options as ShippingOption[] } : prev));
-      } else {
-        await loadOptions();
-      }
-    } catch (e: unknown) {
-      setError(
-        (e as { error?: string })?.error || `Could not import from ${sourceLabel(provider)}`
-      );
-    } finally {
-      setImporting(null);
     }
   }
 
@@ -443,37 +420,11 @@ export default function ShippingScreen() {
 
       <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Shipping options</Text>
       <Text style={styles.hint}>
-        Create packages for listings, or import from connected marketplaces.
+        Create shipping packages on INW. Shipping is set up here and is not imported from Etsy or Shopify.
       </Text>
 
       {error ? <Text style={styles.err}>{error}</Text> : null}
 
-      <Pressable
-        style={[styles.primaryBtn, (!data?.etsyConnected || importing != null) && styles.primaryBtnDisabled]}
-        disabled={!data?.etsyConnected || importing != null}
-        onPress={() => void importFrom("etsy")}
-      >
-        {importing === "etsy" ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryBtnText}>Import from Etsy</Text>
-        )}
-      </Pressable>
-      <Pressable
-        style={[
-          styles.primaryBtn,
-          styles.importBtnSpacing,
-          (!data?.shopifyConnected || importing != null) && styles.primaryBtnDisabled,
-        ]}
-        disabled={!data?.shopifyConnected || importing != null}
-        onPress={() => void importFrom("shopify")}
-      >
-        {importing === "shopify" ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryBtnText}>Import from Shopify</Text>
-        )}
-      </Pressable>
       <CheckboxRow
         label="Offer free shipping on INW (Recommended)"
         checked={Boolean(data?.offerFreeShippingOnInw)}
@@ -716,7 +667,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 8,
   },
-  importBtnSpacing: { marginTop: 10 },
   primaryBtnDisabled: { opacity: 0.65 },
   primaryBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   optionRow: {

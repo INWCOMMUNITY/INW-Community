@@ -6,6 +6,11 @@ import {
 import { completeEtsyOAuth, EtsyConnectError } from "@/lib/etsy/connect";
 import { readEtsyAppConfig } from "@/lib/etsy/config";
 import { ETSY_SELLER_RETURN_PATH } from "@/lib/etsy/constants";
+import {
+  clearSellerOnboardingReturnCookie,
+  readSellerOnboardingReturn,
+  sellerOnboardingReturnPath,
+} from "@/lib/seller-onboarding-return";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +23,16 @@ function sellerReturnBase(req: NextRequest, configuredAppUrl: string): string {
   return configuredAppUrl;
 }
 
-function redirectToSeller(baseUrl: string, errorCode?: string) {
-  const path = errorCode
-    ? `${ETSY_SELLER_RETURN_PATH}?etsy_error=${encodeURIComponent(errorCode)}`
-    : `${ETSY_SELLER_RETURN_PATH}?etsy=connected`;
+function redirectToSeller(baseUrl: string, errorCode?: string, onboarding = false) {
+  const path = onboarding
+    ? sellerOnboardingReturnPath("import", errorCode ? { etsy_error: errorCode } : { etsy: "connected" })
+    : errorCode
+      ? `${ETSY_SELLER_RETURN_PATH}?etsy_error=${encodeURIComponent(errorCode)}`
+      : `${ETSY_SELLER_RETURN_PATH}?etsy=connected`;
   const response = NextResponse.redirect(new URL(path, baseUrl));
   const cookie = clearedEtsyBrowserBindingCookie();
   response.cookies.set(cookie.name, cookie.value, cookie.options);
+  if (onboarding) clearSellerOnboardingReturnCookie(response);
   return response;
 }
 
@@ -37,6 +45,7 @@ export async function GET(req: NextRequest) {
     return response;
   }
   const returnBase = sellerReturnBase(req, config.appUrl);
+  const onboarding = readSellerOnboardingReturn(req) === "import";
   try {
     const bindingCookiePresent = Boolean(req.cookies.get(ETSY_OAUTH_BROWSER_COOKIE)?.value);
     console.info("ETSY_OAUTH_CALLBACK_BINDING_PRESENT", {
@@ -49,7 +58,7 @@ export async function GET(req: NextRequest) {
       browserBindingSecret: req.cookies.get(ETSY_OAUTH_BROWSER_COOKIE)?.value ?? null,
     });
     console.info("ETSY_OAUTH_CALLBACK_OK", { returnBase });
-    return redirectToSeller(returnBase);
+    return redirectToSeller(returnBase, undefined, onboarding);
   } catch (error) {
     const code = error instanceof EtsyConnectError ? error.code : "invalid_callback";
     const reason =
@@ -62,6 +71,6 @@ export async function GET(req: NextRequest) {
       bindingCookiePresent: Boolean(req.cookies.get(ETSY_OAUTH_BROWSER_COOKIE)?.value),
       message: error instanceof Error ? error.message : "unknown",
     });
-    return redirectToSeller(returnBase, code);
+    return redirectToSeller(returnBase, code, onboarding);
   }
 }

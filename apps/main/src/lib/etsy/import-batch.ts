@@ -399,6 +399,7 @@ export async function handleEtsyImportBatchJob(
   }
 
   let itemsThisClaim = 0;
+  const deferredThisClaim = new Set<string>();
   while (
     queue.length > 0 &&
     itemsThisClaim < MAX_ITEMS_PER_CLAIM &&
@@ -440,8 +441,28 @@ export async function handleEtsyImportBatchJob(
       } else if (result.status === "ALREADY_IMPORTED") {
         skipped += 1;
       } else if (result.status === "ERROR" && result.code === "IMPORT_IN_PROGRESS") {
-        // Put back and try later — do not burn as failed.
-        queue.unshift(etsyListingId);
+        // Another attempt still holds this listing. Try the rest of the queue first
+        // so one interrupted import does not freeze the whole batch.
+        if (deferredThisClaim.has(etsyListingId) || queue.every((id) => deferredThisClaim.has(id))) {
+          queue.unshift(etsyListingId);
+          await prisma.etsyImportBatch.update({
+            where: { id: batch.id },
+            data: {
+              queueJson: queue,
+              lastProgressAt: new Date(),
+              lastError: "Waiting for an in-progress listing import to finish…",
+            },
+          });
+          return {
+            outcome: "RETRY",
+            errorClass: "TRANSIENT",
+            errorCode: "IMPORT_IN_PROGRESS",
+            errorMessage: "Waiting for an in-progress listing import to finish",
+            retryAt: new Date(Date.now() + 8_000),
+          };
+        }
+        deferredThisClaim.add(etsyListingId);
+        queue.push(etsyListingId);
         await prisma.etsyImportBatch.update({
           where: { id: batch.id },
           data: {
@@ -450,13 +471,7 @@ export async function handleEtsyImportBatchJob(
             lastError: "Waiting for an in-progress listing import to finish…",
           },
         });
-        return {
-          outcome: "RETRY",
-          errorClass: "TRANSIENT",
-          errorCode: "IMPORT_IN_PROGRESS",
-          errorMessage: "Waiting for an in-progress listing import to finish",
-          retryAt: new Date(Date.now() + 8_000),
-        };
+        continue;
       } else if (result.status === "ERROR") {
         failed += 1;
         failures = appendEtsyImportBatchFailures(failures, [

@@ -22,7 +22,7 @@ import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
 import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
-import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
+import { storeItemStatusWrite, visibleEndedStoreItemWhere } from "@/lib/store-item-ended-status";
 import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
 import {
   BROWSE_CACHE_HEADERS,
@@ -487,7 +487,7 @@ export async function GET(req: NextRequest) {
     if (searchParams.get("counts") === "1") {
       const [active, ended, sold, drafts] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
-        prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
+        prisma.storeItem.count({ where: visibleEndedStoreItemWhere(userId) }),
         countMineSoldSales(userId),
         prisma.storeItem.count({ where: { memberId: userId, status: "draft" } }),
       ]);
@@ -500,14 +500,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const where: {
-      memberId: string;
-      condition?: string;
-      status?: string;
-      id?: { in: string[] };
-    } = { memberId: userId };
+    let where: Prisma.StoreItemWhereInput = { memberId: userId };
     if (condition) where.condition = condition;
-    // My Items tabs: active (incl. out of stock), ended (inactive), sold = paid sales.
+    // My Items tabs: active (incl. out of stock), ended (inactive within 14 days), sold = paid sales.
     const soldOnly = searchParams.get("sold") === "1";
     const filter = searchParams.get("filter");
     if (soldOnly || filter === "sold") {
@@ -515,7 +510,10 @@ export async function GET(req: NextRequest) {
     } else if (filter === "active") {
       where.status = "active";
     } else if (filter === "ended") {
-      where.status = "inactive";
+      where = {
+        ...visibleEndedStoreItemWhere(userId),
+        ...(condition ? { condition } : {}),
+      };
     } else if (filter === "drafts" || filter === "draft") {
       where.status = "draft";
     } else if (filter === "attention") {

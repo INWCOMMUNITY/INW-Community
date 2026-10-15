@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { OnboardingImportBanner } from "@/components/seller-onboarding/OnboardingImportBanner";
 import {
   APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_PATH,
@@ -425,6 +426,7 @@ export default function AppsAirportShopifyImportPage() {
         { href: `${APPS_AIRPORT_SHOPIFY_PATH}/import`, label: "Import" },
       ]}
     >
+      <OnboardingImportBanner />
       {connectionError ? (
         <div
           className="rounded-[10px] border-2 p-5 mb-6"

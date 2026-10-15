@@ -84,7 +84,8 @@ export function ListingBuyerFieldsEditor({
   return (
     <View style={styles.wrap}>
       <Text style={styles.hint}>
-        Custom Options for buyers (text, choices, or one file upload). These do not change inventory.
+        Collect details from buyers — text, a choice, or files. These do not change your inventory.
+        Up to 5. One file upload per listing. Synced to Etsy custom options.
       </Text>
       {fields.map((field, index) => (
         <View key={`${field.kind}-${index}`} style={styles.card}>

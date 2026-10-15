@@ -546,30 +546,6 @@ export default function StoreScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.filterChip,
-                    deliveryFilter === "local" && styles.filterChipActive,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() =>
-                    setDeliveryFilter(deliveryFilter === "local" ? "" : "local")
-                  }
-                >
-                  <Ionicons
-                    name="location-outline"
-                    size={14}
-                    color={deliveryFilter === "local" ? "#fff" : theme.colors.primary}
-                  />
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      deliveryFilter === "local" && styles.filterChipTextActive,
-                    ]}
-                  >
-                    Local Pickup
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.filterChip,
                     deliveryFilter === "shipping" && styles.filterChipActive,
                     pressed && { opacity: 0.8 },
                   ]}

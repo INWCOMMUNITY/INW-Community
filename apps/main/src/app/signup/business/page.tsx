@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { BusinessForm, type BusinessFormData } from "@/components/BusinessForm";
 import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
 
@@ -22,6 +22,13 @@ export default function SignupBusinessPage() {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { status: sessionStatus } = useSession();
+
+  useEffect(() => {
+    if (sessionStatus === "authenticated") {
+      setStep((current) => (current === "account" ? "business" : current));
+    }
+  }, [sessionStatus]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -163,6 +170,9 @@ export default function SignupBusinessPage() {
             subcategoriesByPrimary: businessData.subcategoriesByPrimary,
             photos: businessData.photos,
             hoursOfOperation: businessData.hoursOfOperation,
+            facebookUrl: businessData.facebookUrl,
+            instagramUrl: businessData.instagramUrl,
+            tiktokUrl: businessData.tiktokUrl,
           },
         }),
         credentials: "same-origin",

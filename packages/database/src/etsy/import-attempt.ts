@@ -2,7 +2,8 @@ import type { Prisma, PrismaClient, EtsyListingImportAttempt } from "@prisma/cli
 
 export type EtsyImportAttemptDb = PrismaClient | Prisma.TransactionClient;
 
-const STALE_STARTED_MS = 15 * 60 * 1000;
+/** A listing import runs inside one request. Older STARTED rows were abandoned. */
+const STALE_STARTED_MS = 90 * 1000;
 
 export type BeginEtsyListingImportAttemptResult =
   | { status: "READY"; attempt: EtsyListingImportAttempt; reusedCompleted: false }
@@ -213,7 +214,7 @@ export async function beginEtsyListingImportAttempt(
       },
     });
     return { status: "READY", attempt: created, reusedCompleted: false };
-  });
+  }, { maxWait: 10_000, timeout: 20_000 });
 }
 
 export async function completeEtsyListingImportAttempt(

@@ -60,7 +60,6 @@ export function StoreItemCard({
 
   const hasFreeShipping =
     !item.shippingDisabled && item.shippingCostCents === 0;
-  const hasLocalPickup = item.inStorePickupAvailable || item.localDeliveryAvailable;
 
   const openItem = () => {
     router.push(buildProductPath(item.slug, referrer ?? { type: "storefront" }) as never);
@@ -100,11 +99,6 @@ export function StoreItemCard({
             {hasFreeShipping && (
               <View style={[styles.badge, styles.badgeTopRight]}>
                 <Text style={styles.badgeText}>Free Shipping</Text>
-              </View>
-            )}
-            {hasLocalPickup && !hasFreeShipping && (
-              <View style={[styles.badge, styles.badgeTopRight]}>
-                <Text style={styles.badgeText}>Local Pickup</Text>
               </View>
             )}
             {item.business?.logoUrl && (

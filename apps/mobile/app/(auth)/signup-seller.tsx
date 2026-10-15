@@ -43,9 +43,14 @@ export default function SignupSellerScreen() {
   const hasStartedAtBusinessRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      if (params.start === "business" && member && !hasStartedAtBusinessRef.current) {
+      const start = params.start;
+      if (
+        (start === "business" || start === "contact" || start === "checkout") &&
+        member &&
+        !hasStartedAtBusinessRef.current
+      ) {
         hasStartedAtBusinessRef.current = true;
-        setStep("business");
+        setStep(start);
       }
     }, [params.start, member])
   );

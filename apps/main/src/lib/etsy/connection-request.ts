@@ -28,6 +28,14 @@ function encodeFormBody(body: unknown): string {
   if (!body || typeof body !== "object" || Array.isArray(body)) return params.toString();
   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
     if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "boolean" || typeof item === "number" || typeof item === "string") {
+          params.append(key, String(item));
+        }
+      }
+      continue;
+    }
     if (typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
       params.set(key, String(value));
     } else {

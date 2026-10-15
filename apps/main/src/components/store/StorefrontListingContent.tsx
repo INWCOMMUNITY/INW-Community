@@ -8,10 +8,10 @@ import { buildBusinessHref } from "@/lib/business-referrer";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { SaveToCollectionButton } from "@/components/SaveToCollectionButton";
 import { ShareButton } from "@/components/ShareButton";
 import { useCart } from "@/contexts/CartContext";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
-import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { IonIcon } from "@/components/IonIcon";
 import {
   StoreItemFulfillmentPicker,
@@ -24,7 +24,6 @@ import {
   hasOptionQuantities,
   getMaxPurchasableQuantity,
   optionIsSoldOut,
-  getOptionQuantity,
   listingVariantDisplayAxes,
   getSkuPriceCents,
   getSkuPhotos,
@@ -36,9 +35,10 @@ import { parseStoredAspects } from "@/lib/listing-limits";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 import { answersPayload, ListingBuyerAnswers, type BuyerAnswerDraft } from "@/components/store/ListingBuyerAnswers";
+import { uploadBuyerFile } from "@/lib/upload-buyer-file-browser";
 import type { ListingBuyerFieldPublic } from "database/src/public-buyer-fields";
 
-type FulfillmentType = "ship" | "local_delivery" | "pickup";
+type FulfillmentType = "ship" | "local_delivery";
 
 interface StoreItem {
   id: string;
@@ -93,7 +93,6 @@ function buyBoxFulfillmentSummary(
   fulfillmentType: FulfillmentType,
   listing: StoreItem
 ): string | null {
-  if (fulfillmentType === "pickup") return "Local pickup";
   if (fulfillmentType === "local_delivery") {
     const fee = listing.localDeliveryFeeCents ?? 0;
     return fee > 0
@@ -146,7 +145,6 @@ export function StorefrontListingContent({
   const ITEMS_PER_SCROLL = 2;
   const { refresh, setOpen: setCartOpen } = useCart();
 
-  // Fulfillment: ship | local_delivery | pickup
   const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("ship");
   const [localDeliveryModalOpen, setLocalDeliveryModalOpen] = useState(false);
   const [localDeliveryForm, setLocalDeliveryForm] = useState<Partial<LocalDeliveryDetails>>({
@@ -159,17 +157,6 @@ export function StorefrontListingContent({
     note: "",
   });
   const [localDeliveryDetailsSaved, setLocalDeliveryDetailsSaved] = useState(false);
-  const [pickupModalOpen, setPickupModalOpen] = useState(false);
-  const [pickupForm, setPickupForm] = useState<Partial<PickupDetails>>({
-    firstName: "",
-    lastName: "",
-    phone: "",
-    email: "",
-    preferredPickupDate: "",
-    preferredPickupTime: "",
-    note: "",
-  });
-  const [pickupDetailsSaved, setPickupDetailsSaved] = useState(false);
 
   useEffect(() => {
     try {
@@ -191,7 +178,6 @@ export function StorefrontListingContent({
   useEffect(() => {
     if (initialItem && !initialItem.shippingDisabled) setFulfillmentType("ship");
     else if (initialItem?.localDeliveryAvailable) setFulfillmentType("local_delivery");
-    else if (initialItem?.inStorePickupAvailable) setFulfillmentType("pickup");
   }, [initialItem]);
 
   useEffect(() => {
@@ -214,7 +200,6 @@ export function StorefrontListingContent({
           setItem(data);
           if (!data.shippingDisabled) setFulfillmentType("ship");
           else if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
           return;
         }
         return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&includeUnavailable=1`)
@@ -225,7 +210,6 @@ export function StorefrontListingContent({
               setItemUnavailable(true);
               if (!data2.shippingDisabled) setFulfillmentType("ship");
               else if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
-              else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
             } else {
               setItem(null);
             }
@@ -352,13 +336,10 @@ export function StorefrontListingContent({
     item?.member?.sellerLocalDeliveryPolicy ??
     null;
 
-  const canAddToCart =
-    (fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved) &&
-    (fulfillmentType !== "pickup" || pickupDetailsSaved);
+  const canAddToCart = fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved;
 
   const needsFulfillmentForm =
-    (fulfillmentType === "pickup" && !pickupDetailsSaved) ||
-    (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
+    fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved;
 
   async function handleAddToCart() {
     if (!item || quantity < 1 || quantity > maxPurchasableQty) return;
@@ -370,10 +351,6 @@ export function StorefrontListingContent({
       setLocalDeliveryModalOpen(true);
       return;
     }
-    if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setPickupModalOpen(true);
-      return;
-    }
     setError("");
     setAddingToCart(true);
     try {
@@ -383,7 +360,6 @@ export function StorefrontListingContent({
         variant?: Record<string, string>;
         fulfillmentType?: FulfillmentType;
         localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
-        pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
         buyerResponses?: unknown;
       } = {
         storeItemId: item.id,
@@ -402,19 +378,6 @@ export function StorefrontListingContent({
           availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
-        };
-      }
-      if (fulfillmentType === "pickup" && pickupForm && pickupDetailsSaved) {
-        body.pickupDetails = {
-          ...pickupForm,
-          firstName: pickupForm.firstName ?? "",
-          lastName: pickupForm.lastName ?? "",
-          phone: pickupForm.phone ?? "",
-          email: pickupForm.email ?? "",
-          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
-          preferredPickupTime: pickupForm.preferredPickupTime ?? "",
-          note: pickupForm.note ?? "",
-          termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
         };
       }
       const res = await fetch("/api/cart", {
@@ -444,10 +407,6 @@ export function StorefrontListingContent({
       setLocalDeliveryModalOpen(true);
       return;
     }
-    if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setPickupModalOpen(true);
-      return;
-    }
     setError("");
     setCheckingOut(true);
     try {
@@ -465,7 +424,6 @@ export function StorefrontListingContent({
         shippingCostCents?: number;
         shippingAddress?: unknown;
         localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
-        pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
       } = {
         items,
         shippingCostCents: fulfillmentType === "ship" ? (item.shippingCostCents ?? 0) : 0,
@@ -481,19 +439,6 @@ export function StorefrontListingContent({
           availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
-        };
-      }
-      if (fulfillmentType === "pickup" && pickupForm && pickupDetailsSaved) {
-        body.pickupDetails = {
-          ...pickupForm,
-          firstName: pickupForm.firstName ?? "",
-          lastName: pickupForm.lastName ?? "",
-          phone: pickupForm.phone ?? "",
-          email: pickupForm.email ?? "",
-          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
-          preferredPickupTime: pickupForm.preferredPickupTime ?? "",
-          note: pickupForm.note ?? "",
-          termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
         };
       }
 
@@ -767,27 +712,6 @@ export function StorefrontListingContent({
           }}
         />
         )}
-        {pickupModalOpen && item && (
-        <PickupTermsModal
-          open
-          onClose={() => setPickupModalOpen(false)}
-          policyText={item?.pickupTerms ?? item?.member?.sellerPickupPolicy ?? undefined}
-          initialForm={{
-            firstName: pickupForm.firstName ?? "",
-            lastName: pickupForm.lastName ?? "",
-            phone: pickupForm.phone ?? "",
-            email: pickupForm.email ?? "",
-            preferredPickupDate: pickupForm.preferredPickupDate ?? "",
-            preferredPickupTime: pickupForm.preferredPickupTime ?? "",
-            note: pickupForm.note ?? "",
-          }}
-          onSave={(form) => {
-            setPickupForm(form);
-            setPickupDetailsSaved(true);
-            setPickupModalOpen(false);
-          }}
-        />
-        )}
 
         {/* Product Details - boxed */}
         <div
@@ -916,18 +840,10 @@ export function StorefrontListingContent({
               onFulfillmentTypeChange={setFulfillmentType}
               shippingDisabled={item.shippingDisabled}
               localDeliveryAvailable={item.localDeliveryAvailable}
-              inStorePickupAvailable={item.inStorePickupAvailable}
               shippingCostCents={item.shippingCostCents}
               localDeliveryFeeCents={item.localDeliveryFeeCents}
               localDeliveryDetailsSaved={localDeliveryDetailsSaved}
-              pickupDetailsSaved={pickupDetailsSaved}
             />
-            {fulfillmentType === "pickup" && (item.pickupTerms ?? item.member?.sellerPickupPolicy) && (
-              <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm">
-                <strong>Seller&apos;s pickup policy:</strong>
-                <div className="mt-1 whitespace-pre-wrap text-gray-700">{item.pickupTerms ?? item.member?.sellerPickupPolicy}</div>
-              </div>
-            )}
             {displayAxes.length > 0 && (
               <div className="mt-6 space-y-3">
                 {displayAxes.map((v) => (
@@ -942,17 +858,6 @@ export function StorefrontListingContent({
                           item.inventoryTracking,
                           selectedVariant
                         );
-                        const optQty = getOptionQuantity(
-                          item.variants,
-                          v.name,
-                          opt,
-                          selectedVariant
-                        );
-                        const lowStock =
-                          perOptionStock &&
-                          optQty != null &&
-                          optQty > 0 &&
-                          optQty < 10;
                         return (
                         <button
                           key={opt}
@@ -970,7 +875,7 @@ export function StorefrontListingContent({
                           }`}
                         >
                           {opt}
-                          {soldOut ? " (Out)" : lowStock ? ` (${optQty})` : ""}
+                          {soldOut ? " (Out)" : ""}
                         </button>
                         );
                       })}
@@ -985,35 +890,7 @@ export function StorefrontListingContent({
                   fields={item.buyerFields ?? []}
                   drafts={buyerDrafts}
                   onChange={setBuyerDrafts}
-                  onUpload={(file, onProgress) =>
-                    new Promise((resolve, reject) => {
-                      const form = new FormData();
-                      form.set("file", file);
-                      const xhr = new XMLHttpRequest();
-                      xhr.open("POST", "/api/upload/buyer-file");
-                      xhr.upload.onprogress = (event) => {
-                        if (event.lengthComputable && event.total > 0) {
-                          onProgress(Math.round((event.loaded / event.total) * 100));
-                        }
-                      };
-                      xhr.onload = () => {
-                        let data: { url?: string; error?: string } = {};
-                        try {
-                          data = JSON.parse(xhr.responseText) as { url?: string; error?: string };
-                        } catch {
-                          data = {};
-                        }
-                        if (xhr.status >= 200 && xhr.status < 300 && data.url) {
-                          onProgress(100);
-                          resolve(data.url);
-                          return;
-                        }
-                        reject(new Error(data.error || "Upload failed"));
-                      };
-                      xhr.onerror = () => reject(new Error("Upload failed"));
-                      xhr.send(form);
-                    })
-                  }
+                  onUpload={uploadBuyerFile}
                 />
                 {perOptionStock && !allVariantsSelected ? (
                   <p className="text-sm text-gray-600 mt-6">
@@ -1078,6 +955,11 @@ export function StorefrontListingContent({
                     return next;
                   });
                 }}
+              />
+              <SaveToCollectionButton
+                storeItemId={item.id}
+                storeItemTitle={item.title}
+                variant="full"
               />
               <div className="lg:hidden">
                 <ShareButton
@@ -1281,7 +1163,7 @@ export function StorefrontListingContent({
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Local Delivery / Pick Up Policy
+                        Local Delivery Policy
                       </label>
                       <div
 className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"

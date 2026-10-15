@@ -32,6 +32,17 @@ function signupRouteForPlan(p: SubscriptionPlan): Href {
   return "/signup-seller";
 }
 
+function onboardingResumeHref(
+  step: "business" | "subscribe" | "shipping" | "payouts" | "sponsor" | null | undefined
+): Href | null {
+  if (step === "business") return "/signup-seller?start=business";
+  if (step === "subscribe") return "/signup-seller?start=checkout";
+  if (step === "shipping") return "/seller-hub/shipping-setup";
+  if (step === "payouts") return "/seller-hub/store/payouts";
+  if (step === "sponsor") return "/signup-business?start=business";
+  return null;
+}
+
 function getApiHost(): string {
   try {
     const base = (API_BASE ?? "").trim();
@@ -142,6 +153,13 @@ export default function SignInScreen() {
         return;
       }
       await refreshMember();
+      const resumeHref = onboardingResumeHref(
+        "onboardingStep" in signResult ? signResult.onboardingStep : null
+      );
+      if (resumeHref) {
+        router.replace(resumeHref);
+        return;
+      }
       const defaultRoute = emailJustVerified ? "/(tabs)/my-community" : "/(tabs)/home";
       router.replace((returnTo ?? defaultRoute) as import("expo-router").Href);
     } catch (e) {

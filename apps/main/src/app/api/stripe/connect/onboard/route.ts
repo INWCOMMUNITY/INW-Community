@@ -25,7 +25,18 @@ function sanitizeMobileStripeReturnPath(raw: unknown): string | null {
   return path;
 }
 
-function stripeConnectAccountLinkUrls(baseUrl: string, mobilePath: string | null): { return_url: string; refresh_url: string } {
+function stripeConnectAccountLinkUrls(
+  baseUrl: string,
+  mobilePath: string | null,
+  onboarding: boolean
+): { return_url: string; refresh_url: string } {
+  if (!mobilePath && onboarding) {
+    const payouts = `${baseUrl}/signup/seller?step=payouts`;
+    return {
+      return_url: `${payouts}&success=1`,
+      refresh_url: `${payouts}&refresh=1`,
+    };
+  }
   const payouts = `${baseUrl}/seller-hub/store/payouts`;
   if (!mobilePath) {
     return {
@@ -47,15 +58,17 @@ function accountIsReadyForReuse(account: Stripe.Account): boolean {
 export async function POST(req: NextRequest) {
   let requestedReturn: string | undefined;
   let mobileReturnPath: string | null = null;
+  let onboardingReturn = false;
   try {
     const body = await req.json();
     if (typeof body.returnBaseUrl === "string") requestedReturn = body.returnBaseUrl;
     mobileReturnPath = sanitizeMobileStripeReturnPath(body.mobileReturnPath);
+    onboardingReturn = body.onboardingReturn === true;
   } catch {
     // no JSON body
   }
   const baseUrl = resolveAllowedCheckoutBaseUrl(requestedReturn);
-  const { return_url, refresh_url } = stripeConnectAccountLinkUrls(baseUrl, mobileReturnPath);
+  const { return_url, refresh_url } = stripeConnectAccountLinkUrls(baseUrl, mobileReturnPath, onboardingReturn);
 
   if (!resolveMarketplaceStripeSecretKey()) {
     return NextResponse.json(

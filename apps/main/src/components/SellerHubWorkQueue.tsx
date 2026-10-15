@@ -72,13 +72,11 @@ export function SellerHubWorkQueue({
         const p = me as {
           sellerShippingPolicy?: string | null;
           sellerLocalDeliveryPolicy?: string | null;
-          sellerPickupPolicy?: string | null;
           sellerReturnPolicy?: string | null;
         };
         const anyPolicy = [
           p?.sellerShippingPolicy,
           p?.sellerLocalDeliveryPolicy,
-          p?.sellerPickupPolicy,
           p?.sellerReturnPolicy,
         ].some((v) => typeof v === "string" && v.trim().length > 0);
         setSellerSetupComplete(stripe && shippo && anyPolicy);
@@ -152,7 +150,7 @@ export function SellerHubWorkQueue({
           label: "Policies",
           href: "/seller-hub/policies",
           icon: "book-outline",
-          description: "Set shipping, pickup, delivery, and return terms.",
+          description: "Set shipping, delivery, and return terms.",
         },
         {
           label: "Storefront Info",

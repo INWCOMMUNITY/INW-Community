@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { OnboardingImportBanner } from "@/components/seller-onboarding/OnboardingImportBanner";
 import {
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
@@ -469,6 +470,7 @@ export default function AppsAirportEtsyImportPage() {
         { href: `${APPS_AIRPORT_ETSY_PATH}/import`, label: "Import" },
       ]}
     >
+      <OnboardingImportBanner />
       {connectionError ? (
         <p className="mb-4 text-sm text-amber-800">
           {connectionError}{" "}
@@ -612,7 +614,9 @@ export default function AppsAirportEtsyImportPage() {
           </div>
 
           <p className="mb-4 text-sm text-neutral-600">
-            Or open Review on one listing to choose its stock mode and shipping price.
+            {activeBulk
+              ? "Review opens one listing so you can choose its stock mode and shipping price. It stays off until this import finishes."
+              : "Or open Review on one listing to choose its stock mode and shipping price."}
           </p>
           {shopName || etsyReportedCount != null ? (
             <p className="mb-3 text-sm text-neutral-600">
@@ -694,8 +698,13 @@ export default function AppsAirportEtsyImportPage() {
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
-                          className="btn"
+                          className="btn disabled:cursor-not-allowed disabled:opacity-50"
                           disabled={reviewLoading || activeBulk}
+                          title={
+                            activeBulk
+                              ? "Available after this import finishes"
+                              : "Choose stock and a shipping price for this listing"
+                          }
                           onClick={() => void openReview(candidate)}
                         >
                           Review

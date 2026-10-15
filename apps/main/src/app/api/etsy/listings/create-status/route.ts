@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { sellerEtsyErrorMessage } from "@/lib/etsy/marketplace-rejection";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const howMade = storeItemId
+    ? await prisma.storeItem.findFirst({
+        where: { id: storeItemId, memberId },
+        select: { etsyWhoMade: true, etsyWhenMade: true, etsyIsSupply: true },
+      })
+    : null;
+
   const listing =
     storeItemId || job
       ? await prisma.etsyListingLink.findFirst({
@@ -96,11 +104,24 @@ export async function GET(req: NextRequest) {
           state: job.state,
           attemptCount: job.attemptCount,
           errorCode: job.lastErrorCode,
-          errorMessage: job.lastErrorMessage,
+          errorMessage: sellerEtsyErrorMessage(job.lastErrorMessage, {
+            whoMade: howMade?.etsyWhoMade,
+            whenMade: howMade?.etsyWhenMade,
+            isSupply: howMade?.etsyIsSupply,
+          }),
           completedAt: job.completedAt,
           updatedAt: job.updatedAt,
         }
       : null,
-    listing,
+    listing: listing
+      ? {
+          ...listing,
+          issueMessage: sellerEtsyErrorMessage(listing.issueMessage, {
+            whoMade: howMade?.etsyWhoMade,
+            whenMade: howMade?.etsyWhenMade,
+            isSupply: howMade?.etsyIsSupply,
+          }),
+        }
+      : null,
   });
 }

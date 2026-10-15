@@ -8,7 +8,6 @@ import {
 import {
   getTrackingUrl,
   orderHasLocalDeliveryLine,
-  orderHasPickupLine,
   orderHasShippedLine,
 } from "@/lib/store-order-fulfillment";
 import { buyerCanRequestRefund } from "@/lib/store-return";
@@ -222,15 +221,9 @@ export function buyerFulfillmentHeadline(order: BuyerStoreOrder): string {
   if (order.status === "delivered") return "Delivered";
 
   const items = order.items ?? [];
-  const hasPickup = orderHasPickupLine(items);
   const hasLocal = orderHasLocalDeliveryLine(items);
   const hasShip = items.length === 0 ? true : orderHasShippedLine(items);
 
-  if (hasPickup && !(order.pickupSellerConfirmedAt && order.pickupBuyerConfirmedAt)) {
-    if (order.pickupBuyerConfirmedAt) return "Waiting for seller to confirm pickup";
-    if (order.pickupSellerConfirmedAt) return "Mark pickup received";
-    return "Local pickup";
-  }
   if (hasLocal && !(order.deliveryConfirmedAt && order.deliveryBuyerConfirmedAt)) {
     if (order.deliveryBuyerConfirmedAt) return "Waiting for seller to confirm delivery";
     if (order.deliveryConfirmedAt) return "Mark delivery received";

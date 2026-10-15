@@ -274,7 +274,7 @@ export default function SellerStorefrontScreen() {
   const addressDisplay = [seller.address, seller.city].filter(Boolean).join(", ");
   const hasHours = seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
   const hasPolicies = seller.sellerShippingPolicy || seller.sellerLocalDeliveryPolicy || 
-                      seller.sellerPickupPolicy || seller.sellerReturnPolicy ||
+                      seller.sellerReturnPolicy ||
                       seller.acceptReturns === false || seller.chargeReturnShipping ||
                       seller.acceptReturnsDays != null;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
@@ -389,12 +389,6 @@ export default function SellerStorefrontScreen() {
           <View style={styles.deliveryBadge}>
             <Ionicons name="airplane-outline" size={16} color={theme.colors.primary} />
             <Text style={styles.deliveryBadgeText}>Ships items</Text>
-          </View>
-        )}
-        {seller.offerLocalPickup && (
-          <View style={styles.deliveryBadge}>
-            <Ionicons name="storefront-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.deliveryBadgeText}>Local pickup</Text>
           </View>
         )}
         {seller.offerLocalDelivery && (
@@ -586,15 +580,6 @@ export default function SellerStorefrontScreen() {
               <Text style={styles.policyText}>{seller.sellerLocalDeliveryPolicy}</Text>
             </View>
           )}
-          {seller.sellerPickupPolicy && (
-            <View style={styles.policyCard}>
-              <View style={styles.policyHeader}>
-                <Ionicons name="storefront-outline" size={20} color={theme.colors.primary} />
-                <Text style={styles.policyTitle}>Pickup Policy</Text>
-              </View>
-              <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
-            </View>
-          )}
           {(seller.acceptReturns === false ||
             seller.sellerReturnPolicy ||
             seller.chargeReturnShipping ||
@@ -608,7 +593,7 @@ export default function SellerStorefrontScreen() {
                 {seller.acceptReturns === false
                   ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
                   : [
-                      `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
+                      `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery.`,
                       seller.chargeReturnShipping
                         ? "Return shipping may be deducted from your refund."
                         : null,

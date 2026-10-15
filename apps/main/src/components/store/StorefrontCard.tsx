@@ -104,7 +104,7 @@ export function StorefrontCard({
         <p className="text-xs leading-4 text-gray-600 mt-1 line-clamp-2 h-8">
           {item.description ? listingDescriptionPreview(item.description) : "\u00a0"}
         </p>
-        <div className="flex items-center justify-evenly mt-auto pt-2 border-t border-gray-100">
+        <div className="mt-auto grid grid-cols-2 justify-items-center gap-y-2 border-t border-gray-100 pt-2 sm:flex sm:items-center sm:justify-evenly sm:gap-y-0">
           <DelayedThoughtBubble label="Wishlist">
             <HeartSaveButton
               type="store_item"

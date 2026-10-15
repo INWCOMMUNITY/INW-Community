@@ -329,12 +329,13 @@ export function validateBuyerResponses(
     }
     const files = parseFileAnswers(entry?.files);
     if (!files.ok) return files;
+    const labeledSlots = field.labelEachFile ? field.options.slice(0, LISTING_BUYER_FILES_MAX) : [];
     if (field.labelEachFile) {
       if (files.files.length === 0 && field.required) {
         return { ok: false, error: `${field.title} needs a file for each label.` };
       }
       if (files.files.length > 0) {
-        const expected = field.options.map((option) => option.label);
+        const expected = labeledSlots.map((option) => option.label);
         if (files.files.length !== expected.length) {
           return { ok: false, error: `${field.title} needs one file per label.` };
         }
@@ -349,7 +350,9 @@ export function validateBuyerResponses(
     } else if (field.required && files.files.length < 1) {
       return { ok: false, error: `${field.title} needs at least one file.` };
     }
-    const cap = field.maxFiles ?? LISTING_BUYER_FILES_MAX;
+    const cap = field.labelEachFile
+      ? labeledSlots.length
+      : (field.maxFiles ?? LISTING_BUYER_FILES_MAX);
     if (files.files.length > cap) {
       return { ok: false, error: `${field.title} allows up to ${cap} files.` };
     }

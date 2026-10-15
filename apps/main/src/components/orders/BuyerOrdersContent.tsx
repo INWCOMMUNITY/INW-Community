@@ -60,7 +60,7 @@ export function BuyerOrdersContent() {
         My Orders
       </h1>
       <p className="mb-4 opacity-80">
-        Track shipments, confirm pickup or delivery, and request refunds.
+        Track shipments, confirm delivery, and request refunds.
       </p>
 
       <div className="flex gap-1 sm:gap-2 mb-6 border-b overflow-x-auto" style={{ borderColor: "var(--color-earth)" }}>

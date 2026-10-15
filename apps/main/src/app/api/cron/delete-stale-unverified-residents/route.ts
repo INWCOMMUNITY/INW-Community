@@ -4,7 +4,9 @@ import { deleteStaleUnverifiedResidents } from "@/lib/stale-unverified-resident-
 export const maxDuration = 60;
 
 /**
- * Removes resident accounts that never verified email and are older than 14 days, with no subs/business/orders/Stripe IDs.
+ * Removes abandoned signups older than 24 hours: residents who never verified email, and
+ * seller/business accounts that never started billing, shipping, or payouts. Paid accounts are kept.
+ * Pending accounts are not public. Signing in before deletion resumes seller onboarding.
  * Business and seller signups are never selected. Configure in `apps/main/vercel.json` crons + `CRON_SECRET`.
  */
 export async function GET(req: NextRequest) {

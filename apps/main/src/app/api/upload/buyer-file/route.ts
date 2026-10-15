@@ -2,13 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireBlobStorage } from "@/lib/upload";
+import { formatBuyerFileSizeLabel, MAX_BUYER_FILE_BYTES } from "@/lib/upload-limits";
 import path from "path";
 import fs from "fs/promises";
 
 export const maxDuration = 60;
-
-/** Matches the general upload ceiling, and Etsy’s 100MB buyer-file cap. */
-const MAX_BUYER_FILE_BYTES = 100 * 1024 * 1024;
 
 const ALLOWED = new Set([
   "image/jpeg",
@@ -35,7 +33,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
   if (file.size > MAX_BUYER_FILE_BYTES) {
-    return NextResponse.json({ error: "File too large (max 100MB)" }, { status: 400 });
+    return NextResponse.json(
+      { error: `File too large (max ${formatBuyerFileSizeLabel()})` },
+      { status: 400 }
+    );
   }
   if (!ALLOWED.has(file.type) && !extOk(file.name)) {
     return NextResponse.json(

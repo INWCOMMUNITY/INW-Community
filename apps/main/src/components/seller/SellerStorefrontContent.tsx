@@ -104,7 +104,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
   const hasPolicies =
     seller.sellerShippingPolicy ||
     seller.sellerLocalDeliveryPolicy ||
-    seller.sellerPickupPolicy ||
     seller.sellerReturnPolicy ||
     seller.acceptReturns === false ||
     seller.acceptReturnsDays != null ||
@@ -400,12 +399,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                   Ships items
                 </span>
               ) : null}
-              {seller.offerLocalPickup ? (
-                <span className={FULFILLMENT_BADGE}>
-                  <IonIcon name="storefront-outline" size={16} />
-                  Local pickup
-                </span>
-              ) : null}
               {seller.offerLocalDelivery ? (
                 <span className={FULFILLMENT_BADGE}>
                   <IonIcon name="car-outline" size={16} />
@@ -629,9 +622,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               {seller.sellerLocalDeliveryPolicy ? (
                 <PolicyCard icon="car-outline" title="Local Delivery Policy" text={seller.sellerLocalDeliveryPolicy} />
               ) : null}
-              {seller.sellerPickupPolicy ? (
-                <PolicyCard icon="storefront-outline" title="Pickup Policy" text={seller.sellerPickupPolicy} />
-              ) : null}
               {seller.acceptReturns === false ||
               seller.sellerReturnPolicy ||
               seller.acceptReturnsDays != null ||
@@ -643,7 +633,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                     seller.acceptReturns === false
                       ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
                       : [
-                          `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
+                          `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery.`,
                           seller.chargeReturnShipping
                             ? "Return shipping may be deducted from your refund."
                             : null,

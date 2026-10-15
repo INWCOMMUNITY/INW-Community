@@ -467,8 +467,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
           Upload from your device or camera. Max {formatMaxUploadSizeLabel()}. JPEG, PNG, WebP, GIF.
         </p>
       </div>
-      {existing && (
-        <div>
+      <div>
           <label className="block text-sm font-medium mb-1">Storefront cover photo (optional)</label>
           <p className="text-xs text-gray-500 mb-2">Facebook-style backdrop for your seller storefront page. Recommended 820×312 px.</p>
           <div className="flex items-center gap-4">
@@ -499,7 +498,6 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
             </label>
           </div>
         </div>
-      )}
       <div>
         <label className="block text-sm font-medium mb-1">Address *</label>
         <input

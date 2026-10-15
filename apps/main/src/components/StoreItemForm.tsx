@@ -237,20 +237,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [localDeliveryFeeDollars, setLocalDeliveryFeeDollars] = useState(
     existing?.localDeliveryFeeCents != null ? (existing.localDeliveryFeeCents / 100).toFixed(2) : ""
   );
-  const [inStorePickupAvailable, setInStorePickupAvailable] = useState(
-    existing?.inStorePickupAvailable ?? false
-  );
   const [shippingDisabled, setShippingDisabled] = useState(
     existing?.shippingDisabled ?? false
   );
   const [localDeliveryTerms, setLocalDeliveryTerms] = useState(
     existing?.localDeliveryTerms ?? ""
   );
-  const [sellerProfilePickupPolicy, setSellerProfilePickupPolicy] = useState("");
-  const [useSellerProfilePickup, setUseSellerProfilePickup] = useState(
-    !existing?.pickupTerms || existing.pickupTerms === ""
-  );
-  const [pickupTerms, setPickupTerms] = useState(existing?.pickupTerms ?? "");
   const [acceptOffers, setAcceptOffers] = useState(
     existing?.acceptOffers ?? true
   );
@@ -261,7 +253,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   );
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
-  const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [offerFlagsLoaded, setOfferFlagsLoaded] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -349,14 +340,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .then((data: {
         sellerShippingPolicy?: string | null;
         sellerLocalDeliveryPolicy?: string | null;
-        sellerPickupPolicy?: string | null;
         offerShipping?: boolean;
         offerLocalDelivery?: boolean;
-        offerLocalPickup?: boolean;
       }) => {
         if (data?.offerShipping !== undefined) setOfferShipping(data.offerShipping);
         if (data?.offerLocalDelivery !== undefined) setOfferLocalDelivery(data.offerLocalDelivery);
-        if (data?.offerLocalPickup !== undefined) setOfferLocalPickup(data.offerLocalPickup);
         setOfferFlagsLoaded(true);
         if (data?.sellerShippingPolicy != null && !existing?.shippingPolicy) {
           setSellerProfileShippingPolicy(data.sellerShippingPolicy ?? "");
@@ -365,13 +353,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         if (data?.sellerLocalDeliveryPolicy != null && !existing?.localDeliveryTerms) {
           setLocalDeliveryTerms((prev) => prev || (data.sellerLocalDeliveryPolicy ?? ""));
         }
-        if (data?.sellerPickupPolicy != null && !existing?.pickupTerms) {
-          setSellerProfilePickupPolicy(data.sellerPickupPolicy ?? "");
-          if (useSellerProfilePickup) setPickupTerms(data.sellerPickupPolicy ?? "");
-        }
       })
       .catch(() => setOfferFlagsLoaded(true));
-  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms, useSellerProfileShipping, useSellerProfilePickup]);
+  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, useSellerProfileShipping]);
 
   useEffect(() => {
     fetch("/api/shipping-options", { credentials: "include" })
@@ -731,8 +715,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     if (!offerFlagsLoaded) return;
     if (!offerShipping) setShippingDisabled(true);
     if (!offerLocalDelivery) setLocalDeliveryAvailable(false);
-    if (!offerLocalPickup) setInStorePickupAvailable(false);
-  }, [offerFlagsLoaded, offerShipping, offerLocalDelivery, offerLocalPickup]);
+  }, [offerFlagsLoaded, offerShipping, offerLocalDelivery]);
 
   async function handlePhotosUpload(files: File[]) {
     setPhotoError("");
@@ -820,9 +803,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
     const effectiveLocalDelivery = offerLocalDelivery && localDeliveryAvailable;
-    const effectivePickup = offerLocalPickup && inStorePickupAvailable;
-    if (!asDraft && effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
-      setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
+    if (!asDraft && effectiveShippingDisabled && !effectiveLocalDelivery) {
+      setError("Enable at least one fulfillment method (shipping or local delivery) in Policies.");
       return null;
     }
     if (!asDraft && listOnEtsy) {
@@ -873,11 +855,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
     if (!asDraft && !existing && !effectiveShippingDisabled && !shippingOptionId) {
       setError("Choose a shipping option, or create one in Shipping options.");
-      return null;
-    }
-    const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
-    if (!asDraft && effectivePickup && !effectivePickupPolicy.trim()) {
-      setError("Pickup terms are required when you offer local pickup. Set them in Policies or use Sync here.");
       return null;
     }
     const cleanedAspects = aspects
@@ -936,11 +913,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       localDeliveryFeeCents: effectiveLocalDelivery && localDeliveryFeeDollars
         ? Math.round(parseFloat(localDeliveryFeeDollars) * 100)
         : null,
-      inStorePickupAvailable: effectivePickup,
+      inStorePickupAvailable: false,
       shippingDisabled: effectiveShippingDisabled,
       localDeliveryTerms: effectiveLocalDelivery ? (localDeliveryTerms.trim() || null) : null,
-      pickupTerms:
-        effectivePickup && !useSellerProfilePickup ? (pickupTerms.trim() || null) : null,
+      pickupTerms: null,
       ...(condition === "used"
         ? {
             acceptOffers,
@@ -1751,7 +1727,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           ) : null}
 
           {/* Delivery Options */}
-          {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
+          {offerFlagsLoaded && (offerShipping || offerLocalDelivery) && (
             <ListingFormSection title="Delivery Options">
               {offerShipping && (
                 <>
@@ -1761,7 +1737,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                       checked={!shippingDisabled}
                       onChange={(e) => {
                         const nextDisabled = !e.target.checked;
-                        if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+                        if (nextDisabled && !localDeliveryAvailable && offerLocalDelivery) {
                           setLocalDeliveryAvailable(true);
                         }
                         setShippingDisabled(nextDisabled);
@@ -1919,76 +1895,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </div>
               )}
 
-              {offerLocalPickup && (
-                <>
-                  <label className="flex items-center gap-2 cursor-pointer mt-3">
-                    <input
-                      type="checkbox"
-                      checked={inStorePickupAvailable}
-                      onChange={(e) => setInStorePickupAvailable(e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="font-medium">Offer Local Pick Up</span>
-                  </label>
-                  {inStorePickupAvailable && (
-                    <div className="mt-2 pl-6">
-                      <label className="block text-sm font-medium mb-1">Pickup terms</label>
-                      <div className="flex gap-2 items-start">
-                        <textarea
-                          value={useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms}
-                          onChange={(e) => {
-                            if (!useSellerProfilePickup) setPickupTerms(e.target.value);
-                          }}
-                          readOnly={useSellerProfilePickup}
-                          className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfilePickup ? "bg-gray-50" : ""}`}
-                          rows={3}
-                          placeholder="e.g. Location, contact method, hours."
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            fetch("/api/me/policies")
-                              .then((r) => r.json())
-                              .then((data: { sellerPickupPolicy?: string | null }) => {
-                                const policy = data?.sellerPickupPolicy ?? "";
-                                setSellerProfilePickupPolicy(policy);
-                                setPickupTerms(policy);
-                              })
-                              .catch(() => {});
-                          }}
-                          className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
-                        >
-                          Sync
-                        </button>
-                      </div>
-                      <label className="flex items-center gap-2 cursor-pointer mt-2">
-                        <input
-                          type="checkbox"
-                          checked={useSellerProfilePickup}
-                          onChange={(e) => {
-                            setUseSellerProfilePickup(e.target.checked);
-                            if (e.target.checked) setPickupTerms("");
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm font-medium">Use policies from settings</span>
-                      </label>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {useSellerProfilePickup
-                          ? "Synced from your Policies screen. Uncheck to set item-specific terms."
-                          : "Item-specific pickup terms (overrides profile default)."}
-                      </p>
-                    </div>
-                  )}
-                </>
-              )}
             </ListingFormSection>
           )}
 
-          {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
+          {offerFlagsLoaded && !(offerShipping || offerLocalDelivery) && (
             <ListingFormSection>
               <p className="text-sm text-gray-600 mb-2">
-                Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
+                Set your fulfillment options in Policies (shipping or local delivery) to enable them here.
               </p>
               <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
             </ListingFormSection>

@@ -7,7 +7,6 @@ import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
-import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { buildProductHref } from "@/lib/product-referrer";
@@ -48,7 +47,6 @@ interface CartItem {
   buyerResponses?: unknown;
   fulfillmentType?: string | null;
   localDeliveryDetails?: LocalDeliveryDetails | null;
-  pickupDetails?: PickupDetails & { termsAcceptedAt?: string } | null;
   storeItem: CartItemStoreItem;
   /** Server-resolved unit price (SKU or accepted resale offer); falls back to storeItem.priceCents when absent. */
   unitPriceCents?: number;
@@ -75,7 +73,7 @@ function cartShippingCents(list: CartItem[]): number {
     cents += sellerOrderShippingCents({
       lines: group.map((item) => ({
         quantity: item.quantity,
-        fulfillmentType: item.fulfillmentType,
+        fulfillmentType: item.fulfillmentType === "pickup" ? "ship" : item.fulfillmentType,
         shippingCostCents: item.storeItem.shippingCostCents,
       })),
       merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
@@ -94,7 +92,7 @@ function sellerShippingArgs(group: CartItem[]) {
   return {
     lines: group.map((item) => ({
       quantity: item.quantity,
-      fulfillmentType: item.fulfillmentType,
+      fulfillmentType: item.fulfillmentType === "pickup" ? "ship" : item.fulfillmentType,
       shippingCostCents: item.storeItem.shippingCostCents,
     })),
     merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
@@ -131,7 +129,6 @@ export default function CartPage() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
-  const [pickupTermsModalItemId, setPickupTermsModalItemId] = useState<string | null>(null);
 
   function loadCart() {
     refetchCart().then((arr) => {
@@ -182,17 +179,13 @@ export default function CartPage() {
   async function updateFulfillment(
     itemId: string,
     fulfillmentType: FulfillmentType,
-    localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string },
-    pickupDetails?: PickupDetails & { termsAcceptedAt?: string }
+    localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string }
   ) {
-    const body: { fulfillmentType: FulfillmentType; localDeliveryDetails?: object; pickupDetails?: object } = {
+    const body: { fulfillmentType: FulfillmentType; localDeliveryDetails?: object } = {
       fulfillmentType,
     };
     if (fulfillmentType === "local_delivery" && localDeliveryDetails) {
       body.localDeliveryDetails = localDeliveryDetails;
-    }
-    if (fulfillmentType === "pickup" && pickupDetails) {
-      body.pickupDetails = pickupDetails;
     }
     const res = await fetch(`/api/cart/${itemId}`, {
       method: "PATCH",
@@ -204,23 +197,6 @@ export default function CartPage() {
     } else {
       const data = await res.json().catch(() => ({}));
       setError(getErrorMessage((data as { error?: string }).error, "Could not update fulfillment"));
-    }
-  }
-
-  async function updatePickupDetails(
-    itemId: string,
-    pickupDetails: PickupDetails & { termsAcceptedAt?: string }
-  ) {
-    const res = await fetch(`/api/cart/${itemId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pickupDetails, fulfillmentType: "pickup" }),
-    });
-    if (res.ok) {
-      loadCart();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(getErrorMessage((data as { error?: string }).error, "Could not save pickup details"));
     }
   }
 
@@ -243,32 +219,12 @@ export default function CartPage() {
         i.localDeliveryDetails?.deliveryAddress?.zip?.trim() &&
         i.localDeliveryDetails?.availableDropOffTimes?.trim()
     );
-  const pickupItems = items.filter((i) => i.fulfillmentType === "pickup");
-  const pickupItemsWithPolicy = pickupItems.filter(
-    (i) =>
-      (i.storeItem.pickupTerms ?? i.storeItem.member?.sellerPickupPolicy) &&
-      String(i.storeItem.pickupTerms ?? i.storeItem.member?.sellerPickupPolicy).trim()
-  );
-  const allPickupDetailsFilled =
-    pickupItems.length === 0 ||
-    pickupItems.every(
-      (i) =>
-        i.pickupDetails?.firstName?.trim() &&
-        i.pickupDetails?.lastName?.trim() &&
-        i.pickupDetails?.phone?.trim() &&
-        i.pickupDetails?.preferredPickupDate?.trim() &&
-        i.pickupDetails?.preferredPickupTime?.trim()
-    );
-  const allPickupTermsAgreed =
-    pickupItemsWithPolicy.length === 0 ||
-    pickupItemsWithPolicy.every((i) => i.pickupDetails?.termsAcceptedAt);
-  const hasShippedItem = items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+  const hasShippedItem = items.some((i) => {
+    const type = i.fulfillmentType ?? "ship";
+    return type === "ship" || type === "pickup";
+  });
   const hasUnavailableItems = items.some((i) => i.unavailableReason);
-  const canCheckout =
-    !hasUnavailableItems &&
-    localDeliveryFormComplete &&
-    allPickupDetailsFilled &&
-    allPickupTermsAgreed;
+  const canCheckout = !hasUnavailableItems && localDeliveryFormComplete;
 
   /** All items are charged through Stripe at checkout. */
   const cardItems = items;
@@ -281,12 +237,6 @@ export default function CartPage() {
       );
       return;
     }
-    if (!allPickupDetailsFilled || !allPickupTermsAgreed) {
-      setError(
-        "Complete the Pick Up Form for pickup items (use “Add pickup details” or “Edit pickup details” on each item)."
-      );
-      return;
-    }
     setError("");
     setCheckingOut(true);
     try {
@@ -295,13 +245,16 @@ export default function CartPage() {
           storeItemId: i.storeItemId,
           quantity: i.quantity,
           variant: i.variant ?? undefined,
-          fulfillmentType: i.fulfillmentType ?? "ship",
+          fulfillmentType: i.fulfillmentType === "pickup" ? "ship" : (i.fulfillmentType ?? "ship"),
           buyerResponses: i.buyerResponses ?? undefined,
         })),
         localDeliveryDetails: localDeliveryDetailsForCheckout ?? undefined,
       });
 
-      const hasShippedCardItem = cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+      const hasShippedCardItem = cardItems.some((i) => {
+        const type = i.fulfillmentType ?? "ship";
+        return type === "ship" || type === "pickup";
+      });
       const shippingCostCents = cartShippingCents(cardItems);
       const stripeBody: Record<string, unknown> = {
         ...makePayload(cardItems),
@@ -352,9 +305,6 @@ export default function CartPage() {
 
   const itemForModal = localDeliveryModalItemId
     ? items.find((i) => i.id === localDeliveryModalItemId)
-    : null;
-  const itemForPickupModal = pickupTermsModalItemId
-    ? items.find((i) => i.id === pickupTermsModalItemId)
     : null;
 
   if (status === "loading" || loading) {
@@ -450,9 +400,10 @@ export default function CartPage() {
                     const freeShippingReached =
                       freeShippingMinimumCents > 0 &&
                       shippingArgs.merchandiseCents >= freeShippingMinimumCents;
-                    const shippedLines = sellerGroup.filter(
-                      (row) => (row.fulfillmentType ?? "ship") === "ship"
-                    );
+                    const shippedLines = sellerGroup.filter((row) => {
+                      const type = row.fulfillmentType ?? "ship";
+                      return type === "ship" || type === "pickup";
+                    });
                     return (
                         <div
                           key={item.id}
@@ -509,7 +460,7 @@ export default function CartPage() {
                               Agreed offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
                             </span>
                           ) : null}
-                          {item.fulfillmentType === "ship" &&
+                          {(item.fulfillmentType === "ship" || item.fulfillmentType === "pickup") &&
                             shippingQuote.cents > 0 &&
                             (shippedLines.length === 1
                               ? shippedLines[0]?.id === item.id
@@ -702,30 +653,6 @@ export default function CartPage() {
           if (!localDeliveryModalItemId) return;
           updateFulfillment(localDeliveryModalItemId, "local_delivery", form);
           setLocalDeliveryModalItemId(null);
-        }}
-      />
-      <PickupTermsModal
-        open={!!pickupTermsModalItemId && !!itemForPickupModal}
-        onClose={() => setPickupTermsModalItemId(null)}
-        policyText={itemForPickupModal?.storeItem.pickupTerms ?? itemForPickupModal?.storeItem.member?.sellerPickupPolicy ?? undefined}
-        initialForm={
-          itemForPickupModal?.pickupDetails
-            ? {
-                firstName: itemForPickupModal.pickupDetails.firstName ?? "",
-                lastName: itemForPickupModal.pickupDetails.lastName ?? "",
-                phone: itemForPickupModal.pickupDetails.phone ?? "",
-                email: itemForPickupModal.pickupDetails.email ?? "",
-                preferredPickupDate: itemForPickupModal.pickupDetails.preferredPickupDate ?? "",
-                preferredPickupTime: itemForPickupModal.pickupDetails.preferredPickupTime ?? "",
-                note: itemForPickupModal.pickupDetails.note ?? "",
-                termsAcceptedAt: itemForPickupModal.pickupDetails.termsAcceptedAt,
-              }
-            : undefined
-        }
-        onSave={(form) => {
-          if (!pickupTermsModalItemId) return;
-          updatePickupDetails(pickupTermsModalItemId, form);
-          setPickupTermsModalItemId(null);
         }}
       />
     </section>

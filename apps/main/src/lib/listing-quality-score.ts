@@ -283,11 +283,11 @@ function scorePricing(listing: ListingData): ScoreBreakdown {
 
   // Shipping pricing (0-5 points)
   if (listing.shippingDisabled) {
-    if (listing.localDeliveryAvailable || listing.inStorePickupAvailable) {
+    if (listing.localDeliveryAvailable) {
       score += 5;
     } else {
       score += 2;
-      tips.push("Enable at least one fulfillment option (shipping, delivery, or pickup)");
+      tips.push("Enable at least one fulfillment option (shipping or delivery)");
     }
   } else {
     const shippingCost = listing.shippingCostCents ?? 0;
@@ -341,17 +341,15 @@ function scoreCompleteness(listing: ListingData): ScoreBreakdown {
   }
 
   // Fulfillment options (0-3 points)
-  const fulfillmentOptions = [
-    !listing.shippingDisabled,
-    listing.localDeliveryAvailable,
-    listing.inStorePickupAvailable,
-  ].filter(Boolean).length;
+  const fulfillmentOptions = [!listing.shippingDisabled, listing.localDeliveryAvailable].filter(
+    Boolean
+  ).length;
 
   if (fulfillmentOptions >= 2) {
     score += 3;
   } else if (fulfillmentOptions === 1) {
     score += 2;
-    tips.push("Offering multiple fulfillment options (shipping + local pickup) increases sales");
+    tips.push("Offering shipping and local delivery increases sales");
   } else {
     tips.push("Enable at least one fulfillment option");
   }

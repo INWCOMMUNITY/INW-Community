@@ -35,6 +35,8 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const [soldItemsViewedAt, setSoldItemsViewedAt] = useState<string | null>(null);
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
   const [payoutReady, setPayoutReady] = useState(false);
+  const [etsyConnected, setEtsyConnected] = useState(false);
+  const [shopifyConnected, setShopifyConnected] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -56,6 +58,12 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
         setHasLocalDelivery(Boolean(data.hasLocalDelivery));
         setPayoutReady(Boolean(data.payoutReady));
         setSoldItemsViewedAt(viewedAt);
+        const [etsy, shopify] = await Promise.all([
+          apiGet<{ connections?: { status?: string }[] }>("/api/etsy/connection").catch(() => null),
+          apiGet<{ connections?: { status?: string }[] }>("/api/shopify/connection").catch(() => null),
+        ]);
+        setEtsyConnected(Boolean(etsy?.connections?.some((row) => row.status === "ACTIVE")));
+        setShopifyConnected(Boolean(shopify?.connections?.some((row) => row.status === "ACTIVE")));
       } catch {
         // ignore
       }
@@ -68,6 +76,13 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const listingsItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
+    { href: "/seller-hub/apps", label: "Sync Airport", icon: "apps-outline" },
+    ...(etsyConnected
+      ? [{ href: "/seller-hub/etsy", label: "Etsy", icon: "color-palette-outline" as const }]
+      : []),
+    ...(shopifyConnected
+      ? [{ href: "/seller-hub/shopify", label: "Shopify", icon: "bag-handle-outline" as const }]
+      : []),
     { href: "/seller-hub/store/items?tab=sold", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
     { href: "/seller-hub/store/drafts", label: "Drafts", icon: "document-text-outline" },
   ];

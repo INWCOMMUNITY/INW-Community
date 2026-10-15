@@ -175,6 +175,8 @@ export default function ListItemScreen() {
   const [inStorePickupAvailable, setInStorePickupAvailable] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [inventoryMode, setInventoryMode] = useState<InventoryMode>("simple");
+  const [pricesVary, setPricesVary] = useState(false);
+  const [quantitiesVary, setQuantitiesVary] = useState(true);
   const [buyerFields, setBuyerFields] = useState<BuyerFieldDraft[]>([]);
   const [inventoryTracking, setInventoryTracking] = useState<InventoryTracking>("tracked");
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>([]);
@@ -385,7 +387,12 @@ export default function ListItemScreen() {
       pickupTerms,
       useSellerProfilePickup,
       businessId,
-      variants: buildVariantsPayload(inventoryMode, variantAxes, variantSkus) ?? [],
+      variants:
+        buildVariantsPayload(inventoryMode, variantAxes, variantSkus, {
+          quantitiesVary,
+          pricesVary,
+          poolQuantity: parseInt(quantity, 10),
+        }) ?? [],
       inventoryTracking,
     });
     if (draftId) await deleteDraft(draftId);
@@ -397,7 +404,7 @@ export default function ListItemScreen() {
     localDeliveryAvailable, localDeliveryFeeDollars, localDeliveryTerms,
     useSellerProfileLocalDelivery, inStorePickupAvailable, pickupTerms,
     useSellerProfilePickup, businessId, inventoryMode, variantAxes, variantSkus,
-    inventoryTracking, draftId, router,
+    inventoryTracking, quantitiesVary, pricesVary, draftId, router,
   ]);
 
   useEffect(() => {
@@ -474,6 +481,8 @@ export default function ListItemScreen() {
           setInventoryMode(parsed.mode);
           setVariantAxes(parsed.axes);
           setVariantSkus(parsed.skus);
+          setPricesVary(parsed.pricesVary);
+          setQuantitiesVary(parsed.quantitiesVary);
           setInventoryTracking(parseInventoryTracking(item.inventoryTracking));
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
@@ -555,6 +564,8 @@ export default function ListItemScreen() {
           setInventoryMode(parsed.mode);
           setVariantAxes(parsed.axes);
           setVariantSkus(parsed.skus);
+          setPricesVary(parsed.pricesVary);
+          setQuantitiesVary(parsed.quantitiesVary);
           setInventoryTracking(parseInventoryTracking(item.inventoryTracking));
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
@@ -600,6 +611,8 @@ export default function ListItemScreen() {
           setInventoryMode(parsed.mode);
           setVariantAxes(parsed.axes);
           setVariantSkus(parsed.skus);
+          setPricesVary(parsed.pricesVary);
+          setQuantitiesVary(parsed.quantitiesVary);
           setInventoryTracking(parseInventoryTracking(draft.inventoryTracking));
         }
         setLoadedDraft(true);
@@ -757,12 +770,30 @@ export default function ListItemScreen() {
   const effectiveShippingPolicy = useSellerProfileShipping ? sellerProfileShippingPolicy : shippingPolicy;
 
   const handleSubmit = async () => {
-    const price = Math.round(parseFloat(priceCents) * 100);
-    const qty = hasVariantsWithOptions ? 0 : parseInt(quantity, 10);
+    const enabledSkus = variantSkus.filter((s) => s.enabled);
+    const sharedPool =
+      hasVariantsWithOptions && !quantitiesVary && enabledSkus.length > 1;
+    const variantPrices =
+      pricesVary && hasVariantsWithOptions
+        ? enabledSkus
+            .map((s) => s.priceCents)
+            .filter((cents): cents is number => typeof cents === "number" && cents > 0)
+        : [];
+    const price =
+      pricesVary && hasVariantsWithOptions
+        ? variantPrices.length
+          ? Math.min(...variantPrices)
+          : 0
+        : Math.round(parseFloat(priceCents) * 100);
+    const qty = parseInt(quantity, 10);
     const shipCost = shippingFree || !shippingCostDollars.trim() ? 0 : Math.round(parseFloat(shippingCostDollars) * 100);
     const localFee = localDeliveryFeeDollars.trim() ? Math.round(parseFloat(localDeliveryFeeDollars) * 100) : null;
 
     if (!title.trim()) { setError("Title is required"); return; }
+    if (pricesVary && hasVariantsWithOptions && variantPrices.length < 1) {
+      setError("Set a price on at least one enabled combination (Prices vary is on).");
+      return;
+    }
     if (!price || price < 1) { setError("Price must be at least $0.01"); return; }
     if (!hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
       setError("Quantity must be at least 1"); return;
@@ -771,9 +802,16 @@ export default function ListItemScreen() {
       if (variantAxes.some((a) => !a.name.trim() || a.values.length === 0)) {
         setError("Each option type needs a name and at least one value."); return;
       }
-      const totalOptionQty = sumEnabledSkus(variantSkus);
-      if (inventoryTracking !== "made_to_order" && totalOptionQty < 1) {
-        setError("Add at least one combination with quantity 1 or more."); return;
+      if (inventoryTracking !== "made_to_order") {
+        if (sharedPool) {
+          if (!qty || qty < 1) {
+            setError("Quantity must be at least 1");
+            return;
+          }
+        } else if (sumEnabledSkus(variantSkus) < 1) {
+          setError("Add at least one combination with quantity 1 or more.");
+          return;
+        }
       }
     }
     if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
@@ -783,10 +821,18 @@ export default function ListItemScreen() {
       setError("Choose a shipping option."); return;
     }
 
-    const variantPayload = buildVariantsPayload(inventoryMode, variantAxes, variantSkus);
+    const variantPayload = buildVariantsPayload(inventoryMode, variantAxes, variantSkus, {
+      quantitiesVary,
+      pricesVary,
+      poolQuantity: qty,
+    });
     const payloadQuantity = inventoryTracking === "made_to_order"
       ? qty || 1
-      : variantPayload != null ? sumEnabledSkus(variantSkus) : qty;
+      : sharedPool
+        ? Math.max(0, qty || 0)
+        : variantPayload != null
+          ? sumEnabledSkus(variantSkus)
+          : qty;
 
     setError(null);
     setPhotoError(null);
@@ -882,6 +928,8 @@ export default function ListItemScreen() {
       const rebuilt = rebuildMatrixFromAxes(axes, []);
       setVariantAxes(rebuilt.axes);
       setVariantSkus(rebuilt.skus.map((s) => ({ ...s, enabled: true })));
+      setPricesVary(false);
+      setQuantitiesVary(true);
     }
     Alert.alert("Template Applied", `Settings from "${template.name}" have been applied.`);
   }, [shippingOptions]);
@@ -957,6 +1005,7 @@ export default function ListItemScreen() {
           style={styles.container}
           contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom + keyboardHeight }]}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
           {!editId && (
@@ -1056,39 +1105,60 @@ export default function ListItemScreen() {
             autoCorrect={true}
           />
 
-          <Text style={styles.label}>Price ($) *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0.00"
-            placeholderTextColor={placeholderColor}
-            value={priceCents}
-            onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
-            onChangeText={(t) => {
-              const next = sanitizePriceDraftInput(t);
-              if (next != null) setPriceCents(next);
-            }}
-            onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
-            keyboardType="decimal-pad"
-            autoCorrect={false}
-          />
+          {pricesVary && inventoryMode === "options" ? (
+            <Text style={styles.hint}>
+              Prices vary by combination. Set each price in the table below, or use Apply to all enabled.
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.label}>Price ($) *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0.00"
+                placeholderTextColor={placeholderColor}
+                value={priceCents}
+                onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
+                onChangeText={(t) => {
+                  const next = sanitizePriceDraftInput(t);
+                  if (next != null) setPriceCents(next);
+                }}
+                onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
+                keyboardType="decimal-pad"
+                autoCorrect={false}
+              />
+            </>
+          )}
 
-          <ListingBuyerFieldsEditor fields={buyerFields} onChange={setBuyerFields} />
-          <ListingOptionsEditor
-            mode={inventoryMode}
-            onModeChange={setInventoryMode}
-            axes={variantAxes}
-            skus={variantSkus}
-            onMatrixChange={(nextAxes, nextSkus) => {
-              setVariantAxes(nextAxes);
-              setVariantSkus(nextSkus);
-            }}
-            simpleQuantity={quantity}
-            onSimpleQuantityChange={setQuantity}
-            inventoryTracking={inventoryTracking}
-            onInventoryTrackingChange={setInventoryTracking}
-            galleryPhotos={photos}
-            placeholderColor={placeholderColor}
-          />
+          <View style={styles.formBox}>
+            <ListingOptionsEditor
+              mode={inventoryMode}
+              onModeChange={setInventoryMode}
+              axes={variantAxes}
+              skus={variantSkus}
+              onMatrixChange={(nextAxes, nextSkus) => {
+                setVariantAxes(nextAxes);
+                setVariantSkus(nextSkus);
+              }}
+              simpleQuantity={quantity}
+              onSimpleQuantityChange={setQuantity}
+              inventoryTracking={inventoryTracking}
+              onInventoryTrackingChange={setInventoryTracking}
+              galleryPhotos={photos}
+              placeholderColor={placeholderColor}
+              initialPricesVary={pricesVary}
+              initialQuantitiesVary={quantitiesVary}
+              onPricesVaryChange={setPricesVary}
+              onQuantitiesVaryChange={setQuantitiesVary}
+            />
+          </View>
+
+          <View style={styles.formBox}>
+            <Text style={styles.sectionTitle}>Custom Options</Text>
+            <Text style={styles.hint}>
+              Text, choices, or files buyers fill in. These do not change stock.
+            </Text>
+            <ListingBuyerFieldsEditor fields={buyerFields} onChange={setBuyerFields} />
+          </View>
 
           {shopifyConnected && (
             <View style={styles.channelSection}>
@@ -1320,6 +1390,14 @@ const styles = StyleSheet.create({
   typeBtnText: { color: "#333", fontSize: 16 },
   typeBtnTextActive: { color: "#fff", fontWeight: "600", fontSize: 16 },
   section: { borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 16, marginTop: 8, marginBottom: 16 },
+  formBox: {
+    borderWidth: 1.5,
+    borderColor: defaultTheme.colors.primary,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    backgroundColor: "#fff",
+  },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: "#000", marginBottom: 12 },
   channelSection: {
     marginTop: 8,

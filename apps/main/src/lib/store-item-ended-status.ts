@@ -1,11 +1,36 @@
+import type { Prisma } from "database";
+
 /**
  * Store item ended status utilities.
  * Channel sync functionality has been removed; these functions now return
  * false/empty as placeholders.
  */
 
-/** Historical 14-day window previously used by the ended-listing purge cron. Physical purge is disabled; ended listings are retained. */
+/** How long an ended listing stays on the seller's Ended tab. Rows are kept for order history. */
 export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
+export function endedListingRetentionCutoff(now = new Date()): Date {
+  return new Date(now.getTime() - ENDED_LISTING_RETENTION_MS);
+}
+
+/**
+ * Ended listings the seller can still see and relist.
+ * Older than 14 days, or cleared early, stay in the database but leave this list.
+ */
+export function visibleEndedStoreItemWhere(
+  memberId: string,
+  now = new Date()
+): Prisma.StoreItemWhereInput {
+  const cutoff = endedListingRetentionCutoff(now);
+  return {
+    memberId,
+    status: "inactive",
+    OR: [
+      { endedAt: { gt: cutoff } },
+      { endedAt: null, updatedAt: { gt: cutoff } },
+    ],
+  };
+}
 
 export function hasLinkedChannelListings(_items: unknown[]): boolean {
   void _items;
