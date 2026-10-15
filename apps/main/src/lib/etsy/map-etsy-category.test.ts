@@ -123,5 +123,98 @@ describe("etsy taxonomy to INW categories", () => {
       category: "Art & Collectibles",
       subcategory: "Mixed Media & Collage",
     });
+    expect(mapped(["Art & Collectibles", "Collectibles", "Memorabilia", "Militaria"])).toEqual({
+      category: "Art & Collectibles",
+      subcategory: "Military Collectibles",
+    });
+    expect(mapped(["Art & Collectibles", "Collectibles", "Memorabilia", "Sports Collectibles"])).toEqual({
+      category: "Art & Collectibles",
+      subcategory: "Sports Memorabilia",
+    });
+    expect(mapped(["Art & Collectibles", "Collectibles", "Advertisements"])).toEqual({
+      category: "Art & Collectibles",
+      subcategory: "Advertising Collectibles",
+    });
+    expect(mapped(["Art & Collectibles", "Collectibles", "Collectible Glass", "Glass Insulators"])).toEqual({
+      category: "Art & Collectibles",
+      subcategory: "Bottles & Insulators",
+    });
+    expect(mapped(["Art & Collectibles", "Fine Art Ceramics"])).toEqual({
+      category: "Art & Collectibles",
+      subcategory: "Decorative Collectibles",
+    });
+    expect(mapped(["Books, Movies & Music", "Music", "Musical Instruments", "Stringed Instruments", "Guitars"])).toEqual({
+      category: "Musical Instruments",
+      subcategory: "Guitars & Bass",
+    });
+    expect(mapped(["Books, Movies & Music", "Music", "Musical Instruments", "Stringed Instruments", "Ukuleles"])).toEqual({
+      category: "Musical Instruments",
+      subcategory: "Guitars & Bass",
+    });
+    expect(mapped(["Books, Movies & Music", "Music", "Musical Instruments", "Stringed Instruments", "Violins & Bows"])).toEqual({
+      category: "Musical Instruments",
+      subcategory: "Band & Orchestra",
+    });
+    expect(mapped(["Home & Living", "Home Appliances", "Irons & Steamers"])).toEqual({
+      category: "Home & Living",
+      subcategory: "Cleaning & Laundry",
+    });
+    expect(mapped(["Home & Living", "Home Appliances", "Large Appliances"])).toEqual({
+      category: "Home & Kitchen",
+      subcategory: "Kitchen Appliances",
+    });
+    expect(mapped(["Home & Living", "Home Appliances", "Fans & Heaters"]).category).toBe("Home & Living");
+    expect(mapped(["Electronics & Accessories", "Decals & Skins", "Laptop", "Laptop Skins"])).toEqual({
+      category: "Electronics & Accessories",
+      subcategory: "Computer Accessories",
+    });
+    expect(mapped(["Electronics & Accessories", "Video Games", "Arcade Games"])).toEqual({
+      category: "Video Games & Consoles",
+      subcategory: "Retro & Vintage",
+    });
+    expect(mapped(["Toys & Games", "Toys", "Dolls & Action Figures", "Action Figures"])).toEqual({
+      category: "Toys & Games",
+      subcategory: "Action Figures & Collectibles",
+    });
+    expect(mapped(["Pet Supplies", "Pet Carriers & Houses"])).toEqual({
+      category: "Pet Supplies",
+      subcategory: "Pet Carriers",
+    });
+    expect(mapped(["Home & Living", "Home Decor", "Seasonal Decor"])).toEqual({
+      category: "Home & Garden",
+      subcategory: "Seasonal Decor",
+    });
+    expect(mapped(["Home & Living", "Home Improvement", "Lighting Parts"])).toEqual({
+      category: "Tools & Home Improvement",
+      subcategory: "Electrical",
+    });
+    expect(mapped(["Weddings", "Jewelry", "Necklaces"])).toEqual({
+      category: "Wedding",
+      subcategory: "Accessories",
+    });
+    expect(mapped(["Jewelry", "Necklaces", "Pendant Necklaces"])).toEqual({
+      category: "Jewelry & Watches",
+      subcategory: "Necklaces & Pendants",
+    });
+    expect(mapped(["Paper & Party Supplies", "Paper", "Mailers & Mailing", "Envelopes"])).toEqual({
+      category: "Paper & Party Supplies",
+      subcategory: "Gift Wrap & Packaging",
+    });
+    expect(mapped(["Home & Living", "Furniture", "Entryway & Mudroom Furniture"])).toEqual({
+      category: "Furniture",
+      subcategory: "Accent & Occasional",
+    });
+    expect(mapped(["Toys & Games", "Sports & Outdoor Recreation", "Lawn Games"])).toEqual({
+      category: "Sports & Outdoors",
+      subcategory: "Outdoor Gear",
+    });
+    expect(mapped(["Toys & Games", "Toys", "Push & Pull Toys", "Wagons"])).toEqual({
+      category: "Toys & Games",
+      subcategory: "Preschool Toys",
+    });
+    expect(mapped(["Bags & Purses", "Sports Bags", "Beach Bags"])).toEqual({
+      category: "Bags & Purses",
+      subcategory: "Totes & Shopping Bags",
+    });
   });
 });
