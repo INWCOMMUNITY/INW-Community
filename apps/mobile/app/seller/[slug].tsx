@@ -281,6 +281,19 @@ export default function SellerStorefrontScreen() {
 
   const renderProductsTab = () => (
     <View style={styles.tabContent}>
+      {seller.freeShippingBanner ? (
+        <View style={styles.freeShipBanner}>
+          <Ionicons name="gift-outline" size={16} color="#fff" style={styles.freeShipBannerIcon} />
+          <Text style={styles.freeShipBannerText}>
+            {seller.freeShippingBanner === "threshold" &&
+            seller.freeShippingMinimumCents != null &&
+            seller.freeShippingMinimumCents > 0
+              ? `${seller.name} offers free shipping if you purchase $${(seller.freeShippingMinimumCents / 100).toFixed(2)} worth from their store!`
+              : `${seller.name} offers free shipping from their store!`}
+          </Text>
+          <Ionicons name="gift-outline" size={16} color="#fff" style={styles.freeShipBannerIconRight} />
+        </View>
+      ) : null}
       {categories.length > 0 && (
         <ScrollView
           horizontal
@@ -724,20 +737,6 @@ export default function SellerStorefrontScreen() {
           </View>
         </View>
 
-        {seller.freeShippingBanner ? (
-          <View style={styles.freeShipBanner}>
-            <Ionicons name="gift-outline" size={22} color="#fff" style={styles.freeShipBannerIcon} />
-            <Text style={styles.freeShipBannerText}>
-              {seller.freeShippingBanner === "threshold" &&
-              seller.freeShippingMinimumCents != null &&
-              seller.freeShippingMinimumCents > 0
-                ? `${seller.name} offers free shipping if you purchase $${(seller.freeShippingMinimumCents / 100).toFixed(2)} worth from their store!`
-                : `${seller.name} offers free shipping from their store!`}
-            </Text>
-            <Ionicons name="gift-outline" size={22} color="#fff" style={styles.freeShipBannerIconRight} />
-          </View>
-        ) : null}
-
         {/* Tab Content */}
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "about" && renderAboutTab()}
@@ -967,27 +966,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginHorizontal: 16,
-    marginTop: 16,
-    paddingHorizontal: 44,
-    paddingVertical: 12,
-    borderRadius: 10,
+    marginBottom: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 6,
+    borderRadius: 8,
     backgroundColor: theme.colors.earth,
   },
   freeShipBannerIcon: {
     position: "absolute",
-    left: 14,
+    left: 8,
   },
   freeShipBannerIconRight: {
     position: "absolute",
-    right: 14,
+    right: 8,
   },
   freeShipBannerText: {
     flexShrink: 1,
     color: "#fff",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
-    lineHeight: 20,
+    lineHeight: 16,
     textAlign: "center",
   },
 
