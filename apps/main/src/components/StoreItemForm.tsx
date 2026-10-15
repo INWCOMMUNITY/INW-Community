@@ -791,9 +791,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         : NaN
       : Math.round(parseFloat(priceDollars) * 100);
     const priceCents = asDraft && (isNaN(parsedPrice) || parsedPrice < 0) ? 0 : parsedPrice;
-    const shippingCostCents = shippingCostDollars
+    const shippingCostCents = shippingCostDollars.trim()
       ? Math.round(parseFloat(shippingCostDollars) * 100)
-      : 0;
+      : null;
     if (!title.trim()) {
       setError(asDraft ? "Add a title to save this draft." : "Title is required");
       return null;
@@ -925,7 +925,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   })
                 : null,
           }),
-      shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
+      shippingCostCents:
+        effectiveShippingDisabled || shippingCostCents == null || !Number.isFinite(shippingCostCents)
+          ? null
+          : Math.max(0, shippingCostCents),
       shippingOptionId: shippingOptionId || null,
       shippingPolicy:
         effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,

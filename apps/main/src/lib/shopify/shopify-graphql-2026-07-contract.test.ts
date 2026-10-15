@@ -93,5 +93,12 @@ describe("Shopify Admin GraphQL 2026-07 selection contracts", () => {
     const activate = read("activate-listing.ts");
     expect(activate).toContain("userErrors { field message }");
     expect(activate).not.toMatch(/userErrors \{ field message code \}/);
+
+    const endListing = read("listing-actions.ts");
+    expect(endListing).toContain("mutation ShopifyListingProductDraft($product: ProductUpdateInput!)");
+    expect(endListing).toContain('status: "DRAFT"');
+    expect(endListing).toMatch(
+      /mutation ShopifyListingProductDraft[\s\S]*?userErrors \{ field message \}/
+    );
   });
 });

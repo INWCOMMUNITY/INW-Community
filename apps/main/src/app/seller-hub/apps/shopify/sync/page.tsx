@@ -111,6 +111,7 @@ export default function AppsAirportShopifySyncPage() {
   const [resultModal, setResultModal] = useState<ResultModal | null>(null);
   const [metafieldTargets, setMetafieldTargets] = useState<EligibleListing[] | null>(null);
   const [sharedQuantityOpen, setSharedQuantityOpen] = useState(false);
+  const [sharedQuantityTargets, setSharedQuantityTargets] = useState<EligibleListing[]>([]);
   const busyRef = useRef(false);
   const pollGenerationRef = useRef(0);
 
@@ -304,16 +305,40 @@ export default function AppsAirportShopifySyncPage() {
     [loadEligible, pollListingStatus, showEnqueueModal]
   );
 
-  function requestEnqueue(targets: EligibleListing[]) {
-    if (targets.some((listing) => listing.usesSharedQuantityPool)) {
-      setSharedQuantityOpen(true);
-      return;
-    }
+  function continueEnqueue(targets: EligibleListing[]) {
     if (targets.some((listing) => listing.needsShopifyMetafields)) {
       setMetafieldTargets(targets);
       return;
     }
     void runEnqueue(targets);
+  }
+
+  function requestEnqueue(targets: EligibleListing[]) {
+    const blocked = targets.filter((listing) => listing.usesSharedQuantityPool);
+    if (blocked.length > 0) {
+      setSharedQuantityTargets(targets);
+      setSharedQuantityOpen(true);
+      return;
+    }
+    continueEnqueue(targets);
+  }
+
+  function skipSharedQuantityListings() {
+    const compatible = sharedQuantityTargets.filter((listing) => !listing.usesSharedQuantityPool);
+    const blockedIds = new Set(
+      sharedQuantityTargets
+        .filter((listing) => listing.usesSharedQuantityPool)
+        .map((listing) => listing.storeItemId)
+    );
+    setSharedQuantityOpen(false);
+    setSharedQuantityTargets([]);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of blockedIds) next.delete(id);
+      return next;
+    });
+    if (compatible.length === 0) return;
+    continueEnqueue(compatible);
   }
 
   function toggleSelected(storeItemId: string) {
@@ -469,7 +494,9 @@ export default function AppsAirportShopifySyncPage() {
                   </th>
                   <th className="py-2 pr-4 font-semibold">INW Listing</th>
                   <th className="py-2 pr-4 font-semibold">Price</th>
-                  <th className="py-2 pr-4 font-semibold">Inventory</th>
+                  <th className="py-2 pr-4 font-semibold" title="Q is a quantity cap. P is a pools cap.">
+                    Q / P
+                  </th>
                   <th className="py-2 pr-4 font-semibold">Variants</th>
                   <th className="py-2 pr-4 font-semibold">SKU</th>
                   <th className="py-2 font-semibold">Action</th>
@@ -522,7 +549,12 @@ export default function AppsAirportShopifySyncPage() {
                         </div>
                       </td>
                       <td className="py-3 pr-4">{formatCents(listing.priceCents)}</td>
-                      <td className="py-3 pr-4">{listing.quantity}</td>
+                      <td
+                        className="py-3 pr-4 whitespace-nowrap"
+                        title={listing.usesSharedQuantityPool ? "Pools cap" : "Quantity cap"}
+                      >
+                        {listing.usesSharedQuantityPool ? `P ${listing.quantity}` : `Q ${listing.quantity}`}
+                      </td>
                       <td className="py-3 pr-4">{listing.variantCount ?? "—"}</td>
                       <td className="py-3 pr-4">{listing.sku ?? "—"}</td>
                       <td className="py-3">
@@ -546,7 +578,14 @@ export default function AppsAirportShopifySyncPage() {
 
       <ShopifySharedQuantityDialog
         open={sharedQuantityOpen}
-        onClose={() => setSharedQuantityOpen(false)}
+        skippedTitles={sharedQuantityTargets
+          .filter((listing) => listing.usesSharedQuantityPool)
+          .map((listing) => listing.title)}
+        onSkip={skipSharedQuantityListings}
+        onClose={() => {
+          setSharedQuantityOpen(false);
+          setSharedQuantityTargets([]);
+        }}
       />
       <ShopifyMetafieldListingDialog
         open={metafieldTargets != null}

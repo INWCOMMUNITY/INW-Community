@@ -23,6 +23,9 @@ type ShippingOption = {
 type PageData = {
   options: ShippingOption[];
   offerFreeShippingOnInw: boolean;
+  combineShipping: boolean;
+  combinedShippingMaxCents: number | null;
+  freeShippingMinimumCents: number | null;
   etsyConnected: boolean;
   shopifyConnected: boolean;
 };
@@ -41,6 +44,19 @@ function formatOptionPrice(cents: number | null | undefined): string {
   if (cents == null) return "No shipping price";
   if (cents === 0) return "Free";
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function centsToDollarInput(cents: number | null | undefined): string {
+  if (cents == null) return "";
+  return (cents / 100).toFixed(2);
+}
+
+function parseDollarInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n) || n < 0) throw new Error("Enter a valid dollar amount");
+  return Math.round(n * 100);
 }
 
 function dollarsToCents(raw: string): number {
@@ -71,6 +87,9 @@ function ShippingPageInner() {
   const [importing, setImporting] = useState<"etsy" | "shopify" | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ShippingOption | null>(null);
+  const [combineShipping, setCombineShipping] = useState(false);
+  const [combineMaxInput, setCombineMaxInput] = useState("");
+  const [freeOverInput, setFreeOverInput] = useState("");
 
   useEffect(() => {
     if (!searchParams) return;
@@ -105,7 +124,11 @@ function ShippingPageInner() {
     const res = await fetch("/api/shipping-options", { credentials: "include" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || "Could not load shipping options");
-    setData(json as PageData);
+    const page = json as PageData;
+    setData(page);
+    setCombineShipping(Boolean(page.combineShipping));
+    setCombineMaxInput(centsToDollarInput(page.combinedShippingMaxCents));
+    setFreeOverInput(centsToDollarInput(page.freeShippingMinimumCents));
   }, []);
 
   useEffect(() => {
@@ -317,6 +340,91 @@ function ShippingPageInner() {
             <p className="text-red-700">{shippoError}</p>
           </div>
         ) : null}
+
+        <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--color-heading)" }}>
+          Shipping Rules
+        </h2>
+        <p className="text-gray-600 mb-4">
+          Each shipped item’s shipping price is added together. Use these rules to cap a combined order or offer free shipping over a store total.
+        </p>
+        <div className="border-2 rounded-lg p-6 mb-8 border-[var(--color-primary)] bg-white max-w-xl">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded"
+              checked={combineShipping}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setCombineShipping(checked);
+                void patchPrefs({ combineShipping: checked });
+              }}
+            />
+            <span>Do you combine shipping?</span>
+          </label>
+          {combineShipping ? (
+            <label className="block mt-4">
+              <span className="text-sm font-medium">
+                Combined orders have a maximum shipping price of
+              </span>
+              <input
+                className="mt-1 w-full border rounded px-3 py-2"
+                inputMode="decimal"
+                placeholder="e.g. 8.00"
+                value={combineMaxInput}
+                onChange={(e) => setCombineMaxInput(e.target.value)}
+                onBlur={() => {
+                  try {
+                    const cents = parseDollarInput(combineMaxInput);
+                    setCombineMaxInput(centsToDollarInput(cents));
+                    void patchPrefs({ combinedShippingMaxCents: cents });
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
+                  }
+                }}
+              />
+              <span className="block text-xs text-gray-500 mt-1">
+                When a buyer ships more than one item from your store, shipping will not exceed this amount. A single item still uses its own shipping price.
+              </span>
+            </label>
+          ) : null}
+          <label className="block mt-6">
+            <span className="text-sm font-medium">Offer free shipping on purchases over</span>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-sm">$</span>
+              <input
+                className="w-full border rounded px-3 py-2"
+                inputMode="decimal"
+                placeholder="e.g. 50.00"
+                value={freeOverInput}
+                onChange={(e) => setFreeOverInput(e.target.value)}
+                onBlur={() => {
+                  try {
+                    const cents = parseDollarInput(freeOverInput);
+                    if (cents === 0) {
+                      setError("Enter an amount greater than 0, or leave this blank.");
+                      return;
+                    }
+                    setFreeOverInput(centsToDollarInput(cents));
+                    void patchPrefs({ freeShippingMinimumCents: cents });
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
+                  }
+                }}
+              />
+              <span className="text-sm whitespace-nowrap">dollars</span>
+            </div>
+          </label>
+          {(() => {
+            const amount = freeOverInput.trim();
+            const n = Number(amount.replace(/[^0-9.]/g, ""));
+            if (!amount || !Number.isFinite(n) || n <= 0) return null;
+            return (
+              <p className="text-sm text-gray-600 mt-3">
+                Buyers will be notified that if they order ${n.toFixed(2)} from your store, they will receive free shipping.
+              </p>
+            );
+          })()}
+        </div>
 
         <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--color-heading)" }}>
           Shipping options

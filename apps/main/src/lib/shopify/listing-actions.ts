@@ -15,7 +15,7 @@ import {
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { resolveShopifyOnlineStorePublicationId } from "./publish-listing";
 
-export type ShopifyListingAction = "retry" | "reconnect" | "unpublish" | "remove";
+export type ShopifyListingAction = "retry" | "reconnect" | "unpublish" | "remove" | "end";
 
 export type ShopifyListingActionResult =
   | { ok: true; message?: string }
@@ -103,6 +103,49 @@ async function unpublishFromOnlineStore(input: {
   const userErrors = result.data?.publishableUnpublish?.userErrors ?? [];
   if (userErrors.length > 0) {
     return { ok: false, error: userErrors.map((e) => e.message).join("; ") };
+  }
+  return { ok: true };
+}
+
+/** Ending a Shopify listing means the admin Status is Draft, not merely unpublished. */
+async function draftShopifyProduct(input: {
+  connectionId: string;
+  shopifyProductId: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const result = await executeShopifyAdminGraphql<{
+    productUpdate: {
+      product: { id: string; status: string } | null;
+      userErrors: Array<{ field?: string[] | null; message: string }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyListingProductDraft",
+    document: `mutation ShopifyListingProductDraft($product: ProductUpdateInput!) {
+      productUpdate(product: $product) {
+        product { id status }
+        userErrors { field message }
+      }
+    }`,
+    variables: {
+      product: {
+        id: input.shopifyProductId,
+        status: "DRAFT",
+      },
+    },
+    fetchImpl: input.fetchImpl,
+  });
+  if (!result.ok) {
+    return { ok: false, error: result.message };
+  }
+  const userErrors = result.data?.productUpdate?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    return { ok: false, error: userErrors.map((error) => error.message).join("; ") };
+  }
+  const status = String(result.data?.productUpdate?.product?.status ?? "").toUpperCase();
+  if (status && status !== "DRAFT") {
+    return { ok: false, error: "Shopify left the product active." };
   }
   return { ok: true };
 }
@@ -225,26 +268,42 @@ export async function runShopifyListingAction(input: {
     return { ok: true, message: "Reload queued" };
   }
 
-  if (input.action === "unpublish") {
+  if (input.action === "end" || input.action === "unpublish") {
+    if (input.action === "end") {
+      const drafted = await draftShopifyProduct({
+        connectionId: connection.id,
+        shopifyProductId: listing.shopifyProductId,
+        fetchImpl: input.fetchImpl,
+      });
+      if (!drafted.ok) {
+        return { ok: false, status: 502, error: drafted.error, code: "DRAFT_FAILED" };
+      }
+    }
     const unpublished = await unpublishFromOnlineStore({
       connectionId: connection.id,
       shopifyProductId: listing.shopifyProductId,
       fetchImpl: input.fetchImpl,
     });
-    if (!unpublished.ok) {
+    if (
+      !unpublished.ok &&
+      !(input.action === "end" && /not published|already|unpublished/i.test(unpublished.error))
+    ) {
       return { ok: false, status: 502, error: unpublished.error, code: "UNPUBLISH_FAILED" };
     }
     await prisma.shopifyListingLink.update({
       where: { id: listing.id },
       data: {
         issueCode: "UNPUBLISHED_ONLINE_STORE",
-        issueMessage: "Removed from Online Store",
+        issueMessage: input.action === "end" ? "Set to draft on Shopify" : "Removed from Online Store",
         issueSeverity: "warning",
         issueLastSeenAt: new Date(),
         readiness: "ACTION_REQUIRED",
       },
     });
-    return { ok: true, message: "Removed from Online Store" };
+    return {
+      ok: true,
+      message: input.action === "end" ? "Set to draft on Shopify" : "Removed from Online Store",
+    };
   }
 
   // remove

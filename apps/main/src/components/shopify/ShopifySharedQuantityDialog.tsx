@@ -5,9 +5,14 @@ import { SHOPIFY_SHARED_QUANTITY_MESSAGE } from "@/lib/listing-variant-matrix";
 export function ShopifySharedQuantityDialog({
   open,
   onClose,
+  onSkip,
+  skippedTitles = [],
 }: {
   open: boolean;
   onClose: () => void;
+  /** Continue with the listings Shopify can accept. */
+  onSkip?: () => void;
+  skippedTitles?: string[];
 }) {
   if (!open) return null;
   return (
@@ -31,7 +36,19 @@ export function ShopifySharedQuantityDialog({
           Shared quantity pools
         </h2>
         <p className="mt-2 text-sm text-neutral-700">{SHOPIFY_SHARED_QUANTITY_MESSAGE}</p>
+        {skippedTitles.length > 0 ? (
+          <ul className="mt-3 max-h-32 space-y-1 overflow-y-auto text-sm text-neutral-800">
+            {skippedTitles.map((title, index) => (
+              <li key={`${index}:${title}`}>P {title}</li>
+            ))}
+          </ul>
+        ) : null}
         <div className="mt-5 flex flex-wrap gap-3">
+          {onSkip ? (
+            <button type="button" className="btn" onClick={onSkip}>
+              Skip those listings
+            </button>
+          ) : null}
           <button type="button" className="btn" onClick={onClose}>
             OK
           </button>

@@ -24,6 +24,9 @@ const createSchema = z.object({
 
 const prefsSchema = z.object({
   offerFreeShippingOnInw: z.boolean().optional(),
+  combineShipping: z.boolean().optional(),
+  combinedShippingMaxCents: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  freeShippingMinimumCents: z.number().int().min(1).max(10_000_000).nullable().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -31,13 +34,23 @@ export async function GET(req: NextRequest) {
   const userId = session?.user?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [options, prefs] = await Promise.all([
-    listShippingOptions(userId),
-    getShippingOptionPrefs(userId),
-  ]);
+  let options;
+  let prefs;
+  try {
+    [options, prefs] = await Promise.all([
+      listShippingOptions(userId),
+      getShippingOptionPrefs(userId),
+    ]);
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "Could not load shipping options" }, { status: 500 });
+  }
   return NextResponse.json({
     options,
     offerFreeShippingOnInw: prefs.offerFreeShippingOnInw,
+    combineShipping: prefs.combineShipping,
+    combinedShippingMaxCents: prefs.combinedShippingMaxCents,
+    freeShippingMinimumCents: prefs.freeShippingMinimumCents,
     etsyConnected: prefs.etsyConnected,
     shopifyConnected: prefs.shopifyConnected,
   });

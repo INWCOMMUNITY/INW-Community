@@ -15,6 +15,20 @@ const logOpt: ("query" | "error" | "warn")[] = isDev
   ? ["query", "error", "warn"]
   : ["error"];
 
+function prismaHasMemberShippingRules(client: PrismaClient): boolean {
+  const rdm = (
+    client as {
+      _runtimeDataModel?: { models?: Record<string, { fields?: Record<string, unknown> | unknown[] }> };
+    }
+  )._runtimeDataModel;
+  const fields = rdm?.models?.Member?.fields;
+  if (!fields) return false;
+  if (Array.isArray(fields)) {
+    return fields.some((f) => f && typeof f === "object" && (f as { name?: string }).name === "combineShipping");
+  }
+  return "combineShipping" in fields;
+}
+
 function prismaHasShippingOptionCost(client: PrismaClient): boolean {
   const rdm = (
     client as {
@@ -54,7 +68,8 @@ const prismaClient = (() => {
     typeof (existing as { shopifyProviderEvidence?: unknown }).shopifyProviderEvidence !== "undefined" &&
     typeof (existing as { shopifySyncJob?: unknown }).shopifySyncJob !== "undefined" &&
     typeof (existing as { listingBuyerField?: unknown }).listingBuyerField !== "undefined" &&
-    prismaHasShippingOptionCost(existing)
+    prismaHasShippingOptionCost(existing) &&
+    prismaHasMemberShippingRules(existing)
   ) {
     return existing;
   }

@@ -12,6 +12,7 @@ import { ShareButton } from "@/components/ShareButton";
 import { StorefrontCard } from "@/components/store/StorefrontCard";
 import { buildProductLinkWithReferrer } from "@/lib/product-referrer";
 import { buildBusinessHref } from "@/lib/business-referrer";
+import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -50,6 +51,8 @@ export type SellerStorefrontData = {
   offerShipping: boolean;
   offerLocalDelivery: boolean;
   offerLocalPickup: boolean;
+  freeShippingMinimumCents?: number | null;
+  freeShippingBanner?: FreeShippingBanner | null;
   sellerShippingPolicy: string | null;
   sellerLocalDeliveryPolicy: string | null;
   sellerPickupPolicy: string | null;
@@ -302,6 +305,21 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
           })}
         </div>
       </div>
+
+      {seller.freeShippingBanner ? (
+        <div className="mx-auto w-full max-w-[var(--max-width)] px-4 pt-4">
+          <div
+            className="relative flex items-center justify-center rounded-lg px-12 py-3 text-white"
+            style={{ backgroundColor: "var(--color-earth)" }}
+          >
+            <IonIcon name="gift-outline" size={22} className="absolute left-4 shrink-0 text-white" />
+            <p className="text-center text-sm font-semibold leading-snug">
+              {freeShippingBannerText(seller.name, seller.freeShippingBanner, seller.freeShippingMinimumCents)}
+            </p>
+            <IonIcon name="gift-outline" size={22} className="absolute right-4 shrink-0 text-white" />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mx-auto max-w-[var(--max-width)] px-4 py-4 pb-12">
         {activeTab === "products" ? (

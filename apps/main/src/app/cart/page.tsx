@@ -6,12 +6,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
-import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { buildProductHref } from "@/lib/product-referrer";
+import { sellerOrderShippingCents } from "@/lib/checkout-shipping-cost";
 
 interface CartItemStoreItem {
   id: string;
@@ -33,6 +33,9 @@ interface CartItemStoreItem {
   member?: {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
+    combineShipping?: boolean;
+    combinedShippingMaxCents?: number | null;
+    freeShippingMinimumCents?: number | null;
   } | null;
 }
 
@@ -57,14 +60,40 @@ function cartLineUnitPriceCents(item: CartItem): number {
   return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
+function cartShippingCents(list: CartItem[]): number {
+  const groups = new Map<string, CartItem[]>();
+  for (const item of list) {
+    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+    const group = groups.get(sellerId) ?? [];
+    group.push(item);
+    groups.set(sellerId, group);
+  }
+  let cents = 0;
+  for (const group of groups.values()) {
+    const member = group[0]?.storeItem.member;
+    cents += sellerOrderShippingCents({
+      lines: group.map((item) => ({
+        quantity: item.quantity,
+        fulfillmentType: item.fulfillmentType,
+        shippingCostCents: item.storeItem.shippingCostCents,
+      })),
+      merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
+      rules: {
+        combineShipping: Boolean(member?.combineShipping),
+        combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+        freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+      },
+    });
+  }
+  return cents;
+}
+
 function cartLineMaxQty(item: CartItem): number {
   if (typeof item.availableQuantity === "number") return Math.max(0, item.availableQuantity);
   return getAvailableQuantity(item.storeItem, item.variant ?? undefined);
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
-
-const emptyShippingAddress = { street: "", aptOrSuite: "", city: "", state: "", zip: "" };
 
 function getItemProductUrl(item: CartItem): string {
   return buildProductHref(item.storeItem.slug, { type: "cart" });
@@ -85,8 +114,6 @@ export default function CartPage() {
   const [error, setError] = useState("");
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
   const [pickupTermsModalItemId, setPickupTermsModalItemId] = useState<string | null>(null);
-  const [shippingAddress, setShippingAddress] = useState<AddressValue>(emptyShippingAddress);
-  const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
 
   function loadCart() {
     refetchCart().then((arr) => {
@@ -218,19 +245,12 @@ export default function CartPage() {
     pickupItemsWithPolicy.length === 0 ||
     pickupItemsWithPolicy.every((i) => i.pickupDetails?.termsAcceptedAt);
   const hasShippedItem = items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-  const shippingValid =
-    !hasShippedItem ||
-    (shippingAddress.street.trim() &&
-      shippingAddress.city.trim() &&
-      shippingAddress.state.trim() &&
-      shippingAddress.zip.trim());
   const hasUnavailableItems = items.some((i) => i.unavailableReason);
   const canCheckout =
     !hasUnavailableItems &&
     localDeliveryFormComplete &&
     allPickupDetailsFilled &&
-    allPickupTermsAgreed &&
-    shippingValid;
+    allPickupTermsAgreed;
 
   /** All items are charged through Stripe at checkout. */
   const cardItems = items;
@@ -249,10 +269,6 @@ export default function CartPage() {
       );
       return;
     }
-    if (hasShippedItem && !shippingValid) {
-      setError("Please enter your full shipping address.");
-      return;
-    }
     setError("");
     setCheckingOut(true);
     try {
@@ -268,69 +284,13 @@ export default function CartPage() {
       });
 
       const hasShippedCardItem = cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-      let resolvedShippingAddress = shippingAddress;
-      if (hasShippedCardItem) {
-        let validateRes = await fetch("/api/validate-address", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            street: shippingAddress.street,
-            city: shippingAddress.city,
-            state: shippingAddress.state,
-            zip: shippingAddress.zip,
-            requireCarrierVerification: true,
-          }),
-          credentials: "include",
-        });
-        let validateData = (await validateRes.json().catch(() => ({}))) as {
-          valid?: boolean;
-          formatted?: { street: string; city: string; state: string; zip: string };
-          suggestedFormatted?: { street: string; city: string; state: string; zip: string };
-          error?: string;
-        };
-        if (!validateData.valid && validateData.suggestedFormatted) {
-          validateRes = await fetch("/api/validate-address", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              street: validateData.suggestedFormatted.street,
-              city: validateData.suggestedFormatted.city,
-              state: validateData.suggestedFormatted.state,
-              zip: validateData.suggestedFormatted.zip,
-              requireCarrierVerification: true,
-            }),
-            credentials: "include",
-          });
-          validateData = (await validateRes.json().catch(() => ({}))) as typeof validateData;
-        }
-        if (!validateData.valid) {
-          setError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
-          setCheckingOut(false);
-          return;
-        }
-        const fmt = validateData.formatted;
-        resolvedShippingAddress = {
-          street: fmt?.street ?? "",
-          city: fmt?.city ?? "",
-          state: fmt?.state ?? "",
-          zip: fmt?.zip ?? "",
-          aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
-        };
-        setShippingAddress(resolvedShippingAddress);
-      }
-
-      const shippingCostCents = cardItems.reduce((sum, i) => {
-        if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-          return sum + i.storeItem.shippingCostCents * i.quantity;
-        }
-        return sum;
-      }, 0);
+      const shippingCostCents = cartShippingCents(cardItems);
       const stripeBody: Record<string, unknown> = {
         ...makePayload(cardItems),
         shippingCostCents,
       };
       if (hasShippedCardItem) {
-        stripeBody.shippingAddress = resolvedShippingAddress;
+        stripeBody.shippingCollectedByStripe = true;
       }
       if (typeof window !== "undefined") stripeBody.returnBaseUrl = window.location.origin;
 
@@ -359,12 +319,7 @@ export default function CartPage() {
   }
 
   const subtotalCents = items.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
-  const shippingCostCents = items.reduce((sum, i) => {
-    if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-      return sum + i.storeItem.shippingCostCents * i.quantity;
-    }
-    return sum;
-  }, 0);
+  const shippingCostCents = cartShippingCents(items);
   const localDeliveryFeeCents = items.reduce((sum, i) => {
     if (
       i.fulfillmentType === "local_delivery" &&
@@ -707,7 +662,7 @@ export default function CartPage() {
                   className="text-xl font-semibold mb-4"
                   style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
                 >
-                  Order summary
+                  Order Summary
                 </h2>
                 <div className="space-y-2 mb-4" style={{ color: "var(--color-text)" }}>
                   <div className="flex justify-between text-sm">
@@ -730,33 +685,29 @@ export default function CartPage() {
                     <span>Total</span>
                     <span>${(totalCents / 100).toFixed(2)}</span>
                   </div>
-                </div>
-
-                {hasShippedItem && (
-                  <div className="mb-4">
-                    <h3
-                      className="text-sm font-semibold mb-2"
-                      style={{ color: "var(--color-heading)" }}
-                    >
-                      Shipping address
-                    </h3>
-                    <p className="text-xs mb-2" style={{ color: "var(--color-text)" }}>
-                      This address is sent to the seller for shipping.
+                  <p className="text-xs" style={{ color: "var(--color-text)" }}>
+                    Tax is calculated at checkout.
+                  </p>
+                  {Array.from(
+                    new Map(
+                      items
+                        .filter(
+                          (item) =>
+                            (item.storeItem.member?.freeShippingMinimumCents ?? 0) > 0 &&
+                            item.storeItem.memberId
+                        )
+                        .map((item) => [item.storeItem.memberId, item.storeItem.member?.freeShippingMinimumCents ?? 0])
+                    ).entries()
+                  ).map(([sellerId, minimumCents]) => (
+                    <p key={sellerId} className="text-xs" style={{ color: "var(--color-text)" }}>
+                      If you order ${(minimumCents / 100).toFixed(2)} from this store, you will receive free shipping.
                     </p>
-                    <AddressSearchInput
-                      value={shippingAddress}
-                      onChange={(addr, meta) => {
-                        setShippingAddress(addr);
-                        if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
-                      }}
-                      placeholder="Search for your address"
-                      showManualFallback
-                    />
-                  </div>
-                )}
+                  ))}
+                </div>
 
                 <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>
                   Pay with Card, Google Pay, or Apple Pay on the next screen.
+                  {hasShippedItem ? " You’ll enter your shipping address there." : ""}
                 </p>
 
                 {error && (
@@ -794,7 +745,7 @@ export default function CartPage() {
                     className="btn disabled:cursor-not-allowed"
                     style={{ opacity: 1 }}
                   >
-                    {checkingOut ? "Redirecting…" : "Proceed to checkout"}
+                    {checkingOut ? "Redirecting…" : "Proceed to Checkout"}
                   </button>
                   <Link
                     href="/storefront"

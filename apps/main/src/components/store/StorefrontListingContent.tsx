@@ -34,6 +34,7 @@ import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { parseStoredAspects } from "@/lib/listing-limits";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 import { answersPayload, ListingBuyerAnswers, type BuyerAnswerDraft } from "@/components/store/ListingBuyerAnswers";
 import type { ListingBuyerFieldPublic } from "database/src/public-buyer-fields";
 
@@ -70,7 +71,9 @@ interface StoreItem {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    freeShippingMinimumCents?: number | null;
   };
+  freeShippingBanner?: FreeShippingBanner | null;
   business?: {
     id: string;
     name: string;
@@ -1257,6 +1260,22 @@ export function StorefrontListingContent({
               Seller Policy
             </div>
             <div className="p-6 bg-gray-50">
+              {item.freeShippingBanner ? (
+                <div
+                  className="relative mb-6 flex items-center justify-center rounded-lg px-12 py-3 text-white"
+                  style={{ backgroundColor: "var(--color-earth)" }}
+                >
+                  <IonIcon name="gift-outline" size={22} className="absolute left-4 shrink-0 text-white" />
+                  <p className="text-center text-sm font-semibold leading-snug">
+                    {freeShippingBannerText(
+                      item.business?.name ?? "This seller",
+                      item.freeShippingBanner,
+                      item.member?.freeShippingMinimumCents
+                    )}
+                  </p>
+                  <IonIcon name="gift-outline" size={22} className="absolute right-4 shrink-0 text-white" />
+                </div>
+              ) : null}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
                 {effectiveLocalDeliveryPolicy && (
                   <div className="space-y-4">

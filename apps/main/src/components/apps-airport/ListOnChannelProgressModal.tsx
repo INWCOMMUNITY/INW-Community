@@ -427,7 +427,7 @@ export function ListOnChannelProgressModal({
               disabled={viewBusy}
               onClick={() => void openOnThirdParty()}
             >
-              {viewBusy ? "Opening…" : "View on 3rd Party"}
+              {viewBusy ? "Opening…" : `View on ${channelLabel}`}
             </button>
             {viewError ? <p className="mt-2 text-xs text-red-700">{viewError}</p> : null}
           </div>

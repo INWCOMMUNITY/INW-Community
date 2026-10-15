@@ -89,7 +89,9 @@ interface StoreItem {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    freeShippingMinimumCents?: number | null;
   };
+  freeShippingBanner?: "storewide" | "threshold" | null;
   business?: {
     id: string;
     name: string;
@@ -1267,6 +1269,19 @@ export default function ProductScreen() {
                 <Text style={styles.sellerCardTitle}>Seller Policy</Text>
               </View>
               <View style={styles.sellerCardBody}>
+                {item.freeShippingBanner ? (
+                  <View style={styles.freeShipPolicyBanner}>
+                    <Ionicons name="gift-outline" size={22} color="#fff" style={styles.freeShipPolicyBannerIcon} />
+                    <Text style={styles.freeShipPolicyBannerText}>
+                      {item.freeShippingBanner === "threshold" &&
+                      item.member?.freeShippingMinimumCents != null &&
+                      item.member.freeShippingMinimumCents > 0
+                        ? `${item.business?.name ?? "This seller"} offers free shipping if you purchase $${(item.member.freeShippingMinimumCents / 100).toFixed(2)} worth from their store!`
+                        : `${item.business?.name ?? "This seller"} offers free shipping from their store!`}
+                    </Text>
+                    <Ionicons name="gift-outline" size={22} color="#fff" style={styles.freeShipPolicyBannerIconRight} />
+                  </View>
+                ) : null}
                 {effectiveLocalDeliveryPolicy ? (
                   <View style={styles.policyBlock}>
                     <Text style={styles.policyLabel}>
@@ -2097,6 +2112,33 @@ const styles = StyleSheet.create({
   sellerCardBody: {
     padding: 16,
     backgroundColor: "#f9f9f9",
+  },
+  freeShipPolicyBanner: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingHorizontal: 44,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  freeShipPolicyBannerIcon: {
+    position: "absolute",
+    left: 16,
+  },
+  freeShipPolicyBannerIconRight: {
+    position: "absolute",
+    right: 16,
+  },
+  freeShipPolicyBannerText: {
+    flexShrink: 1,
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    textAlign: "center",
   },
   storeLogo: {
     width: 72,

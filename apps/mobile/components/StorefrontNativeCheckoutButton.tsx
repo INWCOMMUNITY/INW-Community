@@ -9,6 +9,8 @@ export interface StorefrontCheckoutPayload {
   shippingAddress?: { street: string; aptOrSuite?: string; city: string; state: string; zip: string };
   /** When true, address was selected from Places (still verified with Shippo at checkout). */
   shippingAddressVerifiedFromPlaces?: boolean;
+  /** Stripe Checkout collects the ship-to address. Used by the cart for shipped items. */
+  shippingCollectedByStripe?: boolean;
   localDeliveryDetails?: unknown;
   returnBaseUrl?: string;
 }

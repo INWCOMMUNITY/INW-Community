@@ -28,7 +28,6 @@ import {
   PickupTermsModal,
   type PickupDetails,
 } from "@/components/PickupTermsModal";
-import { AddressSearchInput } from "@/components/AddressSearchInput";
 import {
   StorefrontNativeCheckoutButton,
   type StorefrontCheckoutPayload,
@@ -41,6 +40,7 @@ import {
   getSkuPhotos,
   getSkuPriceCents,
 } from "@/lib/product-variants";
+import { sellerOrderShippingCents } from "@/lib/seller-shipping-rules";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -65,9 +65,13 @@ interface CartItemStoreItem {
   shippingDisabled?: boolean;
   pickupTerms?: string | null;
   localDeliveryTerms?: string | null;
+  memberId?: string;
   member?: {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
+    combineShipping?: boolean;
+    combinedShippingMaxCents?: number | null;
+    freeShippingMinimumCents?: number | null;
   };
 }
 
@@ -201,6 +205,34 @@ function cartLineUnitPriceCents(item: CartItem): number {
   return item.storeItem.priceCents;
 }
 
+function cartShippingCents(list: CartItem[]): number {
+  const groups = new Map<string, CartItem[]>();
+  for (const item of list) {
+    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+    const group = groups.get(sellerId) ?? [];
+    group.push(item);
+    groups.set(sellerId, group);
+  }
+  let cents = 0;
+  for (const group of groups.values()) {
+    const member = group[0]?.storeItem.member;
+    cents += sellerOrderShippingCents({
+      lines: group.map((item) => ({
+        quantity: item.quantity,
+        fulfillmentType: item.fulfillmentType,
+        shippingCostCents: item.storeItem.shippingCostCents,
+      })),
+      merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
+      rules: {
+        combineShipping: Boolean(member?.combineShipping),
+        combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+        freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+      },
+    });
+  }
+  return cents;
+}
+
 function cartLineMaxQuantity(item: CartItem): number {
   if (typeof item.availableQuantity === "number") {
     return Math.max(0, item.availableQuantity);
@@ -324,14 +356,6 @@ export default function CartScreen() {
   const [orderJustConfirmed, setOrderJustConfirmed] = useState(false);
   const [confirmedPurchaseItems, setConfirmedPurchaseItems] = useState<OrderSuccessItem[]>([]);
   const pendingPurchaseItemsRef = useRef<OrderSuccessItem[]>([]);
-  const [shippingAddress, setShippingAddress] = useState({
-    street: "",
-    aptOrSuite: "",
-    city: "",
-    state: "",
-    zip: "",
-  });
-  const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const initialCartFocusLoadDoneRef = useRef(false);
 
@@ -572,13 +596,6 @@ export default function CartScreen() {
     if (target) setPickupModalItemId(target.id);
   };
 
-  const needsShippingForm = hasShippedItem && (
-    !shippingAddress.street?.trim() ||
-    !shippingAddress.city?.trim() ||
-    !shippingAddress.state?.trim() ||
-    !shippingAddress.zip?.trim()
-  );
-
   const localDeliveryItems = items.filter((i) => i.fulfillmentType === "local_delivery");
   const localDeliveryFormComplete =
     localDeliveryItems.length === 0 || localDeliveryItems.every((i) => localDeliveryRowComplete(i));
@@ -609,7 +626,6 @@ export default function CartScreen() {
   const hasUnavailableItems = items.some((i) => (i as CartItem).unavailableReason);
   const canCheckout =
     !hasUnavailableItems &&
-    !needsShippingForm &&
     !needsLocalDeliveryForm &&
     !needsPickupForm &&
     allPickupTermsAgreed;
@@ -618,9 +634,6 @@ export default function CartScreen() {
   if (items.length > 0 && !canCheckout) {
     if (hasUnavailableItems) {
       checkoutBlockedHints.push("Remove or fix unavailable items before checkout.");
-    }
-    if (needsShippingForm) {
-      checkoutBlockedHints.push("Enter your full shipping address.");
     }
     if (needsLocalDeliveryForm) {
       checkoutBlockedHints.push(
@@ -640,12 +653,7 @@ export default function CartScreen() {
 
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
   const merchandiseCents = items.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
-  const shippingCents = items.reduce((sum, i) => {
-    if ((i.fulfillmentType ?? "ship") === "ship" && i.storeItem.shippingCostCents != null) {
-      return sum + i.storeItem.shippingCostCents * i.quantity;
-    }
-    return sum;
-  }, 0);
+  const shippingCents = cartShippingCents(items);
   const localDeliveryFeeCents = items.reduce((sum, i) => {
     if (i.fulfillmentType === "local_delivery" && i.storeItem.localDeliveryFeeCents != null) {
       return sum + i.storeItem.localDeliveryFeeCents * i.quantity;
@@ -801,12 +809,7 @@ export default function CartScreen() {
     const ldForStripe = hasLocalInner
       ? lines.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails
       : undefined;
-    const shippingCostCentsInner = lines.reduce((sum, i) => {
-      if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-        return sum + i.storeItem.shippingCostCents * i.quantity;
-      }
-      return sum;
-    }, 0);
+    const shippingCostCentsInner = cartShippingCents(lines);
 
     const out: StorefrontCheckoutPayload = {
       items: lines.map((i) => ({
@@ -819,16 +822,13 @@ export default function CartScreen() {
       returnBaseUrl: siteBase,
     };
     if (hasShippedInner) {
-      out.shippingAddress = shippingAddress;
-      if (shippingAddressFromPlaces) {
-        out.shippingAddressVerifiedFromPlaces = true;
-      }
+      out.shippingCollectedByStripe = true;
     }
     if (hasLocalInner && ldForStripe) {
       out.localDeliveryDetails = ldForStripe;
     }
     return out;
-  }, [items, shippingAddress, shippingAddressFromPlaces, siteBase]);
+  }, [items, siteBase]);
 
   const doCheckout = async () => {
     const token = await getToken();
@@ -849,16 +849,14 @@ export default function CartScreen() {
       return;
     }
 
-    if (needsShippingForm || needsLocalDeliveryForm || needsPickupForm) {
+    if (needsLocalDeliveryForm || needsPickupForm) {
       if (needsLocalDeliveryForm) void openFirstIncompleteLocalDeliveryModal();
       else if (needsPickupForm) void openFirstIncompletePickupModal();
       Alert.alert(
         "Complete details",
         needsLocalDeliveryForm
           ? "Please complete your local delivery details."
-          : needsPickupForm
-            ? "Please complete the pick up form."
-            : "Please enter your shipping address.",
+          : "Please complete the pick up form.",
         [{ text: "OK" }]
       );
       return;
@@ -868,12 +866,7 @@ export default function CartScreen() {
     setError("");
     try {
       const makePayload = (list: CartItem[]) => {
-        const shippingCostCentsInner = list.reduce((sum, i) => {
-          if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-            return sum + i.storeItem.shippingCostCents * i.quantity;
-          }
-          return sum;
-        }, 0);
+        const shippingCostCentsInner = cartShippingCents(list);
         const ld =
           list.some((i) => i.fulfillmentType === "local_delivery") &&
           list.find((i) => i.fulfillmentType === "local_delivery" && i.localDeliveryDetails)?.localDeliveryDetails;
@@ -892,64 +885,11 @@ export default function CartScreen() {
       };
 
       const linesForStripe = cardItems;
-
-      let resolvedShippingAddress = shippingAddress;
       const hasShippedCardItem = linesForStripe.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-      if (hasShippedCardItem) {
-        type ValidateRes = {
-          valid?: boolean;
-          formatted?: { street: string; city: string; state: string; zip: string };
-          suggestedFormatted?: { street: string; city: string; state: string; zip: string };
-          error?: string;
-        };
-        try {
-          let validateData = await apiPost<ValidateRes>("/api/validate-address", {
-            street: shippingAddress.street,
-            city: shippingAddress.city,
-            state: shippingAddress.state,
-            zip: shippingAddress.zip,
-            requireCarrierVerification: true,
-          });
-          if (!validateData.valid && validateData.suggestedFormatted) {
-            validateData = await apiPost<ValidateRes>("/api/validate-address", {
-              street: validateData.suggestedFormatted.street,
-              city: validateData.suggestedFormatted.city,
-              state: validateData.suggestedFormatted.state,
-              zip: validateData.suggestedFormatted.zip,
-              requireCarrierVerification: true,
-            });
-          }
-          if (!validateData.valid) {
-            setError(
-              validateData.error ??
-                "This address cannot be used for shipping. Please check street, city, state, and ZIP."
-            );
-            return;
-          }
-          resolvedShippingAddress = {
-            ...validateData.formatted!,
-            aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
-          };
-        } catch (validateErr: unknown) {
-          const err = validateErr as { error?: string; status?: number };
-          if (err.status === 503 && (err.error ?? "").toLowerCase().includes("temporarily unavailable")) {
-            resolvedShippingAddress = {
-              street: shippingAddress.street.trim(),
-              aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
-              city: shippingAddress.city.trim(),
-              state: shippingAddress.state.trim(),
-              zip: shippingAddress.zip.trim().replace(/\D/g, "").slice(0, 5),
-            };
-          } else {
-            setError(err.error ?? "Address verification failed. Please try again.");
-            return;
-          }
-        }
-      }
 
       const stripeBody = makePayload(linesForStripe) as Record<string, unknown>;
       if (hasShippedCardItem) {
-        stripeBody.shippingAddress = resolvedShippingAddress;
+        stripeBody.shippingCollectedByStripe = true;
       }
 
       const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/storefront-checkout", stripeBody);
@@ -1255,37 +1195,6 @@ export default function CartScreen() {
                 );
               })}
 
-              {hasShippedItem && (
-                <View style={styles.shippingCard}>
-                  <View style={styles.shippingHeader}>
-                    <View style={styles.shippingIconWrap}>
-                      <Ionicons name="location-outline" size={20} color={theme.colors.earth} />
-                    </View>
-                    <View style={styles.shippingHeaderText}>
-                      <Text style={styles.formTitle}>Ship to</Text>
-                      <Text style={styles.shippingHint}>
-                        This is the address postage labels use when the seller ships your order.
-                      </Text>
-                    </View>
-                  </View>
-                  <AddressSearchInput
-                    value={shippingAddress}
-                    onChange={(addr, meta) => {
-                      setShippingAddress({
-                        street: addr.street ?? "",
-                        aptOrSuite: addr.aptOrSuite ?? "",
-                        city: addr.city ?? "",
-                        state: addr.state ?? "",
-                        zip: addr.zip ?? "",
-                      });
-                      if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
-                    }}
-                    placeholder="Search for your address"
-                    showManualFallback={true}
-                  />
-                </View>
-              )}
-
               {(needsLocalDeliveryForm || needsPickupForm) && (
                 <View style={styles.formSection}>
                   {needsLocalDeliveryForm && (
@@ -1323,7 +1232,7 @@ export default function CartScreen() {
               )}
 
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryTitle}>Order summary</Text>
+                <Text style={styles.summaryTitle}>Order Summary</Text>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Items</Text>
                   <Text style={styles.summaryValue}>{formatPrice(merchandiseCents)}</Text>
@@ -1350,7 +1259,28 @@ export default function CartScreen() {
                   <Text style={styles.totalLabel}>Estimated total</Text>
                   <Text style={styles.totalValue}>{formatPrice(estimatedTotalCents)}</Text>
                 </View>
-                <Text style={styles.taxHint}>Tax is calculated at checkout.</Text>
+                <Text style={styles.taxHint}>
+                  {hasShippedItem
+                    ? "You’ll enter your shipping address on the next screen. Tax is calculated there."
+                    : "Tax is calculated at checkout."}
+                </Text>
+                {Array.from(
+                  new Map(
+                    items
+                      .filter(
+                        (item) =>
+                          (item.storeItem.member?.freeShippingMinimumCents ?? 0) > 0 && item.storeItem.memberId
+                      )
+                      .map((item) => [
+                        item.storeItem.memberId as string,
+                        item.storeItem.member?.freeShippingMinimumCents ?? 0,
+                      ])
+                  ).entries()
+                ).map(([sellerId, minimumCents]) => (
+                  <Text key={sellerId} style={styles.taxHint}>
+                    If you order ${(minimumCents / 100).toFixed(2)} from this store, you will receive free shipping.
+                  </Text>
+                ))}
               </View>
 
               {checkoutBlockedHints.length > 0 ? (
@@ -1377,18 +1307,6 @@ export default function CartScreen() {
           {useNativeStorefrontCheckout ? (
             <StorefrontNativeCheckoutButton
               getPayload={getNativeCheckoutPayload}
-              onShippingAddressFormatted={
-                hasShippedItem
-                  ? (addr) =>
-                      setShippingAddress({
-                        street: addr.street ?? "",
-                        city: addr.city ?? "",
-                        state: addr.state ?? "",
-                        zip: addr.zip ?? "",
-                        aptOrSuite: addr.aptOrSuite ?? "",
-                      })
-                  : undefined
-              }
               onHostedCheckoutUrl={(url) => {
                 rememberPurchaseItems(items);
                 setCheckoutUrl(url);
@@ -1858,43 +1776,6 @@ const styles = StyleSheet.create({
   formSection: {
     marginTop: 8,
     marginBottom: 16,
-  },
-  formTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: theme.colors.heading,
-  },
-  shippingCard: {
-    marginTop: 8,
-    marginBottom: 16,
-    padding: 14,
-    borderRadius: theme.radii.card,
-    backgroundColor: theme.colors.surface,
-    ...theme.shadows.card,
-  },
-  shippingHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    marginBottom: 12,
-  },
-  shippingIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.cream,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shippingHeaderText: {
-    flex: 1,
-  },
-  shippingHint: {
-    fontSize: 13,
-    color: theme.colors.text,
-    marginTop: 4,
-    lineHeight: 18,
-    opacity: 0.9,
   },
   summaryCard: {
     marginTop: 4,

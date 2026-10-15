@@ -49,6 +49,16 @@ function formatPrice(cents: number): string {
   return `$${(Math.max(0, cents) / 100).toFixed(2)}`;
 }
 
+function quantityCapText(quantity: number, sharedPool: boolean | undefined, sold: boolean): string {
+  if (sold) return String(quantity);
+  return sharedPool ? `P ${quantity}` : `Q ${quantity}`;
+}
+
+function quantityCapTitle(sharedPool: boolean | undefined, sold: boolean): string {
+  if (sold) return "Sold quantity";
+  return sharedPool ? "Pools cap" : "Quantity cap";
+}
+
 function statusLabel(item: MyStoreItem): string {
   if (item.status === "draft") return "Draft";
   if (item.status === "sold_out") return "Sold";
@@ -342,8 +352,8 @@ function MyItemsPageInner() {
         label: "Shopify",
         detail:
           shopifyCount === selected.length
-            ? "Listed on Shopify"
-            : `${shopifyCount} of ${selected.length} listings`,
+            ? "Sets the Shopify product to draft"
+            : `${shopifyCount} of ${selected.length} listings. Sets those products to draft`,
       });
     }
     return options;
@@ -384,7 +394,7 @@ function MyItemsPageInner() {
               method: "POST",
               credentials: "include",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "unpublish" }),
+              body: JSON.stringify({ action: "end" }),
             }
           );
           if (!res.ok) {
@@ -705,7 +715,7 @@ function MyItemsPageInner() {
           style={{ borderColor: "var(--color-primary)" }}
         >
           <p
-            className="font-semibold inline-flex items-center justify-center gap-2"
+            className="font-semibold flex items-center justify-center gap-2"
             style={{ color: "var(--color-heading)" }}
           >
             {tab === "drafts" ? (
@@ -798,8 +808,12 @@ function MyItemsPageInner() {
                         >
                           {status}
                         </span>
-                        <span>
-                          Qty {tab === "sold" ? item.soldQty ?? item.quantity : item.quantity}
+                        <span title={quantityCapTitle(item.usesSharedQuantityPool, tab === "sold")}>
+                          {quantityCapText(
+                            tab === "sold" ? item.soldQty ?? item.quantity : item.quantity,
+                            item.usesSharedQuantityPool,
+                            tab === "sold"
+                          )}
                         </span>
                         <span>{formatPrice(item.priceCents)}</span>
                         <span>{views} views</span>
@@ -860,7 +874,9 @@ function MyItemsPageInner() {
                   </th>
                   <th className="py-2 pr-3 font-semibold">Listing</th>
                   <th className="py-2 pr-3 font-semibold">Status</th>
-                  <th className="py-2 pr-3 font-semibold">Qty</th>
+                  <th className="py-2 pr-3 font-semibold" title="Q is a quantity cap. P is a pools cap.">
+                    Q / P
+                  </th>
                   <th className="py-2 pr-3 font-semibold">Price</th>
                   <th className="py-2 pr-3 font-semibold">Listed On</th>
                   <th className="py-2 pr-3 font-semibold">Views (30d)</th>
@@ -935,8 +951,15 @@ function MyItemsPageInner() {
                           {status}
                         </span>
                       </td>
-                      <td className="py-3 pr-3 whitespace-nowrap">
-                        {tab === "sold" ? item.soldQty ?? item.quantity : item.quantity}
+                      <td
+                        className="py-3 pr-3 whitespace-nowrap"
+                        title={quantityCapTitle(item.usesSharedQuantityPool, tab === "sold")}
+                      >
+                        {quantityCapText(
+                          tab === "sold" ? item.soldQty ?? item.quantity : item.quantity,
+                          item.usesSharedQuantityPool,
+                          tab === "sold"
+                        )}
                       </td>
                       <td className="py-3 pr-3 whitespace-nowrap">{formatPrice(item.priceCents)}</td>
                       <td className="py-3 pr-3 whitespace-nowrap">

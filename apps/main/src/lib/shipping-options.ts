@@ -366,12 +366,7 @@ export async function upsertImportedShippingOption(memberId: string, incoming: R
         },
         include: { _count: { select: { storeItems: true } } },
       });
-  if (row.shippingCostCents != null) {
-    await prisma.storeItem.updateMany({
-      where: { memberId, shippingOptionId: row.id, shippingCostCents: null },
-      data: { shippingCostCents: row.shippingCostCents },
-    });
-  }
+  // Listing shipping prices stay on the listing. Importing a profile does not copy or clear them.
   return serializeShippingOption(row);
 }
 
@@ -433,26 +428,57 @@ export async function getShippingOptionPrefs(memberId: string) {
   const [member, connections] = await Promise.all([
     prisma.member.findUnique({
       where: { id: memberId },
-      select: { offerFreeShippingOnInw: true },
+      select: {
+        offerFreeShippingOnInw: true,
+        combineShipping: true,
+        combinedShippingMaxCents: true,
+        freeShippingMinimumCents: true,
+      },
     }),
     getShippingOptionConnectionFlags(memberId),
   ]);
   return {
     offerFreeShippingOnInw: member?.offerFreeShippingOnInw ?? false,
+    combineShipping: member?.combineShipping ?? false,
+    combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+    freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
     ...connections,
   };
 }
 
+/**
+ * Seller shipping rules live on Member only.
+ * This must not read or write StoreItem shipping prices.
+ */
 export async function updateShippingOptionPrefs(
   memberId: string,
   patch: Partial<{
     offerFreeShippingOnInw: boolean;
+    combineShipping: boolean;
+    combinedShippingMaxCents: number | null;
+    freeShippingMinimumCents: number | null;
   }>
 ) {
+  const data: {
+    offerFreeShippingOnInw?: boolean;
+    combineShipping?: boolean;
+    combinedShippingMaxCents?: number | null;
+    freeShippingMinimumCents?: number | null;
+  } = {};
   if (patch.offerFreeShippingOnInw !== undefined) {
+    data.offerFreeShippingOnInw = patch.offerFreeShippingOnInw;
+  }
+  if (patch.combineShipping !== undefined) data.combineShipping = patch.combineShipping;
+  if (patch.combinedShippingMaxCents !== undefined) {
+    data.combinedShippingMaxCents = patch.combinedShippingMaxCents;
+  }
+  if (patch.freeShippingMinimumCents !== undefined) {
+    data.freeShippingMinimumCents = patch.freeShippingMinimumCents;
+  }
+  if (Object.keys(data).length > 0) {
     await prisma.member.update({
       where: { id: memberId },
-      data: { offerFreeShippingOnInw: patch.offerFreeShippingOnInw },
+      data,
     });
   }
   return getShippingOptionPrefs(memberId);

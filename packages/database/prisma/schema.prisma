@@ -40,6 +40,12 @@ model Member {
   offerShipping              Boolean @default(true) @map("offer_shipping")
   /// Default new INW listings to free shipping (shippingCostCents = 0). Does not change eBay/Etsy rates.
   offerFreeShippingOnInw     Boolean @default(false) @map("offer_free_shipping_on_inw")
+  /// When true, a shipped order with more than one item is capped at combinedShippingMaxCents.
+  combineShipping            Boolean @default(false) @map("combine_shipping")
+  /// Maximum shipping charge in cents for a combined shipped order. Null until the seller sets one.
+  combinedShippingMaxCents   Int?    @map("combined_shipping_max_cents")
+  /// Merchandise subtotal (cents) at or above which this seller's shipped orders are free. Null = off.
+  freeShippingMinimumCents   Int?    @map("free_shipping_minimum_cents")
   offerLocalDelivery         Boolean @default(true) @map("offer_local_delivery")
   offerLocalPickup           Boolean @default(true) @map("offer_local_pickup")
   // Default for new resale listings; per-listing StoreItem.acceptOffers can override.

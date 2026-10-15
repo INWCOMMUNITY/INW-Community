@@ -46,6 +46,7 @@ import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
 import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
+import { listingShippingCostUpdate } from "@/lib/listing-shipping-price";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { disconnectStoreItemChannels } from "@/lib/disconnect-ended-listing-channels";
@@ -484,7 +485,12 @@ export async function PATCH(
   if (data.status !== undefined) {
     Object.assign(update, storeItemStatusWrite(data.status, existing.status));
   }
-  if (data.shippingCostCents !== undefined) update.shippingCostCents = data.shippingCostCents;
+  if (data.shippingCostCents !== undefined) {
+    update.shippingCostCents = listingShippingCostUpdate(
+      existing.shippingCostCents,
+      data.shippingCostCents
+    );
+  }
   if (data.shippingOptionId !== undefined) {
     try {
       update.shippingOptionId = await assertMemberShippingOption(existing.memberId, data.shippingOptionId);

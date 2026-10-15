@@ -4,6 +4,7 @@ import { publicBuyerFieldsFromRows } from "database/src/public-buyer-fields";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { includeUnavailableVisibleToViewer, withPublicStockWhere } from "@/lib/store-item-public-access";
+import { freeShippingBannerForStore, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 
 const storeItemPublicSelect = {
   id: true,
@@ -55,6 +56,7 @@ const storeItemPublicSelect = {
       sellerLocalDeliveryPolicy: true,
       sellerPickupPolicy: true,
       sellerReturnPolicy: true,
+      freeShippingMinimumCents: true,
     },
   },
   business: {
@@ -103,7 +105,9 @@ export type StoreItemPublicPayload = {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    freeShippingMinimumCents?: number | null;
   } | null;
+  freeShippingBanner?: FreeShippingBanner | null;
   business?: {
     id: string;
     name: string;
@@ -188,12 +192,19 @@ export async function getStoreItemPublicPayload(
         })
       : Promise.resolve(null);
 
-  const [business, saveCount, lastOrderItem] = await Promise.all([
+  const [business, saveCount, lastOrderItem, shippingRows] = await Promise.all([
     resolveBusiness(resolvedItem.business, resolvedItem.memberId),
     prisma.savedItem.count({
       where: { type: "store_item", referenceId: resolvedItem.id },
     }),
     soldAtPromise,
+    prisma.storeItem.findMany({
+      where: withPublicStockWhere({
+        memberId: resolvedItem.memberId,
+        status: "active",
+      }),
+      select: { shippingCostCents: true, shippingDisabled: true },
+    }),
   ]);
   const soldAt = lastOrderItem?.order.updatedAt.toISOString();
 
@@ -222,6 +233,10 @@ export async function getStoreItemPublicPayload(
     pickupTerms: resolvedItem.pickupTerms,
     buyerFields: publicBuyerFieldsFromRows(resolvedItem.buyerFields ?? []),
     member: resolvedItem.member,
+    freeShippingBanner: freeShippingBannerForStore({
+      freeShippingMinimumCents: resolvedItem.member?.freeShippingMinimumCents,
+      items: shippingRows,
+    }),
     business,
     saveCount,
     ...(isUnavailable ? { unavailable: true } : {}),
