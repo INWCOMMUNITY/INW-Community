@@ -14,6 +14,7 @@ import {
   Easing,
   ScrollView,
   Modal,
+  Alert,
 } from "react-native";
 
 const ANIM_DURATION = 480;
@@ -43,6 +44,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 import { slugifyStoreCategory } from "@/lib/store-category-slug";
+import { buildProductPath } from "@/lib/product-referrer";
+import { normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 import { storefrontCloseMatchNote } from "@/lib/storefront-search";
 import {
   StoreFilterDrawer,
@@ -345,12 +348,41 @@ export default function StoreScreen() {
   };
 
   const handleQuickAdd = useCallback(async (item: StoreItemData) => {
+    const matrix = normalizeVariantMatrix(item.variants);
+    const sku = matrix?.skus.find((row) => row.quantity > 0) ?? matrix?.skus[0];
+    const variant = sku
+      ? Object.fromEntries(
+          Object.entries(sku.options).filter((entry): entry is [string, string] => !!entry[1]?.trim())
+        )
+      : undefined;
     try {
-      await apiPost("/api/cart", { storeItemId: item.id, quantity: 1 });
-    } catch {
-      // Silent fail - user can still tap the item to add with options
+      await apiPost("/api/cart", {
+        storeItemId: item.id,
+        quantity: 1,
+        fulfillmentType: "ship",
+        ...(variant && Object.keys(variant).length > 0 ? { variant } : {}),
+      });
+      Alert.alert("Added to cart", `${item.title} was added to your cart.`, [
+        { text: "Keep shopping", style: "cancel" },
+        { text: "View cart", onPress: () => router.push("/cart") },
+      ]);
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      if (err.status === 401) {
+        Alert.alert("Sign in required", "Please sign in to add items to your cart.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+        ]);
+        return;
+      }
+      const message = err.error ?? "";
+      if (/custom option|is required/i.test(message)) {
+        router.push(buildProductPath(item.slug, { type: "storefront" }) as never);
+        return;
+      }
+      Alert.alert("Could not add to cart", message || "Please try again.");
     }
-  }, []);
+  }, [router]);
 
   const resolvePhotoUrl = (path: string | undefined): string | undefined => {
     if (!path) return undefined;

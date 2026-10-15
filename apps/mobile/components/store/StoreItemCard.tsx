@@ -67,16 +67,18 @@ export function StoreItemCard({
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.card,
         outlined && styles.cardOutlined,
         { width },
-        pressed && styles.cardPressed,
       ]}
-      onPress={openItem}
     >
       <View style={[styles.cardImageWrap, isCarousel && styles.cardImageWrapCarousel]}>
+        <Pressable
+          style={({ pressed }) => [styles.cardImagePress, pressed && styles.cardPressed]}
+          onPress={openItem}
+        >
         {photoUrl ? (
           <AppImage
             uri={photoUrl}
@@ -91,6 +93,7 @@ export function StoreItemCard({
             <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
           </View>
         )}
+        </Pressable>
 
         {showBadges && (
           <>
@@ -123,16 +126,18 @@ export function StoreItemCard({
               styles.quickAddBtn,
               pressed && { opacity: 0.8 },
             ]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              onQuickAdd(item);
-            }}
+            hitSlop={8}
+            onPress={() => onQuickAdd(item)}
           >
             <Ionicons name="add" size={18} color="#fff" />
           </Pressable>
         )}
       </View>
 
+      <Pressable
+        style={({ pressed }) => [pressed && styles.cardPressed]}
+        onPress={openItem}
+      >
       <Text style={styles.cardTitle} numberOfLines={2}>
         {item.title}
       </Text>
@@ -173,7 +178,8 @@ export function StoreItemCard({
           )}
         </View>
       )}
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
@@ -200,6 +206,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     padding: 8,
+  },
+  cardImagePress: {
+    flex: 1,
   },
   cardImageWrapCarousel: {
     aspectRatio: 4 / 5,
@@ -248,6 +257,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 8,
     right: 8,
+    zIndex: 2,
     width: 32,
     height: 32,
     borderRadius: 16,

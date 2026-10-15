@@ -737,8 +737,6 @@ export default function ProductScreen() {
           )}
         </View>
 
-        <View collapsable={false} style={styles.photoDivider} />
-
         {photos.length > 1 && (
           <ScrollView
             horizontal
@@ -1603,13 +1601,6 @@ const styles = StyleSheet.create({
   },
   galleryWrap: {
     backgroundColor: "#fff",
-    overflow: "hidden",
-  },
-  photoDivider: {
-    height: 4,
-    width: "100%",
-    alignSelf: "stretch",
-    backgroundColor: theme.colors.earth,
   },
   galleryScroll: {
     height: "100%",
