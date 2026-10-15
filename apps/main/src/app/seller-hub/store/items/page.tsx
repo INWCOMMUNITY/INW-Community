@@ -352,8 +352,8 @@ function MyItemsPageInner() {
         label: "Shopify",
         detail:
           shopifyCount === selected.length
-            ? "Sets the Shopify product to draft"
-            : `${shopifyCount} of ${selected.length} listings. Sets those products to draft`,
+            ? "Deletes the Shopify product. The INW listing stays."
+            : `${shopifyCount} of ${selected.length} listings. Deletes those Shopify products.`,
       });
     }
     return options;
