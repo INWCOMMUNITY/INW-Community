@@ -84,6 +84,7 @@ export function RecentlyAddedCarousel({ onQuickAdd, refreshKey }: RecentlyAddedC
             width={CARD_WIDTH}
             variant="carousel"
             showBadges
+            outlined
             onQuickAdd={onQuickAdd}
           />
         ))}

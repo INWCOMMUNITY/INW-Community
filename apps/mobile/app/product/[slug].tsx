@@ -257,14 +257,8 @@ export default function ProductScreen() {
       setItem(data);
       if (data.unavailable) {
         setItemUnavailable(true);
-      } else {
-        if (data.shippingDisabled) {
-          if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
-        } else {
-          setFulfillmentType("ship");
-        }
       }
+      setFulfillmentType("ship");
       setLoading(false);
       return;
     }
@@ -275,12 +269,7 @@ export default function ProductScreen() {
       if (data2 && typeof data2.id === "string" && data2.unavailable) {
         setItem(data2);
         setItemUnavailable(true);
-        if (data2.shippingDisabled) {
-          if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
-        } else {
-          setFulfillmentType("ship");
-        }
+        setFulfillmentType("ship");
       } else {
         setItem(null);
         setError("Product not found");
@@ -594,9 +583,6 @@ export default function ProductScreen() {
 
   const photos = getSkuPhotos(item, selectedVariant);
   const photoUrl = resolvePhotoUrl(photos[photoIndex]);
-  const canShip = !item.shippingDisabled;
-  const canLocalDelivery = !!item.localDeliveryAvailable;
-  const canPickup = !!item.inStorePickupAvailable;
 
   const effectiveShippingPolicy =
     item.shippingPolicy ?? item.member?.sellerShippingPolicy ?? null;
@@ -1079,92 +1065,24 @@ export default function ProductScreen() {
             </View>
           )}
 
-          {(canShip || canLocalDelivery || canPickup) && (
-            <View style={[styles.section, styles.contentBox]}>
-              <Text style={styles.sectionTitle}>Receive item</Text>
-              <View style={styles.fulfillmentRow}>
-                {canShip && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "ship" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => setFulfillmentType("ship")}
-                  >
-                    <Ionicons
-                      name="cube-outline"
-                      size={18}
-                      color={fulfillmentType === "ship" ? "#fff" : theme.colors.primary}
-                      style={styles.fulfillmentBtnIcon}
-                    />
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "ship" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Shipping
-                    </Text>
-                  </Pressable>
-                )}
-                {canPickup && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "pickup" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => setFulfillmentType("pickup")}
-                  >
-                    <Ionicons
-                      name="storefront-outline"
-                      size={18}
-                      color={fulfillmentType === "pickup" ? "#fff" : theme.colors.primary}
-                      style={styles.fulfillmentBtnIcon}
-                    />
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "pickup" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Pickup
-                    </Text>
-                  </Pressable>
-                )}
-                {canLocalDelivery && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "local_delivery" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => setFulfillmentType("local_delivery")}
-                  >
-                    <Ionicons
-                      name="car-outline"
-                      size={18}
-                      color={
-                        fulfillmentType === "local_delivery" ? "#fff" : theme.colors.primary
-                      }
-                      style={styles.fulfillmentBtnIcon}
-                    />
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "local_delivery" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Delivery
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          )}
-
           {item.description ? (
             <View style={[styles.section, styles.contentBox]}>
               <Text style={styles.sectionTitle}>Description</Text>
               <ListingRichDescription html={item.description} style={styles.description} />
+            </View>
+          ) : null}
+
+          {item.freeShippingBanner ? (
+            <View style={[styles.section, styles.freeShipPolicyBanner]}>
+              <Ionicons name="gift-outline" size={16} color="#fff" style={styles.freeShipPolicyBannerIcon} />
+              <Text style={styles.freeShipPolicyBannerText}>
+                {item.freeShippingBanner === "threshold" &&
+                item.member?.freeShippingMinimumCents != null &&
+                item.member.freeShippingMinimumCents > 0
+                  ? `${item.business?.name ?? "This seller"} offers free shipping if you purchase $${(item.member.freeShippingMinimumCents / 100).toFixed(2)} worth from their store!`
+                  : `${item.business?.name ?? "This seller"} offers free shipping from their store!`}
+              </Text>
+              <Ionicons name="gift-outline" size={16} color="#fff" style={styles.freeShipPolicyBannerIconRight} />
             </View>
           ) : null}
 
@@ -1269,19 +1187,6 @@ export default function ProductScreen() {
                 <Text style={styles.sellerCardTitle}>Seller Policy</Text>
               </View>
               <View style={styles.sellerCardBody}>
-                {item.freeShippingBanner ? (
-                  <View style={styles.freeShipPolicyBanner}>
-                    <Ionicons name="gift-outline" size={22} color="#fff" style={styles.freeShipPolicyBannerIcon} />
-                    <Text style={styles.freeShipPolicyBannerText}>
-                      {item.freeShippingBanner === "threshold" &&
-                      item.member?.freeShippingMinimumCents != null &&
-                      item.member.freeShippingMinimumCents > 0
-                        ? `${item.business?.name ?? "This seller"} offers free shipping if you purchase $${(item.member.freeShippingMinimumCents / 100).toFixed(2)} worth from their store!`
-                        : `${item.business?.name ?? "This seller"} offers free shipping from their store!`}
-                    </Text>
-                    <Ionicons name="gift-outline" size={22} color="#fff" style={styles.freeShipPolicyBannerIconRight} />
-                  </View>
-                ) : null}
                 {effectiveLocalDeliveryPolicy ? (
                   <View style={styles.policyBlock}>
                     <Text style={styles.policyLabel}>
@@ -1962,41 +1867,6 @@ const styles = StyleSheet.create({
     color: "#999",
     marginTop: 4,
   },
-  fulfillmentRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  fulfillmentBtn: {
-    flexGrow: 1,
-    flexBasis: 0,
-    minWidth: 72,
-    paddingHorizontal: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    backgroundColor: "#fff",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  fulfillmentBtnActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  fulfillmentBtnIcon: {
-    flexShrink: 0,
-  },
-  fulfillmentBtnText: {
-    fontSize: 13,
-    color: theme.colors.primary,
-    textAlign: "center",
-    flexShrink: 1,
-  },
-  fulfillmentBtnTextActive: {
-    color: "#fff",
-  },
   description: {
     fontSize: 15,
     color: theme.colors.text,
@@ -2115,29 +1985,29 @@ const styles = StyleSheet.create({
   },
   freeShipPolicyBanner: {
     position: "relative",
+    alignSelf: "stretch",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.colors.earth,
     borderRadius: 8,
-    paddingHorizontal: 44,
-    paddingVertical: 12,
-    marginBottom: 16,
+    paddingHorizontal: 32,
+    paddingVertical: 7,
   },
   freeShipPolicyBannerIcon: {
     position: "absolute",
-    left: 16,
+    left: 8,
   },
   freeShipPolicyBannerIconRight: {
     position: "absolute",
-    right: 16,
+    right: 8,
   },
   freeShipPolicyBannerText: {
     flexShrink: 1,
     color: "#fff",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
-    lineHeight: 20,
+    lineHeight: 16,
     textAlign: "center",
   },
   storeLogo: {

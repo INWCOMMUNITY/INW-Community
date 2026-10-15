@@ -17,6 +17,26 @@ import {
 } from "react-native";
 
 const ANIM_DURATION = 480;
+
+type NavWithParent = {
+  getParent?: () => NavWithParent | undefined;
+  getState?: () => { index?: number; routes?: { name?: string }[] } | undefined;
+};
+
+/** Route covering the tabs, such as a product page. Tab switches stay on `(tabs)`. */
+function focusedRootRouteName(navigation: NavWithParent): string | undefined {
+  let nav: NavWithParent | undefined = navigation;
+  let top: NavWithParent = navigation;
+  while (nav?.getParent) {
+    const parent = nav.getParent();
+    if (!parent) break;
+    top = parent;
+    nav = parent;
+  }
+  const state = top.getState?.();
+  if (!state?.routes || state.index == null) return undefined;
+  return state.routes[state.index]?.name;
+}
 import { useRouter, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -78,6 +98,12 @@ export default function StoreScreen() {
   const animatedHeight = useRef(new Animated.Value(330)).current;
   const listRef = useRef<FlatList>(null);
   const scrollYRef = useRef(0);
+  const headerExpandedRef = useRef(true);
+  const preservePlaceOnFocusRef = useRef(false);
+  const savedOffsetRef = useRef(0);
+  const savedHeaderExpandedRef = useRef(true);
+  const pendingRestoreOffsetRef = useRef<number | null>(null);
+  headerExpandedRef.current = headerExpanded;
 
   useEffect(() => {
     Animated.timing(animatedHeight, {
@@ -125,9 +151,12 @@ export default function StoreScreen() {
   }, [animatedHeight]);
 
   const load = useCallback(
-    async (refresh = false) => {
-      if (refresh) setRefreshing(true);
-      else setLoading(true);
+    async (refresh = false, options?: { silent?: boolean }) => {
+      const silent = options?.silent === true;
+      if (!silent) {
+        if (refresh) setRefreshing(true);
+        else setLoading(true);
+      }
       setConnectionError(null);
       try {
         const params = new URLSearchParams();
@@ -159,8 +188,10 @@ export default function StoreScreen() {
           : err?.error ?? "Failed to load.";
         setConnectionError(msg);
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (!silent) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [condition, search, category, subcategory, size, deliveryFilter, sortOption]
@@ -238,15 +269,52 @@ export default function StoreScreen() {
   const storeFocusSkipRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      const keepPlace = preservePlaceOnFocusRef.current;
+      preservePlaceOnFocusRef.current = false;
+
       if (storeFocusSkipRef.current) {
         storeFocusSkipRef.current = false;
-        return;
+      } else if (keepPlace) {
+        const y = savedOffsetRef.current;
+        scrollYRef.current = y;
+        if (headerExpandedRef.current !== savedHeaderExpandedRef.current) {
+          setHeaderExpanded(savedHeaderExpandedRef.current);
+        }
+        load(false, { silent: true });
+        loadMeta();
+        pendingRestoreOffsetRef.current = y > 1 ? y : null;
+        if (y > 1) {
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToOffset({ offset: y, animated: false });
+          });
+        }
+      } else {
+        load(true);
+        loadMeta();
+        resetLayoutAfterTabFocus();
       }
-      load(true);
-      loadMeta();
-      resetLayoutAfterTabFocus();
-    }, [load, loadMeta, resetLayoutAfterTabFocus])
+
+      return () => {
+        const coveringRoute = focusedRootRouteName(navigation);
+        if (coveringRoute && coveringRoute !== "(tabs)") {
+          preservePlaceOnFocusRef.current = true;
+          savedOffsetRef.current = scrollYRef.current;
+          savedHeaderExpandedRef.current = headerExpandedRef.current;
+        }
+      };
+    }, [load, loadMeta, navigation, resetLayoutAfterTabFocus])
   );
+
+  useEffect(() => {
+    const y = pendingRestoreOffsetRef.current;
+    if (y == null || y <= 1) return;
+    pendingRestoreOffsetRef.current = null;
+    const current = scrollYRef.current;
+    if (current > 1 && Math.abs(current - y) > 80) return;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: y, animated: false });
+    });
+  }, [items]);
 
   useEffect(() => {
     if (browseByCategories.length === 0) {
@@ -323,6 +391,7 @@ export default function StoreScreen() {
         width={cardWidth}
         variant="grid"
         showBadges
+        outlined
         onQuickAdd={handleQuickAdd}
       />
     );

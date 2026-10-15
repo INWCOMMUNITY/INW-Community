@@ -31,6 +31,7 @@ interface StoreItemCardProps {
   width: number;
   variant?: "grid" | "carousel";
   showBadges?: boolean;
+  outlined?: boolean;
   onQuickAdd?: (item: StoreItemData) => void;
   referrer?: ProductReferrer;
 }
@@ -49,6 +50,7 @@ export function StoreItemCard({
   width,
   variant = "grid",
   showBadges = true,
+  outlined = false,
   onQuickAdd,
   referrer,
 }: StoreItemCardProps) {
@@ -68,6 +70,7 @@ export function StoreItemCard({
     <Pressable
       style={({ pressed }) => [
         styles.card,
+        outlined && styles.cardOutlined,
         { width },
         pressed && styles.cardPressed,
       ]}
@@ -181,6 +184,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     maxWidth: "100%",
     ...theme.shadows.card,
+  },
+  cardOutlined: {
+    borderWidth: 2,
+    borderColor: theme.colors.earth,
   },
   cardPressed: {
     opacity: 0.85,
