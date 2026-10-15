@@ -28,6 +28,9 @@ import {
 
 export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
 
+/** Variant provisioning plus mapping runs past Prisma's 20s interactive-transaction limit on Neon. */
+const SHOPIFY_IMPORT_TX_TIMEOUT_MS = 60_000;
+
 function shippingWrite(cents: number | undefined): { shippingCostCents: number; shippingDisabled: false } | Record<string, never> {
   if (typeof cents !== "number" || !Number.isFinite(cents)) return {};
   return { shippingCostCents: Math.max(0, Math.round(cents)), shippingDisabled: false };
@@ -446,7 +449,7 @@ async function importSingleVariant(ctx: {
       });
 
       return { already: false as const, storeItemId: storeItem.id, listingLinkId: mapping.listingLink.id };
-    }, { timeout: 20_000 });
+    }, { timeout: SHOPIFY_IMPORT_TX_TIMEOUT_MS });
   } catch (error) {
     const code =
       error instanceof ShopifyMappingConflictError
@@ -762,7 +765,7 @@ async function importMultiVariant(ctx: {
           shopifyVariantId: p.shopifyVariantId,
         })),
       };
-    }, { timeout: 20_000 });
+    }, { timeout: SHOPIFY_IMPORT_TX_TIMEOUT_MS });
   } catch (error) {
     const code =
       error instanceof ShopifyMappingConflictError

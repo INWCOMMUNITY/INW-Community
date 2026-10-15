@@ -9,7 +9,7 @@ import {
   assertShopifyProductVariantGid,
   ShopifyGidValidationError,
 } from "./gids";
-import { seedShopifyListingFieldConvergence } from "./field-state";
+import { seedShopifyImportedListingFieldStates } from "./field-state";
 import {
   ShopifyMappingConflictError,
   ShopifyMappingError,
@@ -207,21 +207,18 @@ export async function createShopifyImportedListingMapping(
     throw new ShopifyMappingConflictError("Store item is already mapped on this connection");
   }
 
-  // Check all variant identity collisions at once
-  for (const v of validatedVariants) {
-    const conflict = await tx.shopifyVariantMap.findFirst({
-      where: {
-        shopifyConnectionId: input.connectionId,
-        OR: [
-          { storeVariantId: v.storeVariantId },
-          { shopifyVariantId: v.shopifyVariantId },
-          { shopifyInventoryItemId: v.shopifyInventoryItemId },
-        ],
-      },
-      select: { id: true },
-    });
-    if (conflict) throw new ShopifyMappingConflictError();
-  }
+  const conflict = await tx.shopifyVariantMap.findFirst({
+    where: {
+      shopifyConnectionId: input.connectionId,
+      OR: [
+        { storeVariantId: { in: validatedVariants.map((v) => v.storeVariantId) } },
+        { shopifyVariantId: { in: validatedVariants.map((v) => v.shopifyVariantId) } },
+        { shopifyInventoryItemId: { in: validatedVariants.map((v) => v.shopifyInventoryItemId) } },
+      ],
+    },
+    select: { id: true },
+  });
+  if (conflict) throw new ShopifyMappingConflictError();
 
   const now = new Date();
   const productFp = shopifyProductContentFingerprint({
@@ -254,41 +251,37 @@ export async function createShopifyImportedListingMapping(
     select: listingSelect,
   });
 
-  // Create all variant maps with per-variant inventory baselines
-  for (let i = 0; i < validatedVariants.length; i++) {
-    const v = validatedVariants[i]!;
-    const sv = storeVariantById.get(v.storeVariantId)!;
-    const available = perVariantAvailable[i] ?? null;
-    const variantFp = shopifyVariantContentFingerprint({
-      priceCents: sv.priceCents,
-      sku: sv.sku,
-    });
-
-    const inventorySeed =
-      input.inventoryMode === "MADE_TO_ORDER"
-        ? {
-            inventoryInitState: "NOT_APPLICABLE" as const,
-            inventoryDesiredVersion: 0,
-            inventoryDesiredAvailable: null as number | null,
-            inventoryAppliedVersion: 0,
-            inventoryAppliedAvailable: null as number | null,
-            inventoryLastObservedAvailable: null as number | null,
-            inventoryDesiredAt: now,
-            inventoryAppliedAt: now,
-          }
-        : {
-            inventoryInitState: "INITIALIZED" as const,
-            inventoryDesiredVersion: 1,
-            inventoryDesiredAvailable: available,
-            inventoryAppliedVersion: 1,
-            inventoryAppliedAvailable: available,
-            inventoryLastObservedAvailable: available,
-            inventoryDesiredAt: now,
-            inventoryAppliedAt: now,
-          };
-
-    await tx.shopifyVariantMap.create({
-      data: {
+  await tx.shopifyVariantMap.createMany({
+    data: validatedVariants.map((v, i) => {
+      const sv = storeVariantById.get(v.storeVariantId)!;
+      const available = perVariantAvailable[i] ?? null;
+      const variantFp = shopifyVariantContentFingerprint({
+        priceCents: sv.priceCents,
+        sku: sv.sku,
+      });
+      const inventorySeed =
+        input.inventoryMode === "MADE_TO_ORDER"
+          ? {
+              inventoryInitState: "NOT_APPLICABLE" as const,
+              inventoryDesiredVersion: 0,
+              inventoryDesiredAvailable: null as number | null,
+              inventoryAppliedVersion: 0,
+              inventoryAppliedAvailable: null as number | null,
+              inventoryLastObservedAvailable: null as number | null,
+              inventoryDesiredAt: now,
+              inventoryAppliedAt: now,
+            }
+          : {
+              inventoryInitState: "INITIALIZED" as const,
+              inventoryDesiredVersion: 1,
+              inventoryDesiredAvailable: available,
+              inventoryAppliedVersion: 1,
+              inventoryAppliedAvailable: available,
+              inventoryLastObservedAvailable: available,
+              inventoryDesiredAt: now,
+              inventoryAppliedAt: now,
+            };
+      return {
         shopifyConnectionId: input.connectionId,
         shopifyListingLinkId: listingLink.id,
         memberId: input.memberId,
@@ -301,27 +294,24 @@ export async function createShopifyImportedListingMapping(
         lastObservedVariantFingerprint: variantFp,
         lastObservedVariantUpdatedAt: now,
         variantContentAppliedAt: now,
-        inventoryDriftState: "NONE",
+        inventoryDriftState: "NONE" as const,
         ...inventorySeed,
-      },
-    });
-  }
+      };
+    }),
+  });
 
-  // Seed field convergence for every imported variant (product fields upsert idempotently).
-  for (const v of validatedVariants) {
-    const sv = storeVariantById.get(v.storeVariantId)!;
-    await seedShopifyListingFieldConvergence(tx, {
-      connectionId: input.connectionId,
-      listingLinkId: listingLink.id,
-      memberId: input.memberId,
-      storeItemId: input.storeItemId,
-      storeVariantId: sv.id,
-      title: storeItem.title,
-      description: storeItem.description,
-      priceCents: sv.priceCents,
-      sku: sv.sku,
-    });
-  }
+  await seedShopifyImportedListingFieldStates(tx, {
+    connectionId: input.connectionId,
+    listingLinkId: listingLink.id,
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    title: storeItem.title,
+    description: storeItem.description,
+    variants: validatedVariants.map((v) => {
+      const sv = storeVariantById.get(v.storeVariantId)!;
+      return { id: sv.id, priceCents: sv.priceCents, sku: sv.sku };
+    }),
+  });
 
   const variantMaps = await tx.shopifyVariantMap.findMany({
     where: { shopifyListingLinkId: listingLink.id },

@@ -87,6 +87,68 @@ export async function seedShopifyListingFieldConvergence(
 }
 
 /**
+ * One insert for a brand-new import. Product fields are written once; price and SKU once per variant.
+ */
+export async function seedShopifyImportedListingFieldStates(
+  db: ShopifyFieldStateDb,
+  input: {
+    connectionId: string;
+    listingLinkId: string;
+    memberId: string;
+    storeItemId: string;
+    title: string;
+    description: string | null;
+    variants: Array<{ id: string; priceCents: number; sku: string | null }>;
+  }
+): Promise<void> {
+  const rows: Array<{
+    fieldKey: ShopifyContentFieldKey;
+    storeVariantId: string;
+    fingerprint: string;
+  }> = [
+    {
+      fieldKey: "TITLE",
+      storeVariantId: "",
+      fingerprint: shopifyFieldFingerprint("TITLE", input.title),
+    },
+    {
+      fieldKey: "DESCRIPTION",
+      storeVariantId: "",
+      fingerprint: shopifyDescriptionFieldFingerprint(input.description),
+    },
+  ];
+  for (const variant of input.variants) {
+    rows.push(
+      {
+        fieldKey: "PRICE",
+        storeVariantId: variant.id,
+        fingerprint: shopifyFieldFingerprint("PRICE", variant.priceCents),
+      },
+      {
+        fieldKey: "SKU",
+        storeVariantId: variant.id,
+        fingerprint: shopifyFieldFingerprint("SKU", variant.sku),
+      }
+    );
+  }
+  if (rows.length === 0) return;
+  await db.shopifyListingFieldState.createMany({
+    data: rows.map((row) => ({
+      shopifyConnectionId: input.connectionId,
+      shopifyListingLinkId: input.listingLinkId,
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      storeVariantId: row.storeVariantId,
+      fieldKey: row.fieldKey,
+      baseFingerprint: row.fingerprint,
+      localFingerprint: row.fingerprint,
+      remoteFingerprint: row.fingerprint,
+      conflict: false,
+    })),
+  });
+}
+
+/**
  * Upsert per-field BASE/LOCAL/REMOTE fingerprints and conflict flags from a plan.
  * BASE advances to the converged fingerprint only for CONVERGED/UNCHANGED here;
  * PUSH/PULL callers must call markShopifyFieldsApplied after successful apply.
