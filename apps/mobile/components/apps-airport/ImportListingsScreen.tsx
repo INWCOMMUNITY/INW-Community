@@ -13,6 +13,12 @@ import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 import { HubButton, airportStyles as styles } from "@/components/apps-airport/chrome";
+import {
+  formatImportEta,
+  IMPORT_LEAVE_NOTE,
+  LiveImportBar,
+  type ImportBatchSnapshot,
+} from "@/components/apps-airport/ChannelImportProgress";
 
 type StockModePolicy = "RECOMMENDED" | "PHYSICAL" | "MADE_TO_ORDER";
 type Step = "discover" | "shipping";
@@ -312,6 +318,14 @@ export function ImportListingsScreen({ channel, doneHref }: Props) {
           <Text style={styles.cardBody}>
             {batch.completed} imported · {batch.failed} failed · {batch.skipped} skipped
           </Text>
+          <View style={{ marginTop: 10 }}>
+            <LiveImportBar batch={batch} />
+          </View>
+          {batchActive ? (
+            <Text style={styles.hint}>
+              {formatImportEta(batch.etaSeconds)}. {IMPORT_LEAVE_NOTE}
+            </Text>
+          ) : null}
           {batchActive ? (
             <View style={{ marginTop: 12 }}>
               <HubButton label={busy ? "Cancelling…" : "Cancel import"} tone="earth" disabled={busy} onPress={() => void cancelBatch()} />

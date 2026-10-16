@@ -7,7 +7,13 @@ export type SellerOnboardingStep = (typeof STEPS)[number];
 const BEFORE_PAYMENT: SellerOnboardingStep[] = ["account", "business", "contact", "subscribe"];
 
 /** Steps that still need the seller. Import is optional, so it does not pull them back in. */
-const RESUME_STEPS = new Set<SellerOnboardingStep>(["business", "subscribe", "shipping", "payouts"]);
+const RESUME_STEPS = new Set<SellerOnboardingStep>([
+  "business",
+  "contact",
+  "subscribe",
+  "shipping",
+  "payouts",
+]);
 
 export type OnboardingResumeStep = SellerOnboardingStep | "sponsor";
 
@@ -30,10 +36,7 @@ export function sellerOnboardingResumePath(step: SellerOnboardingStep): string |
   return `/signup/seller?step=${step}`;
 }
 
-export async function getSellerOnboardingProgress(
-  memberId: string,
-  opts?: { localSkipShippingAndStripe?: boolean }
-) {
+export async function getSellerOnboardingProgress(memberId: string) {
   const [member, business, subscription, shippingOptionCount] = await Promise.all([
     prisma.member.findUnique({
       where: { id: memberId },
@@ -63,14 +66,8 @@ export async function getSellerOnboardingProgress(
   const shippoConnected = Boolean(member?.shippoOAuthTokenEncrypted);
   const stripeConnectStarted = Boolean(member?.stripeConnectAccountId);
   const freeShippingOnInw = Boolean(member?.offerFreeShippingOnInw);
-  // Beans: remove localSkipShippingAndStripe, the localhost Continue buttons on
-  // shipping and payouts, and /api/signup/seller/dev-skip. Shipping then requires
-  // Shippo, and payouts require Stripe.
-  const localSkip =
-    opts?.localSkipShippingAndStripe === true && process.env.NODE_ENV === "development";
-  const shippingStepDone =
-    localSkip || (shippoConnected && (freeShippingOnInw || shippingOptionCount >= 1));
-  const payoutsStepDone = localSkip || stripeConnectStarted;
+  const shippingStepDone = shippoConnected && (freeShippingOnInw || shippingOptionCount >= 1);
+  const payoutsStepDone = stripeConnectStarted;
   const hasBusiness = Boolean(business);
 
   if (member?.signupIntent === "business" && !hasSubscription) {
@@ -96,11 +93,18 @@ export async function getSellerOnboardingProgress(
     }
   }
 
+  const hasContactName = Boolean(
+    member?.firstName?.trim() &&
+      member?.lastName?.trim() &&
+      member.firstName !== "Pending" &&
+      member.lastName !== "Pending"
+  );
+
   let furthest: SellerOnboardingStep = "business";
   if (member?.signupIntent !== "seller") {
     furthest = "import";
   } else if (!hasSubscription) {
-    furthest = hasBusiness ? "subscribe" : "business";
+    furthest = !hasBusiness ? "business" : !hasContactName ? "contact" : "subscribe";
   } else if (!shippingStepDone) {
     furthest = "shipping";
   } else if (!payoutsStepDone) {

@@ -25,9 +25,13 @@ export default function SignupBusinessPage() {
   const { status: sessionStatus } = useSession();
 
   useEffect(() => {
-    if (sessionStatus === "authenticated") {
-      setStep((current) => (current === "account" ? "business" : current));
+    const billing = new URLSearchParams(window.location.search).get("billing");
+    if (billing === "yearly" || billing === "monthly") {
+      sessionStorage.setItem("nwc-onboarding-billing", billing);
     }
+    if (sessionStatus !== "authenticated") return;
+    setStep((current) => (current === "account" ? "business" : current));
+    void fetch("/api/signup/seller/status?enter=business", { credentials: "include" });
   }, [sessionStatus]);
 
   useEffect(() => {
@@ -154,7 +158,7 @@ export default function SignupBusinessPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: "sponsor",
-          interval: "monthly",
+          interval: sessionStorage.getItem("nwc-onboarding-billing") === "yearly" ? "yearly" : "monthly",
           businessData: {
             name: businessData.name,
             shortDescription: businessData.shortDescription,

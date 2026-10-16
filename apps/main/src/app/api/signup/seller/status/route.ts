@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import {
   clampSellerOnboardingStep,
   getSellerOnboardingProgress,
 } from "@/lib/seller-onboarding-progress";
 
 export const dynamic = "force-dynamic";
-
-/** Beans: remove this cookie skip with the localhost shipping and Stripe continues. */
-function localOnboardingSkip(req: NextRequest): boolean {
-  if (process.env.NODE_ENV !== "development") return false;
-  const host = (req.headers.get("host") ?? "").split(":")[0];
-  if (host !== "localhost" && host !== "127.0.0.1") return false;
-  return req.cookies.get("nwc_local_onboarding_skip")?.value === "1";
-}
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -23,10 +16,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ loggedIn: false, step: "account", resumePath: null, onboardingStep: null });
   }
 
+  const enter = req.nextUrl.searchParams.get("enter");
+  if (enter === "seller" || enter === "business") {
+    const keepSellerIntent =
+      enter === "business"
+        ? await prisma.subscription.findFirst({
+            where: prismaWhereMemberSellerPlanAccess(memberId),
+            select: { id: true },
+          })
+        : null;
+    if (!keepSellerIntent) {
+      await prisma.member.update({
+        where: { id: memberId },
+        data: { signupIntent: enter },
+      });
+    }
+  }
+
   const [progress, etsy, shopify] = await Promise.all([
-    getSellerOnboardingProgress(memberId, {
-      localSkipShippingAndStripe: localOnboardingSkip(req),
-    }),
+    getSellerOnboardingProgress(memberId),
     prisma.etsyConnection.findFirst({
       where: { memberId, status: "ACTIVE" },
       select: { id: true, shopName: true },

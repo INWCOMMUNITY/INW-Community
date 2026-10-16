@@ -190,8 +190,27 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
         </div>
       </div>
 
-      {/* Cover + logo: same width as Products–Policies tab bar */}
-      <div className="relative mx-auto w-full max-w-[var(--max-width)]">
+      {/* Logo sits above the cover, same width as the Products–Policies tab bar */}
+      <div className="mx-auto w-full max-w-[var(--max-width)]">
+        <div className="flex justify-center bg-white px-4 pb-3 pt-4">
+          <div className="h-[140px] w-[140px] overflow-hidden rounded-xl border-4 border-white bg-white shadow-md md:h-[168px] md:w-[168px]">
+            {seller.logoUrl ? (
+              <Image
+                src={seller.logoUrl}
+                alt={seller.name}
+                width={168}
+                height={168}
+                className="h-full w-full object-cover"
+                quality={75}
+                unoptimized={seller.logoUrl.startsWith("blob:")}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[#f5f5f5]">
+                <IonIcon name="business" size={64} className="text-[var(--color-primary)]" />
+              </div>
+            )}
+          </div>
+        </div>
         <div className="relative h-[calc(260px+1.5in)] overflow-hidden bg-[#f0f0f0] md:h-[calc(320px+1.5in)]">
           {seller.coverPhotoUrl ? (
             <Image
@@ -208,32 +227,11 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               <IonIcon name="storefront" size={64} className="text-black/15" />
             </div>
           )}
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 to-transparent"
-            aria-hidden
-          />
-        </div>
-        <div className="absolute left-1/2 bottom-0 z-10 h-[179px] w-[179px] -translate-x-1/2 translate-y-1/2 overflow-hidden rounded-xl border-4 border-white bg-white shadow-md md:h-[205px] md:w-[205px]">
-          {seller.logoUrl ? (
-            <Image
-              src={seller.logoUrl}
-              alt={seller.name}
-              width={205}
-              height={205}
-              className="h-full w-full object-cover"
-              quality={75}
-              unoptimized={seller.logoUrl.startsWith("blob:")}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[#f5f5f5]">
-              <IonIcon name="business" size={64} className="text-[var(--color-primary)]" />
-            </div>
-          )}
         </div>
       </div>
 
       {/* Name + actions */}
-      <div className="mx-auto w-full max-w-[var(--max-width)] px-4 pb-4 pt-[106px] text-center md:pt-[120px]">
+      <div className="mx-auto w-full max-w-[var(--max-width)] px-4 pb-4 pt-4 text-center">
         <p
           className="mb-3 text-2xl font-medium leading-tight md:text-3xl"
           style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}

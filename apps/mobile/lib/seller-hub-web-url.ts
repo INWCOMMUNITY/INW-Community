@@ -14,6 +14,10 @@ export function buildHubWebUrl(
     returnTo?: string;
     /** Pass-through for `/seller-hub/orders/shippo-bulk` (comma-separated order ids). */
     bulkOrderIds?: string[];
+    /** One Shippo label for every selected order from the same person and address. */
+    combine?: boolean;
+    /** Already grouped boxes. Each inner list is one shipment. */
+    combinedGroups?: string[][];
   }
 ): string {
   const base = siteBase.replace(/\/$/, "");
@@ -24,6 +28,10 @@ export function buildHubWebUrl(
   if (opts.returnTo) u.searchParams.set("returnTo", opts.returnTo);
   if (opts.bulkOrderIds && opts.bulkOrderIds.length > 0) {
     u.searchParams.set("bulkOrderIds", opts.bulkOrderIds.join(","));
+  }
+  if (opts.combine) u.searchParams.set("combine", "1");
+  if (opts.combinedGroups && opts.combinedGroups.length > 0) {
+    u.searchParams.set("combined", opts.combinedGroups.map((group) => group.join("~")).join(","));
   }
   return u.toString();
 }

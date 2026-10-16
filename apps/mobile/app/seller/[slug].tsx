@@ -17,7 +17,6 @@ import {
   Alert,
 } from "react-native";
 import { ScrollView as GHScrollView } from "react-native-gesture-handler";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -648,9 +647,17 @@ export default function SellerStorefrontScreen() {
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
-        stickyHeaderIndices={[2]}
+        stickyHeaderIndices={[3]}
       >
-        {/* Cover + Logo with Gradient */}
+        <View style={styles.logoAbove}>
+          {logoUrl ? (
+            <AppImage uri={logoUrl} targetWidth={96} style={styles.logo} resizeMode="cover" />
+          ) : (
+            <View style={[styles.logo, styles.logoPlaceholder]}>
+              <Ionicons name="business" size={40} color={theme.colors.primary} />
+            </View>
+          )}
+        </View>
         <View style={styles.coverWrap}>
           {coverUrl ? (
             <AppImage uri={coverUrl} targetWidth={width} style={styles.cover} resizeMode="cover" />
@@ -659,19 +666,6 @@ export default function SellerStorefrontScreen() {
               <Ionicons name="storefront" size={64} color="rgba(0,0,0,0.15)" />
             </View>
           )}
-          <LinearGradient
-            colors={["transparent", "rgba(0,0,0,0.6)"]}
-            style={styles.coverGradient}
-          />
-          <View style={styles.logoOverlay}>
-            {logoUrl ? (
-              <AppImage uri={logoUrl} targetWidth={96} style={styles.logo} resizeMode="cover" />
-            ) : (
-              <View style={[styles.logo, styles.logoPlaceholder]}>
-                <Ionicons name="business" size={40} color={theme.colors.primary} />
-              </View>
-            )}
-          </View>
         </View>
 
         {/* Name + Actions */}
@@ -862,21 +856,16 @@ const styles = StyleSheet.create({
   },
 
   // Cover
-  coverWrap: { height: 200, backgroundColor: "#f0f0f0", position: "relative" },
+  logoAbove: {
+    alignItems: "center",
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: "#fff",
+  },
+  coverWrap: { height: 200, backgroundColor: "#f0f0f0" },
   cover: { width: "100%", height: "100%" },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
-  coverGradient: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 80,
-  },
-  logoOverlay: {
-    position: "absolute",
-    left: "50%",
-    bottom: -40,
-    marginLeft: -40,
+  logo: {
     width: 80,
     height: 80,
     borderRadius: 12,
@@ -884,23 +873,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderWidth: 3,
     borderColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 8,
-    zIndex: 10,
   },
-  logo: { width: "100%", height: "100%" },
   logoPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "#f5f5f5" },
 
   // Name Block
   nameBlock: {
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 48,
+    paddingTop: 16,
     paddingBottom: 16,
-    marginTop: 40,
     backgroundColor: "#fff",
   },
   name: {

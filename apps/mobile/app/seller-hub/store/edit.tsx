@@ -290,6 +290,19 @@ export default function EditSellerProfileScreen() {
         </Text>
 
         <View style={styles.heroCard}>
+          <Pressable style={styles.logoWrap} onPress={pickLogo} disabled={uploadingLogo}>
+            {uploadingLogo ? (
+              <View style={[styles.logo, styles.logoEmpty]}>
+                <ActivityIndicator color={theme.colors.earth} />
+              </View>
+            ) : logoUrl ? (
+              <Image source={{ uri: logoUrl }} style={styles.logo} resizeMode="cover" />
+            ) : (
+              <View style={[styles.logo, styles.logoEmpty]}>
+                <Ionicons name="add" size={28} color={theme.colors.earth} />
+              </View>
+            )}
+          </Pressable>
           <Pressable style={styles.cover} onPress={pickCover} disabled={uploadingCover}>
             {uploadingCover ? (
               <ActivityIndicator color={theme.colors.earth} />
@@ -308,19 +321,6 @@ export default function EditSellerProfileScreen() {
                 <Text style={styles.coverBadgeText}>Change cover</Text>
               </View>
             ) : null}
-          </Pressable>
-          <Pressable style={styles.logoWrap} onPress={pickLogo} disabled={uploadingLogo}>
-            {uploadingLogo ? (
-              <View style={[styles.logo, styles.logoEmpty]}>
-                <ActivityIndicator color={theme.colors.earth} />
-              </View>
-            ) : logoUrl ? (
-              <Image source={{ uri: logoUrl }} style={styles.logo} resizeMode="cover" />
-            ) : (
-              <View style={[styles.logo, styles.logoEmpty]}>
-                <Ionicons name="add" size={28} color={theme.colors.earth} />
-              </View>
-            )}
           </Pressable>
           {logoUrl ? (
             <Pressable onPress={() => setLogoUrl("")} style={styles.removeLink}>
@@ -503,7 +503,8 @@ const styles = StyleSheet.create({
   },
   coverBadgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   logoWrap: {
-    marginTop: -36,
+    marginTop: 16,
+    marginBottom: 12,
     borderRadius: 12,
     borderWidth: 3,
     borderColor: "#fff",

@@ -14,7 +14,8 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
-import { buildProductPath } from "@/lib/product-referrer";
+import { appsAirportLiveListingPath } from "@/lib/product-referrer";
+import { ChannelImportProgress } from "@/components/apps-airport/ChannelImportProgress";
 import { ListingPhotoCollage } from "@/components/apps-airport/ListingPhotoCollage";
 import { HubButton } from "@/components/apps-airport/chrome";
 
@@ -52,10 +53,11 @@ type ListingRow = {
 };
 
 function inwLivePath(row: Pick<ListingRow, "slug" | "storeItemId">): string {
-  const slug = row.slug?.trim();
-  return slug
-    ? buildProductPath(slug, { type: "storefront" })
-    : `/seller-hub/store/new?edit=${row.storeItemId}`;
+  return appsAirportLiveListingPath({
+    slug: row.slug,
+    storeItemId: row.storeItemId,
+    from: "shopify-sync",
+  });
 }
 
 type UiStatus = "Live" | "Unpublished" | "Needs attention" | "Syncing";
@@ -365,6 +367,10 @@ export default function ShopifySellerScreen() {
 
       {remountLine ? <Text style={styles.remount}>{remountLine}</Text> : null}
 
+      {uiStatus !== "disconnected" ? (
+        <ChannelImportProgress channel="shopify" onProgress={() => load()} />
+      ) : null}
+
       <Text style={styles.sectionTitle}>Synced Listings</Text>
       <Text style={styles.summary}>
         {counts.Live} live · {counts["Needs attention"]} need attention · {counts.Unpublished}{" "}
@@ -409,10 +415,22 @@ export default function ShopifySellerScreen() {
               return (
                 <View key={row.storeItemId} style={styles.listCard}>
                   <View style={styles.listBody}>
-                    <ListingPhotoCollage photos={row.photos} />
+                    <Pressable
+                      onPress={() => router.push(inwLivePath(row) as never)}
+                      accessibilityRole="link"
+                      accessibilityLabel={row.title}
+                    >
+                      <ListingPhotoCollage photos={row.photos} />
+                    </Pressable>
                     <View style={styles.listCopy}>
                   <View style={styles.listHeader}>
-                    <Text style={styles.listTitle}>{row.title}</Text>
+                    <Pressable
+                      style={{ flex: 1 }}
+                      onPress={() => router.push(inwLivePath(row) as never)}
+                      accessibilityRole="link"
+                    >
+                      <Text style={[styles.listTitle, { color: theme.colors.primary }]}>{row.title}</Text>
+                    </Pressable>
                     <View style={[styles.chip, { backgroundColor: chip.bg }]}>
                       <Text style={[styles.chipText, { color: chip.fg }]}>{status}</Text>
                     </View>

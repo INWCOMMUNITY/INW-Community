@@ -13,6 +13,8 @@ export type ProductReferrerType =
   | "cart"
   | "messages"
   | "my-items"
+  | "shopify-sync"
+  | "etsy-sync"
   | "offer"
   | "order";
 
@@ -77,6 +79,8 @@ export function getProductReferrer(params: ExpoParams | null | undefined): Produ
     };
   }
   if (from === "my-items") return { type: "my-items" };
+  if (from === "shopify-sync") return { type: "shopify-sync" };
+  if (from === "etsy-sync") return { type: "etsy-sync" };
   if (from === "offer") {
     return { type: "offer", offerId: first(params?.offerId) ?? undefined };
   }
@@ -104,6 +108,17 @@ export function referrerToSearchParams(ref: ProductReferrer): URLSearchParams {
   if (ref.threadId) params.set("threadId", ref.threadId);
   if (ref.threadKind) params.set("threadKind", ref.threadKind);
   return params;
+}
+
+/** Live storefront from the Etsy or Shopify hub. Exit returns to that hub. */
+export function appsAirportLiveListingPath(input: {
+  slug?: string | null;
+  storeItemId: string;
+  from: Extract<ProductReferrerType, "etsy-sync" | "shopify-sync">;
+}): string {
+  const slug = input.slug?.trim();
+  if (slug) return buildProductPath(slug, { type: input.from });
+  return `/seller-hub/store/new?edit=${input.storeItemId}`;
 }
 
 export function buildProductPath(slug: string, ref: ProductReferrer, extra?: Record<string, string>): string {
@@ -164,6 +179,10 @@ export function buildBackLink(ref: ProductReferrer): { href: string; label: stri
       return { href: "/(tabs)/my-community", label: "Back to Messages" };
     case "my-items":
       return { href: "/seller-hub/store/items", label: "Back to My Items" };
+    case "shopify-sync":
+      return { href: "/seller-hub/shopify", label: "Back to Shopify" };
+    case "etsy-sync":
+      return { href: "/seller-hub/etsy", label: "Back to Etsy" };
     case "offer":
       if (ref.offerId) {
         return { href: `/offers/${ref.offerId}`, label: "Back to Offer" };

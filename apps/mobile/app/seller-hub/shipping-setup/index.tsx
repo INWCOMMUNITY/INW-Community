@@ -122,7 +122,17 @@ function parseShippoReturnUrl(url: string): { connected: boolean; error: string 
   }
 }
 
-export default function ShippingScreen() {
+export function ShippingSetupPanel({
+  embedded = false,
+  onProgress,
+}: {
+  embedded?: boolean;
+  onProgress?: (progress: {
+    shippoConnected: boolean;
+    optionCount: number;
+    offerFreeShippingOnInw: boolean;
+  }) => void;
+} = {}) {
   const params = useLocalSearchParams<{ connected?: string; oauth_error?: string }>();
   const [oauthLoading, setOauthLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -171,6 +181,15 @@ export default function ShippingScreen() {
       );
     }, [refreshShippoStatus, loadOptions])
   );
+
+  React.useEffect(() => {
+    if (!onProgress || !data) return;
+    onProgress({
+      shippoConnected: connected,
+      optionCount: data.options.length,
+      offerFreeShippingOnInw: data.offerFreeShippingOnInw,
+    });
+  }, [connected, data, onProgress]);
 
   React.useEffect(() => {
     const c = params.connected;
@@ -303,13 +322,9 @@ export default function ShippingScreen() {
     Alert.alert(opt.name, undefined, buttons);
   }
 
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>Shipping</Text>
+  const body = (
+    <>
+      {embedded ? null : <Text style={styles.title}>Shipping</Text>}
       <Text style={styles.hint}>
         Connect Shippo for labels, then manage named packages (size, weight, and INW shipping price) used for
         checkout, labels, and listing sync. After connecting, add at least one address in Shippo&apos;s Address
@@ -570,11 +585,26 @@ export default function ShippingScreen() {
           <Text style={styles.more}>⋯</Text>
         </Pressable>
       ))}
-      {data && data.options.length === 0 ? (
-        <Text style={styles.hint}>No shipping options yet. Create one above or import from Etsy/Shopify.</Text>
-      ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return <View style={styles.embedded}>{body}</View>;
+  }
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
+      {body}
     </ScrollView>
   );
+}
+
+export default function ShippingScreen() {
+  return <ShippingSetupPanel />;
 }
 
 function CheckboxRow({
@@ -606,6 +636,7 @@ function CheckboxRow({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  embedded: {},
   content: { padding: 20, paddingBottom: 48 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   sectionTitle: { fontSize: 17, fontWeight: "700", marginBottom: 6, color: theme.colors.heading },

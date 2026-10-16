@@ -279,6 +279,18 @@ export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
   },
 ];
 
+const SELLER_RETAIL_START = "Antique Retailer";
+
+/** Seller signup leads with shop categories, then the local-business list. */
+export function sellerSignupCategories(): BusinessCategoryOption[] {
+  const start = BUSINESS_CATEGORIES.findIndex((category) => category.label === SELLER_RETAIL_START);
+  if (start < 0) return BUSINESS_CATEGORIES;
+  const retail = BUSINESS_CATEGORIES.slice(start);
+  const retailLabels = new Set(retail.map((category) => category.label));
+  const rest = BUSINESS_CATEGORIES.filter((category) => !retailLabels.has(category.label));
+  return [...retail, ...rest];
+}
+
 export const BUSINESS_CATEGORY_LABELS = BUSINESS_CATEGORIES.map((c) => c.label);
 
 export function getSubcategoriesForBusinessCategory(categoryLabel: string): string[] {

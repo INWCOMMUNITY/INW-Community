@@ -106,6 +106,15 @@ export default function StorefrontInfoScreen() {
       </Text>
 
       <View style={styles.heroCard}>
+        <View style={styles.logoWrap}>
+          {logoUri ? (
+            <Image source={{ uri: logoUri }} style={styles.logo} resizeMode="cover" />
+          ) : (
+            <View style={[styles.logo, styles.logoEmpty]}>
+              <Ionicons name="storefront-outline" size={28} color={theme.colors.earth} />
+            </View>
+          )}
+        </View>
         <View style={styles.cover}>
           {coverUri ? (
             <Image source={{ uri: coverUri }} style={styles.coverImg} resizeMode="cover" />
@@ -113,15 +122,6 @@ export default function StorefrontInfoScreen() {
             <View style={styles.coverEmpty}>
               <Ionicons name="image-outline" size={36} color={theme.colors.earth} />
               <Text style={styles.coverEmptyText}>Add a cover photo</Text>
-            </View>
-          )}
-        </View>
-        <View style={styles.logoWrap}>
-          {logoUri ? (
-            <Image source={{ uri: logoUri }} style={styles.logo} resizeMode="cover" />
-          ) : (
-            <View style={[styles.logo, styles.logoEmpty]}>
-              <Ionicons name="storefront-outline" size={28} color={theme.colors.earth} />
             </View>
           )}
         </View>
@@ -275,8 +275,8 @@ const styles = StyleSheet.create({
   coverEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 6 },
   coverEmptyText: { fontSize: 13, fontWeight: "600", color: theme.colors.earth },
   logoWrap: {
-    marginTop: -36,
-    marginBottom: 10,
+    marginTop: 16,
+    marginBottom: 12,
     borderRadius: 12,
     borderWidth: 3,
     borderColor: "#fff",

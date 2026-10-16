@@ -32,6 +32,55 @@ export type StoreOrderSummary = {
   deliveryConfirmedAt?: string | Date | null;
 };
 
+function postalAddressKey(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = o[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  };
+  const street = pick("street", "address", "line1", "addressLine1", "street1");
+  const city = pick("city", "town", "locality");
+  const state = pick("state", "state_code", "province", "region");
+  const zip = pick("zip", "postal_code", "postalCode", "zipCode").replace(/\D/g, "").slice(0, 10);
+  const apt = pick("aptOrSuite", "street2", "address2", "line2", "unit");
+  if (!street || !city || !state || zip.length < 5) return null;
+  const norm = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  return [street, apt, city, state, zip].map(norm).join("|");
+}
+
+/** Same rule as the website: two or more orders, one buyer email, one checkout address. */
+export function ordersCanCombineShipping(
+  orders: Array<{ buyer?: { email?: string | null }; shippingAddress?: unknown }>
+): boolean {
+  if (orders.length < 2) return false;
+  const emails = orders.map((order) => order.buyer?.email?.trim().toLowerCase() ?? "");
+  if (emails.some((email) => !email) || new Set(emails).size !== 1) return false;
+  const keys = orders.map((order) => postalAddressKey(order.shippingAddress));
+  if (keys.some((key) => !key) || new Set(keys).size !== 1) return false;
+  return true;
+}
+
+/** Groups of two or more orders that share a buyer email and checkout address. */
+export function clusterOrdersForCombinedShipping<
+  T extends { id: string; buyer?: { email?: string | null }; shippingAddress?: unknown },
+>(orders: T[]): T[][] {
+  const buckets = new Map<string, T[]>();
+  for (const order of orders) {
+    const email = order.buyer?.email?.trim().toLowerCase() ?? "";
+    const address = postalAddressKey(order.shippingAddress);
+    if (!email || !address) continue;
+    const key = `${email}|${address}`;
+    const list = buckets.get(key);
+    if (list) list.push(order);
+    else buckets.set(key, [order]);
+  }
+  return [...buckets.values()].filter((group) => group.length >= 2);
+}
+
 export function orderHasShippedLine(items: { fulfillmentType?: string | null }[] | undefined): boolean {
   return (items ?? []).some((i) => (i.fulfillmentType ?? "ship") === "ship");
 }

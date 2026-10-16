@@ -63,24 +63,7 @@ interface ActivityItem {
   storeItemPhotoUrl?: string | null;
 }
 
-type ActivityTab = "community" | "shopping" | "incentives";
-
-type IncentiveNav =
-  | { kind: "rewards" }
-  | { kind: "business"; slug: string }
-  | { kind: "buyer_order"; orderId: string }
-  | { kind: "none" };
-
-interface IncentiveFeedItem {
-  id: string;
-  kind: "member_badge" | "business_badge" | "qr_scan" | "order_points" | "coupon_points";
-  title: string;
-  subtitle: string | null;
-  occurredAt: string;
-  imageUrl: string | null;
-  pointsDelta: number | null;
-  nav: IncentiveNav;
-}
+type ActivityTab = "community" | "shopping";
 
 function actorInitials(actor: ActivityItem["actor"]): string {
   if (!actor) return "";
@@ -178,38 +161,9 @@ function activityRowIcon(item: ActivityItem): keyof typeof Ionicons.glyphMap {
   }
 }
 
-function incentiveRowIcon(kind: IncentiveFeedItem["kind"]): keyof typeof Ionicons.glyphMap {
-  switch (kind) {
-    case "member_badge":
-    case "business_badge":
-      return "ribbon-outline";
-    case "qr_scan":
-      return "qr-code-outline";
-    case "order_points":
-    case "coupon_points":
-      return "star-outline";
-    default:
-      return "gift-outline";
-  }
-}
-
-function resolveIncentiveHref(nav: IncentiveNav): string | null {
-  switch (nav.kind) {
-    case "rewards":
-      return "/rewards";
-    case "business":
-      return `/business/${nav.slug}`;
-    case "buyer_order":
-      return `/community/my-orders/${nav.orderId}`;
-    default:
-      return null;
-  }
-}
-
 const TAB_CONFIG: { id: ActivityTab; label: string }[] = [
   { id: "community", label: "Community" },
   { id: "shopping", label: "Shopping" },
-  { id: "incentives", label: "Incentives" },
 ];
 
 export default function NotificationsScreen() {
@@ -217,7 +171,6 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<ActivityTab>("community");
   const [items, setItems] = useState<ActivityItem[]>([]);
-  const [incentiveItems, setIncentiveItems] = useState<IncentiveFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -244,30 +197,13 @@ export default function NotificationsScreen() {
       });
   }, []);
 
-  const loadIncentives = useCallback(() => {
-    return getToken()
-      .then((t) => {
-        if (!t) {
-          setIncentiveItems([]);
-          return null;
-        }
-        return apiGet<{ items?: IncentiveFeedItem[] }>("/api/me/incentives-feed?limit=80");
-      })
-      .then((data) => {
-        if (data === null) return;
-        setIncentiveItems(Array.isArray(data?.items) ? data.items : []);
-      })
-      .catch(() => setIncentiveItems([]));
-  }, []);
-
   const loadAll = useCallback(() => {
     setLoading(true);
-    Promise.all([loadActivity(), loadIncentives()])
-      .finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
-  }, [loadActivity, loadIncentives]);
+    loadActivity().finally(() => {
+      setLoading(false);
+      setRefreshing(false);
+    });
+  }, [loadActivity]);
 
   useFocusEffect(useCallback(() => loadAll(), [loadAll]));
 
@@ -299,22 +235,11 @@ export default function NotificationsScreen() {
     (router.push as (h: string) => void)(`/members/${memberId}`);
   }, [router]);
 
-  const openIncentiveItem = useCallback(
-    (nav: IncentiveNav) => {
-      const href = resolveIncentiveHref(nav);
-      if (href) (router.push as (h: string) => void)(href);
-    },
-    [router]
-  );
-
   const emptyMessage = useMemo(() => {
     if (tab === "community") {
       return "No community activity yet. Likes, comments, invites, and messages show up here.";
     }
-    if (tab === "shopping") {
-      return "No shopping activity yet. Orders, sales, and resale updates show up here.";
-    }
-    return "No incentives yet. Scan business QR codes, earn badges, and earn points when you support local.";
+    return "No shopping activity yet. Orders, sales, and resale updates show up here.";
   }, [tab]);
 
   const respondToFriendRequest = async (requestId: string, status: "accepted" | "declined") => {
@@ -448,51 +373,6 @@ export default function NotificationsScreen() {
     return <View style={styles.row}>{inner}</View>;
   };
 
-  const renderIncentiveItem = ({ item }: { item: IncentiveFeedItem }) => {
-    const uri = item.imageUrl ? resolvePhoto(item.imageUrl) : null;
-    const glyph = incentiveRowIcon(item.kind);
-    const href = resolveIncentiveHref(item.nav);
-    const inner = (
-      <>
-        <View style={styles.avatarSlotOuter}>
-          {uri ? (
-            <Image source={{ uri }} style={styles.storeItemThumb} accessibilityLabel="" />
-          ) : (
-            <View style={[styles.avatar, styles.incentiveThumbPlaceholder]}>
-              <Ionicons name={glyph} size={24} color="#888" />
-            </View>
-          )}
-        </View>
-        <View style={styles.rowBody}>
-          <Text style={styles.rowTitle}>{item.title}</Text>
-          {item.subtitle ? (
-            <View style={styles.subtitleClamp}>
-              <Text style={styles.rowSubtitle}>{item.subtitle}</Text>
-            </View>
-          ) : null}
-        </View>
-        <View style={styles.rowRight}>
-          <View style={styles.rowTypeIconWrap}>
-            <Ionicons name={glyph} size={15} color={theme.colors.primary} />
-          </View>
-          <Text style={styles.time}>{formatWhen(item.occurredAt)}</Text>
-          {href ? <Ionicons name="chevron-forward" size={18} color="#bbb" /> : null}
-        </View>
-      </>
-    );
-    if (href) {
-      return (
-        <Pressable
-          style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-          onPress={() => openIncentiveItem(item.nav)}
-        >
-          {inner}
-        </Pressable>
-      );
-    }
-    return <View style={styles.row}>{inner}</View>;
-  };
-
   const listPad = { paddingBottom: insets.bottom + 24, paddingTop: 8 };
 
   return (
@@ -539,18 +419,7 @@ export default function NotificationsScreen() {
               </Pressable>
             ))}
           </View>
-          {tab === "incentives" ? (
-            <FlatList
-              data={incentiveItems}
-              keyExtractor={(it) => it.id}
-              style={styles.listFlex}
-              contentContainerStyle={listPad}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-              ListEmptyComponent={<Text style={styles.empty}>{emptyMessage}</Text>}
-              renderItem={renderIncentiveItem}
-            />
-          ) : (
-            <FlatList
+          <FlatList
               data={filteredActivity}
               keyExtractor={(it) => it.id}
               style={styles.listFlex}
@@ -628,7 +497,6 @@ export default function NotificationsScreen() {
             );
               }}
             />
-          )}
         </View>
       )}
     </View>
@@ -663,10 +531,6 @@ const styles = StyleSheet.create({
   tabLabelActive: {
     color: theme.colors.primary,
     fontWeight: "700",
-  },
-  incentiveThumbPlaceholder: {
-    alignItems: "center",
-    justifyContent: "center",
   },
   headerInboxBtn: { padding: 8, width: 40, alignItems: "center", justifyContent: "center" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },

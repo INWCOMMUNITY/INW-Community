@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "October 15, 2026";
+export const TERMS_LAST_UPDATED = "October 16, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -158,10 +158,11 @@ NWC may request proof of product authenticity, sourcing, or ownership if concern
 ● Sellers must communicate shipping timelines clearly.
 ● Repeated failure to ship as promised may result in removal.
 ● Shipping costs and policies are determined by the seller; sellers may offer free shipping or charge shipping fees as disclosed on the listing.
+● Shipping labels are bought by the seller on Shippo and are paid by the seller with a personal credit card or bank account on that Shippo account. The shipping price included on a listing is added to the seller's payout.
 Sellers are solely responsible for ensuring compliance with USPS, UPS, FedEx, and other applicable shipping regulations for their products.
 
 7.3 Fees & External Store Links
-● NWC does not take a commission on product sales as a percentage for its own discretionary profit. A transaction or card processing fee may be deducted from marketplace orders to support site operations. Where NWC facilitates sales tax as described in Section 7.9, checkout may include sales tax collected from the buyer and, for applicable sales, a Sales Tax Reserve withholding from the seller's share, as disclosed in seller materials and payout statements. Sellers may also incur shipping-related fees. These are disclosed during checkout and seller onboarding.
+● NWC does not take a commission on product sales as a percentage for its own discretionary profit. When a seller sells an item on the storefront, the seller pays about 4.4% + 30¢ per transaction. That amount covers credit card processing, tax processing, and the Sales Tax Reserve described in Section 7.9, and it averages about 7% less than most third-party retailers. Where NWC facilitates sales tax as described in Section 7.9, checkout may include sales tax collected from the buyer and, for applicable sales, a Sales Tax Reserve withholding from the seller's share, as disclosed in seller materials and payout statements. Sellers may also incur shipping-label charges as described in Section 7.2. These fees are disclosed during checkout and seller onboarding.
 ● Sellers may link to their own storefronts freely.
 
 7.4 Disputes

@@ -32,7 +32,7 @@ export function emptyBuyerField(kind: BuyerFieldKind): BuyerFieldDraft {
     instructions: "",
     required: true,
     maxCharacters: "256",
-    maxFiles: "1",
+    maxFiles: "",
     labelEachFile: false,
     options: [],
   };
@@ -91,7 +91,10 @@ export function buyerFieldsToPayload(fields: BuyerFieldDraft[]) {
     instructions: field.kind === "DROPDOWN" ? null : field.instructions.trim() || null,
     required: field.required,
     maxCharacters: field.kind === "TEXT" ? Number(field.maxCharacters) : null,
-    maxFiles: field.kind === "FILE" ? Number(field.maxFiles) : null,
+    maxFiles:
+      field.kind === "FILE"
+        ? Math.min(10, Math.max(1, Number(field.maxFiles) || 1))
+        : null,
     labelEachFile: field.kind === "FILE" && field.labelEachFile,
     etsyQuestionId: field.etsyQuestionId ?? null,
     options: field.kind === "TEXT" ? [] : optionsWithIds(field),

@@ -906,15 +906,10 @@ export default function MyCommunityScreen() {
       </View>
 
       <RNView style={styles.tanSection}>
-        <RNView
-          style={[
-            styles.buttonRow,
-            pendingIncomingFriendRequests > 0 && styles.buttonRowFriendBadgeInset,
-          ]}
-        >
+        <RNView style={styles.buttonRow}>
           <RNView
             style={[
-              styles.tanButtonFriendWrap,
+              styles.tanButtonSlot,
               pendingIncomingFriendRequests > 0 && styles.tanButtonFriendWrapRaised,
             ]}
           >
@@ -1206,11 +1201,13 @@ const styles = StyleSheet.create({
   profileNotificationsButtonWrap: {
     flex: 1,
     position: "relative",
+    overflow: "visible",
+    zIndex: 2,
   },
   notificationsBellBadge: {
     position: "absolute",
-    top: 4,
-    right: 4,
+    top: -6,
+    right: -6,
     width: 18,
     height: 18,
     borderRadius: 9,
@@ -1318,11 +1315,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: theme.colors.cream,
   },
-  /** Space so the friends notification dot can sit outside the green tile without ScrollView clipping. */
-  buttonRowFriendBadgeInset: {
-    paddingTop: 8,
-    paddingRight: 8,
-  },
   tanButton: {
     flex: 1,
     flexDirection: "row",
@@ -1340,20 +1332,13 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     overflow: "hidden",
   },
-  /** Matches flex behavior for both columns in a row (pair with tanButtonFriendWrap). */
+  /** Both tiles share the row equally. The badge is absolute so it does not change either width. */
   tanButtonSlot: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: "transparent",
-  },
-  tanButtonFriendWrap: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
     position: "relative",
-    overflow: "visible",
-    zIndex: 0,
     borderRadius: 8,
     backgroundColor: "transparent",
   },

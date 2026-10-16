@@ -15,6 +15,7 @@ import {
   type StyleProp,
   type TextStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme as defaultTheme } from "@/lib/theme";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
@@ -455,6 +456,8 @@ export function ListingOptionsEditor({
   onQuantitiesVaryChange,
 }: ListingOptionsEditorProps) {
   const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const manageTopGap = Math.max(96, insets.top + 64);
   const presets = optionNamePresets.length > 0 ? optionNamePresets : DEFAULT_OPTION_PRESETS;
   const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
   const inferred = inferMatrixVaryFlags({ axes, skus });
@@ -851,7 +854,7 @@ export function ListingOptionsEditor({
           <ScrollView
             style={[
               styles.modalCard,
-              { maxHeight: Math.max(280, windowHeight - keyboardPad - 24) },
+              { maxHeight: Math.max(280, windowHeight - keyboardPad - manageTopGap) },
             ]}
             contentContainerStyle={styles.modalScrollContent}
             keyboardShouldPersistTaps="handled"
@@ -1275,6 +1278,7 @@ const styles = StyleSheet.create({
   },
   modalScrollContent: {
     padding: 16,
+    paddingTop: 28,
     paddingBottom: 28,
   },
   modalHeader: {

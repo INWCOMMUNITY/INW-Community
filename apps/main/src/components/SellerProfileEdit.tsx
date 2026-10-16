@@ -166,7 +166,26 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
       <div className="overflow-hidden rounded-xl border border-[#e6e0d6] bg-white text-center">
         <button
           type="button"
-          className="relative block aspect-[16/9] w-full bg-[#FDEDCC]"
+          className="mt-4 inline-flex h-[72px] w-[72px] overflow-hidden rounded-xl border-[3px] border-white bg-white shadow-sm"
+          onClick={() => logoInputRef.current?.click()}
+          disabled={uploadingLogo}
+          aria-label="Change logo"
+        >
+          {uploadingLogo ? (
+            <span className="flex h-full w-full items-center justify-center bg-[#FDEDCC] text-xs font-semibold text-[var(--color-earth)]">
+              …
+            </span>
+          ) : logoUrl ? (
+            <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center bg-[#FDEDCC] text-[var(--color-earth)]">
+              <IonIcon name="add" size={28} />
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className="relative mt-3 block aspect-[16/9] w-full bg-[#FDEDCC]"
           onClick={() => coverInputRef.current?.click()}
           disabled={uploadingCover}
         >
@@ -209,25 +228,6 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
             }
           }}
         />
-        <button
-          type="button"
-          className="-mt-9 mb-2 inline-flex h-[72px] w-[72px] overflow-hidden rounded-xl border-[3px] border-white bg-white shadow-sm"
-          onClick={() => logoInputRef.current?.click()}
-          disabled={uploadingLogo}
-          aria-label="Change logo"
-        >
-          {uploadingLogo ? (
-            <span className="flex h-full w-full items-center justify-center bg-[#FDEDCC] text-xs font-semibold text-[var(--color-earth)]">
-              …
-            </span>
-          ) : logoUrl ? (
-            <img src={logoUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span className="flex h-full w-full items-center justify-center bg-[#FDEDCC] text-[var(--color-earth)]">
-              <IonIcon name="add" size={28} />
-            </span>
-          )}
-        </button>
         <input
           ref={logoInputRef}
           type="file"

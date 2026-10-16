@@ -7,6 +7,7 @@ type FulfillmentActionBarProps = {
   shippoSurfaceOpen: boolean;
   shippingConnected: boolean | null;
   onPurchaseLabels: () => void;
+  onCombineShipping?: () => void;
   onPrintSlips: () => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -20,6 +21,7 @@ export function FulfillmentActionBar({
   shippoSurfaceOpen,
   shippingConnected,
   onPurchaseLabels,
+  onCombineShipping,
   onPrintSlips,
   onSelectAll,
   onClearSelection,
@@ -38,7 +40,9 @@ export function FulfillmentActionBar({
             {selectedCount} of {totalCount} selected
           </p>
           <p className="text-xs text-gray-500 hidden sm:block">
-            Same-buyer orders combine into one Shippo purchase per buyer.
+            {onCombineShipping
+              ? "Combine groups these orders into one box. Purchase Labels then buys one label."
+              : "Purchase Labels buys one label per order."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">
@@ -64,6 +68,16 @@ export function FulfillmentActionBar({
           >
             Print Slips
           </button>
+          {onCombineShipping ? (
+            <button
+              type="button"
+              onClick={onCombineShipping}
+              disabled={labelsDisabled}
+              className="action-pill action-pill-lg btn-pill-outline flex-1 sm:flex-none justify-center min-w-[10rem] disabled:opacity-50"
+            >
+              Combine
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onPurchaseLabels}

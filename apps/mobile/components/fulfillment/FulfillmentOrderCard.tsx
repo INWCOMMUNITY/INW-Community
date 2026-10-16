@@ -54,6 +54,8 @@ export function FulfillmentOrderCard({
   selected,
   onToggleSelect,
   address,
+  title,
+  onSeparate,
 }: {
   order: FulfillmentOrderCardOrder;
   onPress: () => void;
@@ -64,6 +66,8 @@ export function FulfillmentOrderCard({
   selected?: boolean;
   onToggleSelect?: () => void;
   address?: string | null;
+  title?: string;
+  onSeparate?: () => void;
 }) {
   const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
   const allPhotos = (order.items ?? [])
@@ -101,8 +105,8 @@ export function FulfillmentOrderCard({
           onPress={onPress}
         >
           <View style={styles.titleRow}>
-            <Text style={styles.orderId} numberOfLines={1}>
-              Order #{orderNum}
+            <Text style={styles.orderId} numberOfLines={title ? 3 : 1}>
+              {title ?? `Order #${orderNum}`}
             </Text>
             <Text style={styles.total}>{formatSellerOrderTotal(order)}</Text>
           </View>
@@ -136,13 +140,22 @@ export function FulfillmentOrderCard({
             <View style={[styles.thumbWrap, styles.thumbPlaceholder]} />
           )}
         </View>
-        <Text style={styles.summary} numberOfLines={2}>
+        <Text style={styles.summary} numberOfLines={title ? 6 : 2}>
           {itemSummary || "—"}
         </Text>
         {address ? (
           <Text style={styles.address} numberOfLines={2}>
             {address}
           </Text>
+        ) : null}
+        {onSeparate ? (
+          <Pressable
+            onPress={onSeparate}
+            hitSlop={8}
+            style={({ pressed }) => [styles.separateBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.separateText}>Separate</Text>
+          </Pressable>
         ) : null}
         <View style={styles.chips}>
           <View style={styles.chip}>
@@ -218,6 +231,8 @@ const styles = StyleSheet.create({
   extraText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   summary: { marginTop: 10, fontSize: 13, color: "#444", lineHeight: 18 },
   address: { marginTop: 4, fontSize: 13, color: "#777", lineHeight: 18 },
+  separateBtn: { alignSelf: "flex-start", marginTop: 8 },
+  separateText: { fontSize: 13, color: theme.colors.earth, textDecorationLine: "underline" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   chip: {
     backgroundColor: theme.colors.cream,

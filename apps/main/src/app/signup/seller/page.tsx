@@ -45,7 +45,6 @@ export default function SignupSellerPage() {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showLocalSkip, setShowLocalSkip] = useState(false);
   const [shippingReady, setShippingReady] = useState(false);
   const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
   const [stripeReady, setStripeReady] = useState(false);
@@ -66,11 +65,6 @@ export default function SignupSellerPage() {
     []
   );
 
-  // Beans: remove this cookie and the localhost Continue buttons on shipping and payouts.
-  function allowLocalOnboardingSkip() {
-    document.cookie = "nwc_local_onboarding_skip=1; path=/; SameSite=Lax";
-  }
-
   function go(next: Step) {
     setError("");
     setStep(next);
@@ -83,10 +77,11 @@ export default function SignupSellerPage() {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("step");
     const justPaid = params.get("success") === "1";
-    const host = window.location.hostname;
-    setShowLocalSkip(
-      process.env.NODE_ENV === "development" && (host === "localhost" || host === "127.0.0.1")
-    );
+
+    const billing = params.get("billing");
+    if (billing === "yearly" || billing === "monthly") {
+      sessionStorage.setItem("nwc-onboarding-billing", billing);
+    }
 
     const notes: string[] = [];
     if (params.get("etsy") === "connected") notes.push("Etsy is connected. You can import listings, or finish without them.");
@@ -104,8 +99,12 @@ export default function SignupSellerPage() {
     }
 
     async function load(attempt = 0) {
-      const qs = isStep(requested) ? `?requested=${encodeURIComponent(requested)}` : "";
-      const res = await fetch(`/api/signup/seller/status${qs}`, { credentials: "include" });
+      const qs = new URLSearchParams();
+      if (isStep(requested)) qs.set("requested", requested);
+      if (params.get("enter") === "seller") qs.set("enter", "seller");
+      const queryString = qs.toString();
+      const query = queryString ? `?${queryString}` : "";
+      const res = await fetch(`/api/signup/seller/status${query}`, { credentials: "include" });
       if (!res.ok) {
         if (!cancelled) setBooting(false);
         return;
@@ -246,9 +245,10 @@ export default function SignupSellerPage() {
   }
 
   function checkoutBody() {
+    const billing = sessionStorage.getItem("nwc-onboarding-billing") === "yearly" ? "yearly" : "monthly";
     return {
       planId: "seller",
-      interval: "monthly",
+      interval: billing,
       businessData: businessData
         ? {
             name: businessData.name,
@@ -295,29 +295,6 @@ export default function SignupSellerPage() {
       setError(data.error ?? "Could not start checkout.");
     } catch {
       setError("Something went wrong.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function skipCheckoutLocally() {
-    setError("");
-    setLoading(true);
-    try {
-      const res = await fetch("/api/signup/seller/dev-skip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ businessData: checkoutBody().businessData }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Could not skip checkout.");
-        return;
-      }
-      go("shipping");
-    } catch {
-      setError("Could not skip checkout.");
     } finally {
       setLoading(false);
     }
@@ -559,16 +536,6 @@ export default function SignupSellerPage() {
               {loading ? "Redirecting…" : "Subscribe & Complete Onboarding"}
             </button>
           </div>
-          {showLocalSkip ? (
-            <button
-              type="button"
-              onClick={() => void skipCheckoutLocally()}
-              className="mx-auto block text-xs text-gray-500 underline"
-              disabled={loading}
-            >
-              Skip checkout on this computer
-            </button>
-          ) : null}
         </div>
         </ListingFormSection>
       )}
@@ -604,18 +571,6 @@ export default function SignupSellerPage() {
                 Continue
               </button>
             </div>
-            {showLocalSkip && !shippingReady ? (
-              <button
-                type="button"
-                onClick={() => {
-                  allowLocalOnboardingSkip();
-                  go("payouts");
-                }}
-                className="mx-auto mt-3 block text-xs text-gray-500 underline"
-              >
-                Continue without Shippo on this computer
-              </button>
-            ) : null}
           </div>
         </div>
       )}
@@ -644,18 +599,6 @@ export default function SignupSellerPage() {
               Continue
             </button>
           </div>
-          {showLocalSkip && !stripeReady ? (
-            <button
-              type="button"
-              onClick={() => {
-                allowLocalOnboardingSkip();
-                go("import");
-              }}
-              className="mx-auto block text-xs text-gray-500 underline"
-            >
-              Continue without Stripe on this computer
-            </button>
-          ) : null}
         </div>
         </ListingFormSection>
       )}

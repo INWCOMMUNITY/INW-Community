@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useLayoutEffect } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -14,8 +14,10 @@ import {
   Alert,
 } from "react-native";
 import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
 import {
   signupAgeSwitchOutline,
   switchIosBackgroundColor,
@@ -23,114 +25,195 @@ import {
   switchTrackColor,
   theme,
 } from "@/lib/theme";
-import { apiPost, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { clearPendingReferralCode, getPendingReferralCode } from "@/lib/referral-code";
 import { signIn } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { BusinessForm } from "@/components/BusinessForm";
 import { SubscriptionCheckoutWithFallback } from "@/components/SubscriptionCheckoutWithFallback";
+import { OnboardingProgress } from "@/components/seller-onboarding/OnboardingProgress";
+import { OnboardingSection } from "@/components/seller-onboarding/OnboardingSection";
+import { ShippingSetupPanel } from "@/app/seller-hub/shipping-setup";
 
-type Step = "account" | "business" | "contact" | "checkout";
-const STEP_ORDER: Step[] = ["account", "business", "contact", "checkout"];
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
+const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+
+type Step = "account" | "business" | "contact" | "subscribe" | "shipping" | "payouts" | "import";
+
+const STEP_ORDER: Step[] = ["account", "business", "contact", "subscribe", "shipping", "payouts", "import"];
+
+const STEP_INDEX: Record<Step, number> = {
+  account: 1,
+  business: 2,
+  contact: 3,
+  subscribe: 4,
+  shipping: 5,
+  payouts: 6,
+  import: 7,
+};
+
+type SellerStatus = {
+  step?: string;
+  hasSubscription?: boolean;
+  stripeConnectStarted?: boolean;
+  etsyConnected?: boolean;
+  etsyShopName?: string | null;
+  shopifyConnected?: boolean;
+  shopifyShopDomain?: string | null;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+};
+
+function normalizeStart(start?: string): Step | null {
+  if (start === "checkout") return "subscribe";
+  if (start && (STEP_ORDER as string[]).includes(start)) return start as Step;
+  return null;
+}
+
+function toWizardStep(step?: string): Step {
+  const normalized = normalizeStart(step);
+  return normalized ?? "business";
+}
 
 export default function SignupSellerScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const params = useLocalSearchParams<{ start?: string }>();
+  const params = useLocalSearchParams<{ start?: string; billing?: string }>();
   const { refreshMember, member, signOut } = useAuth();
+  const startParam = typeof params.start === "string" ? params.start : undefined;
 
-  const [step, setStep] = useState<Step>("account");
-  const hasStartedAtBusinessRef = useRef(false);
-  useFocusEffect(
-    useCallback(() => {
-      const start = params.start;
-      if (
-        (start === "business" || start === "contact" || start === "checkout") &&
-        member &&
-        !hasStartedAtBusinessRef.current
-      ) {
-        hasStartedAtBusinessRef.current = true;
-        setStep(start);
-      }
-    }, [params.start, member])
-  );
-  useFocusEffect(
-    useCallback(() => {
-      if (step === "checkout" && member?.subscriptionPlan === "seller") {
-        router.replace("/(tabs)/my-community");
-      }
-    }, [step, member?.subscriptionPlan])
-  );
+  const [step, setStep] = useState<Step>(normalizeStart(startParam) ?? "account");
+  const [placed, setPlaced] = useState(!member);
+  const placedKey = useRef<string | null>(null);
+  const [hasSubscription, setHasSubscription] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [street, setStreet] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [zip, setZip] = useState("");
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
-  const [communityStandardsAck, setCommunityStandardsAck] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [allowRemoveWithoutPrompt, setAllowRemoveWithoutPrompt] = useState(false);
+  const [shippingReady, setShippingReady] = useState(false);
+  const [stripeReady, setStripeReady] = useState(false);
+  const [payoutLoading, setPayoutLoading] = useState(false);
+  const [etsyConnected, setEtsyConnected] = useState(false);
+  const [etsyShopName, setEtsyShopName] = useState<string | null>(null);
+  const [shopifyConnected, setShopifyConnected] = useState(false);
+  const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
+  const [shopifyShop, setShopifyShop] = useState("");
 
-  useLayoutEffect(() => {
-    navigation.setOptions({ gestureEnabled: false });
-  }, [navigation]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!member) {
+        setPlaced(true);
+        return;
+      }
+      let cancelled = false;
+      const requested = normalizeStart(startParam);
+      const query = requested ? `?requested=${encodeURIComponent(requested)}` : "";
+      apiGet<SellerStatus>(`/api/signup/seller/status${query}`)
+        .then((status) => {
+          if (cancelled) return;
+          setHasSubscription(Boolean(status.hasSubscription));
+          setStripeReady(Boolean(status.stripeConnectStarted));
+          setEtsyConnected(Boolean(status.etsyConnected));
+          setEtsyShopName(status.etsyShopName ?? null);
+          setShopifyConnected(Boolean(status.shopifyConnected));
+          setShopifyShopDomain(status.shopifyShopDomain ?? null);
+          const key = requested ?? "auto";
+          if (placedKey.current !== key) {
+            placedKey.current = key;
+            if (status.firstName) setFirstName(status.firstName);
+            if (status.lastName) setLastName(status.lastName);
+            if (status.phone) setPhone(status.phone);
+            setStep(toWizardStep(status.step));
+          }
+          setPlaced(true);
+        })
+        .catch(() => {
+          if (!cancelled) setPlaced(true);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [member, startParam])
+  );
+
+  const previousStep = (): Step | null => {
+    const idx = STEP_ORDER.indexOf(step);
+    if (idx <= 0) return null;
+    const prev = STEP_ORDER[idx - 1];
+    if (hasSubscription && (prev === "account" || prev === "business" || prev === "contact" || prev === "subscribe")) {
+      return null;
+    }
+    return prev;
+  };
 
   const onPreventRemove = useCallback(
     ({ data }: { data: { action: object } }) => {
-      const idx = STEP_ORDER.indexOf(step);
-      if (idx > 0) {
+      const prev = (() => {
+        const idx = STEP_ORDER.indexOf(step);
+        if (idx <= 0) return null;
+        const candidate = STEP_ORDER[idx - 1];
+        if (
+          hasSubscription &&
+          (candidate === "account" || candidate === "business" || candidate === "contact" || candidate === "subscribe")
+        ) {
+          return null;
+        }
+        return candidate;
+      })();
+      if (prev) {
         const msg =
           step === "business"
             ? "Going back will discard the business details you entered on this step."
             : step === "contact"
-              ? "Going back will discard the name and mailing address you entered on this step."
-              : "Going back may lose your place in checkout.";
+              ? "Going back will discard the name and phone you entered on this step."
+              : "Going back leaves this step. You can return to it.";
         Alert.alert("Leave this step?", msg, [
           { text: "Stay", style: "cancel" },
+          { text: "Leave step", style: "destructive", onPress: () => setStep(prev) },
+        ]);
+        return;
+      }
+      if (step === "account") {
+        Alert.alert("Leave Sign Up?", "Are you sure you want to leave Seller sign up? Progress will not be saved.", [
+          { text: "Stay", style: "cancel" },
           {
-            text: "Leave step",
+            text: "Leave",
             style: "destructive",
-            onPress: () => setStep(STEP_ORDER[idx - 1]),
+            onPress: async () => {
+              await signOut();
+              setAllowRemoveWithoutPrompt(true);
+              setTimeout(() => navigation.dispatch(data.action as never), 0);
+            },
           },
         ]);
-      } else {
-        Alert.alert(
-          "Leave Sign Up?",
-          "Are you sure you want to leave Seller sign up? Progress will not be saved.",
-          [
-            { text: "Stay", style: "cancel" },
-            {
-              text: "Leave",
-              style: "destructive",
-              onPress: async () => {
-                await signOut();
-                setAllowRemoveWithoutPrompt(true);
-                setTimeout(() => navigation.dispatch(data.action as never), 0);
-              },
-            },
-          ]
-        );
+        return;
       }
+      setAllowRemoveWithoutPrompt(true);
+      setTimeout(() => navigation.dispatch(data.action as never), 0);
     },
-    [step, navigation, signOut]
+    [step, hasSubscription, navigation, signOut]
   );
 
   usePreventRemove(!allowRemoveWithoutPrompt, onPreventRemove);
+
+  const openPolicy = (path: "terms" | "privacy", title: string) => {
+    router.push(
+      `/web?url=${encodeURIComponent(`${siteBase}/${path}`)}&title=${encodeURIComponent(title)}` as never
+    );
+  };
 
   const handleAccountSubmit = async () => {
     setError("");
     if (!ageConfirmed) {
       setError("You must confirm you are 16 years or older to sign up.");
-      return;
-    }
-    if (!communityStandardsAck) {
-      setError("Please confirm you agree to follow Northwest Community standards and the Terms of Service.");
       return;
     }
     if (!email.trim() || !password) {
@@ -191,59 +274,15 @@ export default function SignupSellerScreen() {
     }
   };
 
-  const handleBusinessDraft = (data: Record<string, unknown>) => {
-    setBusinessData(data);
-    setError("");
-    setStep("contact");
-  };
-
   const handleContactSubmit = async () => {
     setError("");
-    if (!street.trim() || !city.trim() || !state.trim() || !zip.trim()) {
-      setError("Full mailing address is required for tax calculation.");
-      return;
-    }
     setLoading(true);
     try {
-      const validation = await apiPost<{
-        valid: boolean;
-        error?: string;
-        formatted?: { street: string; city: string; state: string; zip: string };
-      }>("/api/validate-address", {
-        street: street.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        zip: zip.trim(),
-      });
-
-      if (!validation.valid) {
-        setError(validation.error ?? "We couldn't verify this address. Please check and try again.");
-        setLoading(false);
-        return;
-      }
-
-      if (validation.formatted) {
-        setStreet(validation.formatted.street);
-        setCity(validation.formatted.city);
-        setState(validation.formatted.state);
-        setZip(validation.formatted.zip);
-      }
-
-      const addr = validation.formatted ?? {
-        street: street.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        zip: zip.trim(),
-      };
-
-      const payload: Record<string, unknown> = {
-        phone: phone.trim() || null,
-        deliveryAddress: addr,
-      };
+      const payload: Record<string, unknown> = { phone: phone.trim() || null };
       if (firstName.trim()) payload.firstName = firstName.trim();
       if (lastName.trim()) payload.lastName = lastName.trim();
       await apiPatch("/api/me", payload);
-      setStep("checkout");
+      setStep("subscribe");
     } catch (e) {
       const err = e as { error?: string };
       setError(err.error ?? "Failed to save info.");
@@ -253,456 +292,527 @@ export default function SignupSellerScreen() {
   };
 
   const handleCheckoutSuccess = () => {
-    setAllowRemoveWithoutPrompt(true);
-    setTimeout(() => {
-      refreshMember()
-        .then(() => router.replace("/(tabs)/my-community"))
-        .catch((e) => {
-          if (__DEV__) console.warn("[handleCheckoutSuccess]", e);
-          router.replace("/(tabs)/my-community");
-        });
-    }, 0);
+    refreshMember().catch(() => {});
+    setHasSubscription(true);
+    setStep("shipping");
   };
 
-  if (step === "account") {
-    return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <Pressable
-          style={styles.back}
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace("/(tabs)" as import("expo-router").Href);
-            }
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>Sign up as Seller</Text>
-          <Text style={styles.subtitle}>
-            Create your account to start selling on the Community Storefront.
-          </Text>
-          <View style={styles.form}>
-            <View style={styles.ageRow}>
-              <View style={signupAgeSwitchOutline}>
-                <Switch
-                  value={ageConfirmed}
-                  onValueChange={setAgeConfirmed}
-                  trackColor={switchTrackColor()}
-                  thumbColor={switchThumbColor(ageConfirmed)}
-                  ios_backgroundColor={switchIosBackgroundColor}
-                />
-              </View>
-              <Text style={styles.ageLabel}>I confirm I am 16 years or older</Text>
-            </View>
-            <View style={styles.ageRow}>
-              <View style={signupAgeSwitchOutline}>
-                <Switch
-                  value={communityStandardsAck}
-                  onValueChange={setCommunityStandardsAck}
-                  trackColor={switchTrackColor()}
-                  thumbColor={switchThumbColor(communityStandardsAck)}
-                  ios_backgroundColor={switchIosBackgroundColor}
-                />
-              </View>
-              <Text style={styles.ageLabel}>
-                I agree to follow community standards and the Terms of Service. I understand payouts require completing
-                Stripe identity verification when I set up selling.
-              </Text>
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              placeholderTextColor={theme.colors.placeholder}
-              autoCorrect={true}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Password (min 8 characters)"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              placeholderTextColor={theme.colors.placeholder}
-              autoCorrect={true}
-            />
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Text style={styles.termsText}>
-              By signing up, you agree to our{" "}
-              <Text
-                style={styles.termsLink}
-                onPress={() =>
-                  router.push(
-                    `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com"}/terms`)}&title=${encodeURIComponent("Terms of Service")}` as never
-                  )
-                }
-              >
-                Terms of Service
-              </Text>
-              {" "}and{" "}
-              <Text
-                style={styles.termsLink}
-                onPress={() =>
-                  router.push(
-                    `/web?url=${encodeURIComponent(`${process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com"}/privacy`)}&title=${encodeURIComponent("Privacy Policy")}` as never
-                  )
-                }
-              >
-                Privacy Policy
-              </Text>
-              .
-            </Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                (loading || pressed) && styles.buttonDisabled,
-              ]}
-              onPress={handleAccountSubmit}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Continue</Text>
-              )}
-            </Pressable>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
+  const startPayouts = async () => {
+    setError("");
+    setPayoutLoading(true);
+    try {
+      const res = await apiPost<{ url?: string; reused?: boolean; error?: string }>(
+        "/api/stripe/connect/onboard",
+        { returnBaseUrl: siteBase, mobileReturnPath: "/signup-seller?start=payouts" }
+      );
+      if (res?.reused) {
+        setStripeReady(true);
+        return;
+      }
+      if (res?.url) {
+        router.push(
+          `/web?url=${encodeURIComponent(res.url)}&title=${encodeURIComponent("Payment Setup")}` as never
+        );
+        return;
+      }
+      setError(res?.error ?? "Payment setup failed");
+    } catch (e) {
+      const err = e as { error?: string };
+      setError(err.error ?? "Failed to get setup link");
+    } finally {
+      setPayoutLoading(false);
+    }
+  };
 
-  if (step === "business") {
+  const connectEtsy = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const body = await apiPost<{ authorizeUrl?: string }>("/api/etsy/connect", {});
+      if (!body.authorizeUrl) {
+        setError("Could not start Etsy connection.");
+        return;
+      }
+      await WebBrowser.openBrowserAsync(body.authorizeUrl);
+      const status = await apiGet<SellerStatus>("/api/signup/seller/status?requested=import");
+      setEtsyConnected(Boolean(status.etsyConnected));
+      setEtsyShopName(status.etsyShopName ?? null);
+    } catch (e) {
+      const err = e as { error?: string };
+      setError(err.error ?? "Could not start Etsy connection.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const connectShopify = async () => {
+    setError("");
+    if (!shopifyShop.trim()) {
+      setError("Enter your Shopify store address.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const body = await apiPost<{ authorizeUrl?: string }>("/api/shopify/connect", { shop: shopifyShop.trim() });
+      if (!body.authorizeUrl) {
+        setError("Could not start Shopify connection.");
+        return;
+      }
+      await WebBrowser.openBrowserAsync(body.authorizeUrl);
+      const status = await apiGet<SellerStatus>("/api/signup/seller/status?requested=import");
+      setShopifyConnected(Boolean(status.shopifyConnected));
+      setShopifyShopDomain(status.shopifyShopDomain ?? null);
+    } catch (e) {
+      const err = e as { error?: string };
+      setError(err.error ?? "Could not start Shopify connection.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const goToSellerHub = () => {
+    setAllowRemoveWithoutPrompt(true);
+    setTimeout(() => router.replace("/seller-hub" as never), 0);
+  };
+
+  if (member && !placed) {
     return (
-      <View style={styles.container}>
-        <Pressable style={styles.back} onPress={() => setStep("account")}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
-        <BusinessForm
-          onSuccess={() => {}}
-          onDraftSubmit={handleBusinessDraft}
-          draftButtonLabel="Continue"
-          headerContent={
-            <>
-              <Text style={styles.title}>Business Information</Text>
-              <Text style={styles.subtitle}>
-                Add your business details for your storefront. You can edit these later. Business must be noncorporate, located in Eastern Washington or North Idaho.
-              </Text>
-              {error ? <Text style={styles.errorRed}>{error}</Text> : null}
-            </>
-          }
-        />
+      <View style={styles.boot}>
+        <ActivityIndicator color={theme.colors.earth} />
       </View>
     );
   }
 
-  if (step === "contact") {
-    return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <Pressable style={styles.back} onPress={() => setStep("business")}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>Contact & Mailing Address</Text>
-          <Text style={styles.subtitle}>
-            Contact details for order fulfillment. Your mailing address is required for tax calculation. You can update these later.
-          </Text>
-          <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              placeholder="First name"
-              value={firstName}
-              onChangeText={setFirstName}
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="words"
-              textContentType="givenName"
-              autoCorrect={true}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Last name"
-              value={lastName}
-              onChangeText={setLastName}
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="words"
-              textContentType="familyName"
-              autoCorrect={true}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Phone"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              placeholderTextColor={theme.colors.placeholder}
-              textContentType="telephoneNumber"
-              autoCorrect={true}
-            />
-            <Text style={styles.sectionLabel}>Mailing address *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Street address *"
-              value={street}
-              onChangeText={setStreet}
-              placeholderTextColor={theme.colors.placeholder}
-              autoCapitalize="words"
-              textContentType="streetAddressLine1"
-              autoCorrect={true}
-            />
-            <View style={styles.row}>
+  const progress = <OnboardingProgress stepIndex={STEP_INDEX[step]} />;
+  const back = previousStep();
+  const topSpace = insets.top + 12;
+
+  return (
+    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {step === "business" ? (
+        <View style={{ flex: 1, paddingTop: topSpace }}>
+        <BusinessForm
+          categoryCatalog="seller"
+          onSuccess={() => {}}
+          onDraftSubmit={(data) => {
+            setBusinessData(data);
+            setError("");
+            setStep("contact");
+          }}
+          draftButtonLabel="Continue"
+          onBack={back ? () => setStep(back) : undefined}
+          headerContent={
+            <View>
+              {progress}
+              <Text style={styles.intro}>
+                Add the details shoppers see on your storefront. Categories can be your own, not only the directory list.
+              </Text>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+            </View>
+          }
+          footerContent={progress}
+        />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingTop: topSpace }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {progress}
+          {step === "account" ? (
+            <OnboardingSection
+              title="Account"
+              description="Create your account. Next you will add your storefront, shipping, and payouts in order."
+            >
               <TextInput
-                style={[styles.input, styles.inputHalf]}
-                placeholder="City *"
-                value={city}
-                onChangeText={setCity}
+                style={styles.input}
+                placeholder="Email"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholderTextColor={theme.colors.placeholder}
+              />
+              <View style={styles.ageRow}>
+                <View style={signupAgeSwitchOutline}>
+                  <Switch
+                    value={ageConfirmed}
+                    onValueChange={setAgeConfirmed}
+                    trackColor={switchTrackColor()}
+                    thumbColor={switchThumbColor(ageConfirmed)}
+                    ios_backgroundColor={switchIosBackgroundColor}
+                  />
+                </View>
+                <Text style={styles.ageLabel}>
+                  I confirm I am 16 years or older (users under 18 need parent/guardian permission).
+                </Text>
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="Password (min 8 characters)"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                placeholderTextColor={theme.colors.placeholder}
+              />
+              <Text style={styles.termsText}>
+                By signing up, you agree to our{" "}
+                <Text style={styles.termsLink} onPress={() => openPolicy("terms", "Terms of Service")}>
+                  Terms of Service
+                </Text>
+                {" "}and{" "}
+                <Text style={styles.termsLink} onPress={() => openPolicy("privacy", "Privacy Policy")}>
+                  Privacy Policy
+                </Text>
+                .
+              </Text>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <StepActions
+                onBack={() => {
+                  if (router.canGoBack()) router.back();
+                  else router.replace("/(tabs)" as never);
+                }}
+                onContinue={() => void handleAccountSubmit()}
+                continueLabel="Continue"
+                loading={loading}
+              />
+            </OnboardingSection>
+          ) : null}
+
+          {step === "contact" ? (
+            <OnboardingSection
+              title="Contact"
+              description="Your name and phone, so we can reach you. Shipping details come in the next steps."
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="First name"
+                value={firstName}
+                onChangeText={setFirstName}
                 placeholderTextColor={theme.colors.placeholder}
                 autoCapitalize="words"
-                textContentType="addressCity"
-                autoCorrect={true}
               />
               <TextInput
-                style={[styles.input, styles.inputQuarter]}
-                placeholder="State *"
-                value={state}
-                onChangeText={setState}
+                style={styles.input}
+                placeholder="Last name"
+                value={lastName}
+                onChangeText={setLastName}
                 placeholderTextColor={theme.colors.placeholder}
-                autoCapitalize="characters"
-                maxLength={2}
-                textContentType="addressState"
-                autoCorrect={true}
+                autoCapitalize="words"
               />
               <TextInput
-                style={[styles.input, styles.inputQuarter]}
-                placeholder="ZIP *"
-                value={zip}
-                onChangeText={setZip}
-                keyboardType="number-pad"
+                style={styles.input}
+                placeholder="Phone"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
                 placeholderTextColor={theme.colors.placeholder}
-                textContentType="postalCode"
-                autoCorrect={true}
               />
-            </View>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                (loading || pressed) && styles.buttonDisabled,
-              ]}
-              onPress={handleContactSubmit}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Continue to Checkout</Text>
-              )}
-            </Pressable>
-          </View>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <StepActions
+                onBack={back ? () => setStep(back) : undefined}
+                onContinue={() => void handleContactSubmit()}
+                continueLabel="Continue"
+                loading={loading}
+              />
+            </OnboardingSection>
+          ) : null}
+
+          {step === "subscribe" ? (
+            <OnboardingSection title="Subscription">
+              <Image
+                source={require("@/assets/images/nwc-community-logo.png")}
+                style={styles.logo}
+                resizeMode="contain"
+                accessibilityLabel="Northwest Community"
+              />
+              <Text style={styles.subscribeTitle}>Subscribe as a Northwest Community Seller</Text>
+              <Text style={styles.price}>
+                $20.00 <Text style={styles.priceUnit}>per month</Text>
+              </Text>
+              <Text style={styles.copy}>
+                The seller subscription includes everything in the business plan, as well as access to our storefront, third-party syncing with Shopify and/or Etsy, shipping items, and getting paid directly through payouts. INW has a monthly subscription because we do not take a percentage of the items you sell.
+              </Text>
+              <Text style={styles.copy}>
+                That means when you sell items with us, you only pay about <Text style={styles.bold}>4.4% + 30¢ per transaction</Text>. That covers credit card processing, tax processing, and a sales tax reserve. That <Text style={styles.bold}>averages 7% less than most third-party retailers</Text>.
+              </Text>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <View style={styles.subscribeActions}>
+                <SubscriptionCheckoutWithFallback
+                  planId="seller"
+                  businessData={businessData ?? undefined}
+                  interval={params.billing === "yearly" ? "yearly" : "monthly"}
+                  onSuccess={handleCheckoutSuccess}
+                  refreshMember={refreshMember}
+                  onExternalCheckoutStart={() => setAllowRemoveWithoutPrompt(true)}
+                />
+                {back ? (
+                  <Pressable style={styles.subscribeBack} onPress={() => setStep(back)}>
+                    <Text style={styles.backBtnText}>Back</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </OnboardingSection>
+          ) : null}
+
+          {step === "shipping" ? (
+            <>
+              <Text style={styles.intro}>
+                Connect Shippo, then add a shipping option unless you offer free shipping on INW. New listings then ship free, so a package is not required.
+              </Text>
+              <OnboardingSection title="Shipping">
+                <ShippingSetupPanel
+                  embedded
+                  onProgress={(progressState) => {
+                    setShippingReady(
+                      progressState.shippoConnected &&
+                        (progressState.offerFreeShippingOnInw || progressState.optionCount >= 1)
+                    );
+                  }}
+                />
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+                <StepActions
+                  onBack={back ? () => setStep(back) : undefined}
+                  onContinue={() => setStep("payouts")}
+                  continueLabel="Continue"
+                  continueDisabled={!shippingReady}
+                />
+              </OnboardingSection>
+            </>
+          ) : null}
+
+          {step === "payouts" ? (
+            <>
+              <View style={styles.walletWrap}>
+                <View style={styles.walletCircle}>
+                  <Ionicons name="wallet-outline" size={32} color="#fff" />
+                </View>
+              </View>
+              <OnboardingSection
+                title="Payouts"
+                description="Set up Stripe so buyers can pay you. You will leave this page for Stripe, then come back here."
+              >
+                {stripeReady ? (
+                  <Text style={styles.readyNote}>Stripe payouts are started for this account.</Text>
+                ) : null}
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+                <Pressable
+                  style={({ pressed }) => [styles.payoutBtn, (payoutLoading || pressed) && styles.disabled]}
+                  onPress={() => void startPayouts()}
+                  disabled={payoutLoading}
+                >
+                  {payoutLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.continueText}>{stripeReady ? "Review payout setup" : "Set Up Payouts"}</Text>
+                  )}
+                </Pressable>
+                <StepActions
+                  onBack={() => setStep("shipping")}
+                  onContinue={() => setStep("import")}
+                  continueLabel="Continue"
+                  continueDisabled={!stripeReady}
+                />
+              </OnboardingSection>
+            </>
+          ) : null}
+
+          {step === "import" ? (
+            <>
+              <Text style={styles.intro}>
+                If you already sell on Etsy or Shopify, connect that shop and import your listings. If you only sell on INW, continue to your seller hub.
+              </Text>
+              <OnboardingSection
+                title="Etsy"
+                description="Connect your shop if you want to bring listings over. You can skip this."
+              >
+                {etsyConnected ? (
+                  <Text style={styles.readyNote}>Connected{etsyShopName ? `: ${etsyShopName}` : ""}.</Text>
+                ) : (
+                  <Pressable style={styles.continueBtn} onPress={() => void connectEtsy()} disabled={loading}>
+                    <Text style={styles.continueText}>Connect Etsy</Text>
+                  </Pressable>
+                )}
+                {etsyConnected ? (
+                  <Pressable
+                    style={[styles.continueBtn, { marginTop: 8 }]}
+                    onPress={() => router.push("/seller-hub/etsy/import" as never)}
+                  >
+                    <Text style={styles.continueText}>Import Etsy listings</Text>
+                  </Pressable>
+                ) : null}
+              </OnboardingSection>
+              <OnboardingSection
+                title="Shopify"
+                description="Connect your shop if you want to bring listings over. You can skip this."
+              >
+                {shopifyConnected ? (
+                  <Text style={styles.readyNote}>
+                    Connected{shopifyShopDomain ? `: ${shopifyShopDomain}` : ""}.
+                  </Text>
+                ) : (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="your-store.myshopify.com"
+                      value={shopifyShop}
+                      onChangeText={setShopifyShop}
+                      autoCapitalize="none"
+                      placeholderTextColor={theme.colors.placeholder}
+                    />
+                    <Pressable style={styles.continueBtn} onPress={() => void connectShopify()} disabled={loading}>
+                      <Text style={styles.continueText}>Connect Shopify</Text>
+                    </Pressable>
+                  </>
+                )}
+                {shopifyConnected ? (
+                  <Pressable
+                    style={[styles.continueBtn, { marginTop: 8 }]}
+                    onPress={() => router.push("/seller-hub/shopify/import" as never)}
+                  >
+                    <Text style={styles.continueText}>Import Shopify listings</Text>
+                  </Pressable>
+                ) : null}
+              </OnboardingSection>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <StepActions
+                onBack={() => setStep("payouts")}
+                onContinue={goToSellerHub}
+                continueLabel="Go to Seller Hub"
+                loading={loading}
+              />
+            </>
+          ) : null}
+          {progress}
         </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
+      )}
+    </KeyboardAvoidingView>
+  );
+}
 
-  if (step === "checkout") {
-    return (
-      <View style={styles.container}>
-        <Pressable style={styles.back} onPress={() => setStep("contact")}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
-          <Text style={styles.backText}>Back</Text>
+function StepActions({
+  onBack,
+  onContinue,
+  continueLabel,
+  loading,
+  continueDisabled,
+}: {
+  onBack?: () => void;
+  onContinue: () => void;
+  continueLabel: string;
+  loading?: boolean;
+  continueDisabled?: boolean;
+}) {
+  return (
+    <View style={styles.buttonRow}>
+      {onBack ? (
+        <Pressable style={styles.backBtn} onPress={onBack} disabled={loading}>
+          <Text style={styles.backBtnText}>Back</Text>
         </Pressable>
-        <View style={styles.checkoutLogoWrap}>
-          <Image
-            source={require("@/assets/images/nwc-community-logo.png")}
-            style={styles.checkoutLogo}
-            resizeMode="contain"
-            accessibilityLabel="Northwest Community"
-          />
-        </View>
-        <Text style={styles.checkoutTitle}>Subscribe to Northwest Community Seller</Text>
-        <Text style={styles.checkoutSubtitle}>
-          The Seller subscription includes the Business plan plus access to sell on our online storefront. List items personally and get paid. You can cancel anytime.
-        </Text>
-        <View style={styles.pricingWrap}>
-          <View style={styles.priceCard}>
-            <Text style={styles.priceText}><Text style={styles.priceAmount}>$20</Text> a month</Text>
-          </View>
-        </View>
-        <View style={styles.checkoutBtnWrap}>
-        <SubscriptionCheckoutWithFallback
-          planId="seller"
-          businessData={businessData ?? undefined}
-          interval="monthly"
-          onSuccess={handleCheckoutSuccess}
-          refreshMember={refreshMember}
-          onExternalCheckoutStart={() => setAllowRemoveWithoutPrompt(true)}
-        />
-        </View>
-      </View>
-    );
-  }
-
-  return null;
+      ) : null}
+      <Pressable
+        style={[styles.continueBtn, !onBack && styles.continueBtnFull, (loading || continueDisabled) && styles.disabled]}
+        onPress={onContinue}
+        disabled={loading || continueDisabled}
+      >
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.continueText}>{continueLabel}</Text>}
+      </Pressable>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 24, paddingTop: 48 },
-  scrollContent: { paddingBottom: 32 },
-  back: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  backText: {
-    marginLeft: 8,
-    fontSize: 16,
-    color: theme.colors.primary,
-    fontWeight: "600",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: theme.colors.heading,
-    marginBottom: 8,
-  },
-  subtitle: {
+  page: { flex: 1, backgroundColor: "#f7f3ee" },
+  boot: { flex: 1, backgroundColor: "#f7f3ee", alignItems: "center", justifyContent: "center" },
+  scroll: { padding: 16, paddingTop: 24, paddingBottom: 40 },
+  intro: {
     fontSize: 15,
-    color: theme.colors.text,
-    marginBottom: 24,
     lineHeight: 22,
-  },
-  checkoutLogoWrap: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  checkoutLogo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
-  checkoutTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: theme.colors.heading,
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  checkoutSubtitle: {
-    fontSize: 17,
     color: theme.colors.text,
-    marginBottom: 24,
-    lineHeight: 26,
-    textAlign: "center",
-  },
-  pricingWrap: {
-    alignSelf: "center",
-    width: "80%",
-    marginBottom: 20,
-  },
-  priceCard: {
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.cream ?? "#faf5ee",
-  },
-  priceText: {
-    fontSize: 19,
-    color: theme.colors.text,
-  },
-  priceAmount: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: theme.colors.heading,
-  },
-  checkoutBtnWrap: {
-    alignItems: "center",
-    width: "100%",
-  },
-  form: {
-    padding: 20,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#000",
-    backgroundColor: theme.colors.primary,
-  },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#fff",
-    marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   input: {
-    borderWidth: 2,
-    borderColor: "#000",
-    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
     padding: 12,
     fontSize: 16,
     marginBottom: 12,
-    color: "#000",
+    color: theme.colors.text,
     backgroundColor: "#fff",
-    letterSpacing: 0,
   },
-  row: { flexDirection: "row", gap: 8 },
-  inputHalf: { flex: 1 },
-  inputQuarter: { flex: 0.5 },
-  error: {
-    color: "#fff",
-    marginBottom: 12,
-    fontSize: 14,
-  },
-  termsText: {
-    fontSize: 12,
-    color: "#fff",
-    marginBottom: 12,
-    lineHeight: 18,
-  },
-  termsLink: {
-    textDecorationLine: "underline",
-    fontWeight: "600",
-  },
-  ageRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    gap: 8,
-  },
-  ageLabel: {
+  ageRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 8 },
+  ageLabel: { flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.text },
+  termsText: { fontSize: 13, color: theme.colors.text, marginBottom: 12, lineHeight: 18 },
+  termsLink: { textDecorationLine: "underline", fontWeight: "600", color: theme.colors.earth },
+  error: { color: "#c00", marginBottom: 12, fontSize: 14 },
+  buttonRow: { flexDirection: "row", gap: 8, alignItems: "center", marginTop: 8 },
+  backBtn: {
     flex: 1,
-    fontSize: 14,
-    color: "#fff",
+    borderWidth: 1.5,
+    borderColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+    backgroundColor: "#fff",
   },
-  errorRed: {
-    color: "#c00",
+  backBtnText: { color: theme.colors.earth, fontSize: 16, fontWeight: "700" },
+  continueBtn: {
+    flex: 1,
+    backgroundColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  continueBtnFull: { flex: 1 },
+  continueText: { color: "#fff", fontSize: 16, fontWeight: "700", textAlign: "center" },
+  disabled: { opacity: 0.55 },
+  logo: { width: 80, height: 80, borderRadius: 40, alignSelf: "center", marginBottom: 12 },
+  subscribeTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    textAlign: "center",
+    marginBottom: 8,
+    fontFamily: theme.fonts.heading,
+  },
+  price: { fontSize: 32, fontWeight: "700", textAlign: "center", color: "#111827", marginBottom: 12 },
+  priceUnit: { fontSize: 18, fontWeight: "400", color: "#4b5563" },
+  copy: { fontSize: 16, lineHeight: 24, color: "#374151", textAlign: "center", marginBottom: 12 },
+  bold: { fontWeight: "700" },
+  subscribeActions: { gap: 8, marginTop: 8 },
+  subscribeBack: {
+    width: "100%",
+    borderWidth: 1.5,
+    borderColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  walletWrap: { alignItems: "center", marginBottom: 12 },
+  walletCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: theme.colors.earth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  readyNote: {
+    backgroundColor: "#FDEDCC",
+    color: theme.colors.earth,
+    borderRadius: 8,
+    padding: 12,
     marginBottom: 12,
     fontSize: 14,
   },
-  button: {
-    backgroundColor: "#fff",
-    paddingVertical: 12,
+  payoutBtn: {
+    backgroundColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingVertical: 14,
     alignItems: "center",
-    borderRadius: 4,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: {
-    color: theme.colors.primary,
-    fontSize: 16,
-    fontWeight: "600",
+    width: "100%",
+    marginBottom: 8,
   },
 });

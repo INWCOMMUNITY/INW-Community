@@ -37,7 +37,7 @@ const STEP_ORDER: Step[] = ["account", "business", "contact", "checkout"];
 export default function SignupBusinessScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const params = useLocalSearchParams<{ start?: string }>();
+  const params = useLocalSearchParams<{ start?: string; billing?: string }>();
   const { refreshMember, member, signOut } = useAuth();
 
   const [step, setStep] = useState<Step>("account");
@@ -548,7 +548,7 @@ export default function SignupBusinessScreen() {
           <SubscriptionCheckoutWithFallback
             planId="sponsor"
             businessData={businessData ?? undefined}
-            interval="monthly"
+            interval={params.billing === "yearly" ? "yearly" : "monthly"}
             onSuccess={handleCheckoutSuccess}
             refreshMember={refreshMember}
             onExternalCheckoutStart={() => setAllowRemoveWithoutPrompt(true)}

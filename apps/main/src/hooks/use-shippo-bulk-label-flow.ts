@@ -3,8 +3,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { flushSync } from "react-dom";
 import {
+  buildCombinedOrderDetails,
   buildOrderDetailsFromOrder,
   collectLabelUrlsFromTransactions,
+  ordersCanCombineShipping,
   openLabelPdfUrls,
   parcelFromOrderItems,
   resolvePostalShipToAddress,
@@ -123,6 +125,48 @@ export function groupToShipOrdersByBuyer<T extends { id: string; buyer: { email?
   return Array.from(map.values());
 }
 
+export type BulkShipGroup = { orderIds: string[]; combine: boolean };
+
+/** Fully selected combined boxes first, then any remaining orders as their own labels. */
+export function purchaseGroupsForSelection(selectedIds: string[], combinedGroups: string[][]): BulkShipGroup[] {
+  const selected = new Set(selectedIds);
+  const consumed = new Set<string>();
+  const groups: BulkShipGroup[] = [];
+  for (const group of combinedGroups) {
+    if (group.length >= 2 && group.every((id) => selected.has(id))) {
+      groups.push({ orderIds: group, combine: true });
+      group.forEach((id) => consumed.add(id));
+    }
+  }
+  for (const id of selectedIds) {
+    if (!consumed.has(id)) groups.push({ orderIds: [id], combine: false });
+  }
+  return groups;
+}
+
+/** Decode a combined-group query that may still contain `%7C` / `%7c` after one URL decode. */
+function decodeCombinedParam(raw: string): string {
+  let value = raw.trim();
+  for (let i = 0; i < 2 && value.includes("%"); i++) {
+    try {
+      const next = decodeURIComponent(value);
+      if (next === value) break;
+      value = next;
+    } catch {
+      break;
+    }
+  }
+  return value;
+}
+
+export function parseCombinedOrderGroups(raw: string | null): string[][] {
+  if (!raw?.trim()) return [];
+  return decodeCombinedParam(raw)
+    .split(",")
+    .map((part) => part.split(/[|~]/).map((id) => id.trim()).filter(Boolean))
+    .filter((group) => group.length >= 2);
+}
+
 export function isOrderEligibleForBulkShip(o: StoreOrderForBulkLabel): boolean {
   return (
     o.status === "paid" &&
@@ -132,16 +176,46 @@ export function isOrderEligibleForBulkShip(o: StoreOrderForBulkLabel): boolean {
   );
 }
 
-function buildBulkOrderDetails(selectedOrders: StoreOrderForBulkLabel[]) {
-  const orderDetailsArray: NonNullable<ReturnType<typeof buildOrderDetailsFromOrder>>[] = [];
-  for (const o of selectedOrders) {
-    const one = buildOrderDetailsFromOrder(o, undefined, {
-      freshShippoOrder: Boolean(o.shipment),
-    });
-    if (!one) return null;
-    orderDetailsArray.push(one);
+/**
+ * One Shippo order. An array argument to labelPurchase is bulk mode: one package per order.
+ * A combined box is a single object with one line item. Anything else is one order at a time.
+ */
+function buildBulkOrderDetails(selectedOrders: StoreOrderForBulkLabel[], combine: boolean) {
+  if (selectedOrders.length > 1) {
+    if (!combine) return null;
+    const combined = buildCombinedOrderDetails(selectedOrders);
+    if (!combined || Array.isArray(combined) || combined.line_items.length !== 1) return null;
+    return combined;
   }
-  return orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
+  const order = selectedOrders[0];
+  if (!order) return null;
+  return buildOrderDetailsFromOrder(order, undefined, {
+    freshShippoOrder: Boolean(order.shipment),
+  });
+}
+
+function singleShippoOrder(details: ReturnType<typeof buildBulkOrderDetails>) {
+  if (!details || Array.isArray(details)) return null;
+  return details;
+}
+
+/**
+ * Payload for one labelPurchase call.
+ * An array, or an object_id, makes Shippo list every matching order. A combined box is
+ * one new order object with one line item and no previously saved Shippo id.
+ */
+function payloadForLabelPurchase(
+  orders: StoreOrderForBulkLabel[],
+  combine: boolean
+): { address_to: unknown; line_items: unknown[]; order_number?: string } | null {
+  const details = singleShippoOrder(buildBulkOrderDetails(orders, combine));
+  if (!details || details.line_items.length === 0) return null;
+  if (combine && (orders.length < 2 || details.line_items.length !== 1)) return null;
+  return {
+    address_to: details.address_to,
+    line_items: details.line_items.slice(0, combine ? 1 : details.line_items.length),
+    ...(details.order_number ? { order_number: details.order_number } : {}),
+  };
 }
 
 export type ShippoLabelSessionResult = {
@@ -172,6 +246,7 @@ export function useShippoBulkLabelFlow(options: {
   const currentParcelRef = useRef<ReturnType<typeof parcelFromOrderItems>>(null);
   const shippoOrderIdsRef = useRef<string[]>([]);
   const buyerGroupsRef = useRef<StoreOrderForBulkLabel[][]>([]);
+  const combineFlagsRef = useRef<boolean[]>([]);
   const groupIndexRef = useRef(0);
   const sessionLabeledOrderIdsRef = useRef<string[]>([]);
   const labelSuccessHandlingRef = useRef(false);
@@ -221,11 +296,12 @@ export function useShippoBulkLabelFlow(options: {
     }
 
     const nextGroup = groups[nextIdx];
-    const orderDetails = buildBulkOrderDetails(nextGroup);
+    const nextCombine = combineFlagsRef.current[nextIdx] === true;
+    const orderDetails = payloadForLabelPurchase(nextGroup, nextCombine);
     if (!orderDetails) {
       sessionCompleteRef.current = true;
       bulkFlowActiveRef.current = false;
-      setElementsError("Some labels were purchased, but the next buyer is missing a checkout shipping address.");
+      setElementsError("Some labels were purchased, but the next shipment could not be opened as one package.");
       setProgressSubtitle(
         purchasedLabelUrlsRef.current.length > 0
           ? "Print the labels you bought, then close. Remaining orders need a shipping address."
@@ -239,7 +315,13 @@ export function useShippoBulkLabelFlow(options: {
     }
 
     groupIndexRef.current = nextIdx;
-    setProgressSubtitle(groups.length > 1 ? `Buyer ${nextIdx + 1} of ${groups.length}` : null);
+    setProgressSubtitle(
+      nextCombine
+        ? `One label for ${nextGroup.length} orders`
+        : groups.length > 1
+          ? `Buyer ${nextIdx + 1} of ${groups.length}`
+          : null
+    );
     currentElementsOrderIdsRef.current = nextGroup.map((o) => o.id);
     shippoOrderIdsRef.current = [];
     clearShippoElementsMount(cid);
@@ -263,7 +345,10 @@ export function useShippoBulkLabelFlow(options: {
   const advanceOrFinishRef = useRef(advanceOrFinish);
   advanceOrFinishRef.current = advanceOrFinish;
 
-  const runBulkFlow = useCallback(async (orderIds: string[]) => {
+  const runBulkFlow = useCallback(async (
+    orderIds: string[],
+    options?: { combine?: boolean; groups?: BulkShipGroup[] }
+  ) => {
     const idSet = new Set(orderIds.map((id) => id.trim()).filter(Boolean));
     if (idSet.size === 0) {
       setElementsError("Select at least one order.");
@@ -282,7 +367,59 @@ export function useShippoBulkLabelFlow(options: {
       selected.push(o);
     }
 
-    const groups = groupToShipOrdersByBuyer(selected);
+    const resolved: { orders: StoreOrderForBulkLabel[]; combine: boolean }[] = [];
+    if (options?.groups && options.groups.length > 0) {
+      const byId = new Map(selected.map((order) => [order.id, order]));
+      const used = new Set<string>();
+      for (const group of options.groups) {
+        const members = group.orderIds
+          .map((id) => byId.get(id))
+          .filter((order): order is StoreOrderForBulkLabel => Boolean(order));
+        if (members.length === 0) continue;
+        members.forEach((order) => used.add(order.id));
+        if (group.combine && members.length > 1) {
+          if (!ordersCanCombineShipping(members)) {
+            setElementsError(
+              "Combined orders must be from the same person and the same address."
+            );
+            return;
+          }
+          resolved.push({ orders: members, combine: true });
+        } else {
+          resolved.push({ orders: members, combine: false });
+        }
+      }
+      const rest = selected.filter((order) => !used.has(order.id));
+      for (const buyerGroup of groupToShipOrdersByBuyer(rest)) {
+        resolved.push({ orders: buyerGroup, combine: false });
+      }
+    } else if (options?.combine === true) {
+      if (!ordersCanCombineShipping(selected)) {
+        setElementsError(
+          "Combine shipping needs two or more orders from the same person going to the same address."
+        );
+        return;
+      }
+      resolved.push({ orders: selected, combine: true });
+    } else {
+      for (const buyerGroup of groupToShipOrdersByBuyer(selected)) {
+        resolved.push({ orders: buyerGroup, combine: false });
+      }
+    }
+    if (resolved.length === 0) {
+      setElementsError("Select at least one order.");
+      return;
+    }
+    const opened: { orders: StoreOrderForBulkLabel[]; combine: boolean }[] = [];
+    for (const group of resolved) {
+      if (group.combine && group.orders.length > 1) {
+        opened.push(group);
+        continue;
+      }
+      for (const order of group.orders) opened.push({ orders: [order], combine: false });
+    }
+    const groups = opened.map((group) => group.orders);
+    combineFlagsRef.current = opened.map((group) => group.combine);
     buyerGroupsRef.current = groups;
     groupIndexRef.current = 0;
     sessionLabeledOrderIdsRef.current = [];
@@ -291,8 +428,9 @@ export function useShippoBulkLabelFlow(options: {
     setPurchasedLabelUrls([]);
 
     const first = groups[0];
-    const orderDetails = buildBulkOrderDetails(first);
-    if (!orderDetails) {
+    const firstCombine = combineFlagsRef.current[0] === true;
+    const purchaseDetails = payloadForLabelPurchase(first, firstCombine);
+    if (!purchaseDetails) {
       setElementsError("Selected order(s) have no checkout shipping address for Shippo.");
       return;
     }
@@ -444,7 +582,13 @@ export function useShippoBulkLabelFlow(options: {
         });
       }
 
-      setProgressSubtitle(groups.length > 1 ? `Buyer 1 of ${groups.length}` : null);
+      setProgressSubtitle(
+        firstCombine
+          ? `One shipment ${purchaseDetails.order_number ?? ""} for ${first.length} orders`
+          : groups.length > 1
+            ? `Buyer 1 of ${groups.length}`
+            : null
+      );
       clearShippoElementsMount(containerIdRef.current);
       flushSync(() => {
         setShippoSurfaceOpen(true);
@@ -460,7 +604,7 @@ export function useShippoBulkLabelFlow(options: {
       bulkFlowActiveRef.current = true;
       currentShipToSnapshotRef.current = resolvePostalShipToAddress(first[0]);
       currentParcelRef.current = combinedParcelForOrders(first);
-      shippo.labelPurchase(`#${containerIdRef.current}`, orderDetails);
+      shippo.labelPurchase(`#${containerIdRef.current}`, purchaseDetails);
     } catch {
       setElementsError("Connection failed.");
     } finally {
@@ -479,6 +623,7 @@ export function useShippoBulkLabelFlow(options: {
     setShippoSurfaceOpen(false);
     setProgressSubtitle(null);
     buyerGroupsRef.current = [];
+    combineFlagsRef.current = [];
     groupIndexRef.current = 0;
     sessionLabeledOrderIdsRef.current = [];
     onDismissRef.current?.();

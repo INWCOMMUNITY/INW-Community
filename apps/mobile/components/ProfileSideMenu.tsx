@@ -90,6 +90,7 @@ export function ProfileSideMenu({ visible, onClose }: ProfileSideMenuProps) {
     },
     { href: "/community/invites", label: "My Invites", icon: "calendar-outline" },
     { href: "/saved-posts", label: "My Saved Posts", icon: "bookmark-outline" },
+    { href: "/collections", label: "My Collections", icon: "albums-outline" },
     { href: "/blocked-members", label: "Blocked Members", icon: "ban-outline" },
     { href: "/community/groups", label: "My Groups", icon: "people-circle-outline" },
     { href: "/share-inw-community", label: "Share App", icon: "share-social-outline" },

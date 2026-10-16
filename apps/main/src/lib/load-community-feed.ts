@@ -8,6 +8,7 @@ import {
   resolveFeedPostSourceBusiness,
 } from "@/lib/listing-feed-seller-business";
 import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import { couponPublicActiveWhere } from "@/lib/coupon-expiration";
 import {
   collectTaggedBusinessIdsFromPosts,
   mergePostBusinessLookupIds,
@@ -205,7 +206,7 @@ export async function loadCommunityFeed(opts: {
   let viewerGroupIdSet = new Set<string>();
 
   if (!(useRankCache && rankHit)) {
-  const [followBusinesses, friendships, myGroups, followedTags, excludedAuthors] = await Promise.all([
+  const [followBusinesses, friendships, myGroups, followedTags, excludedAuthors, savedBusinessRows] = await Promise.all([
     prisma.followBusiness.findMany({
       where: { memberId: viewerId },
       select: { business: { select: { memberId: true } } },
@@ -228,8 +229,28 @@ export async function loadCommunityFeed(opts: {
       select: { tagId: true },
     }),
     getFeedExcludedAuthorIds(viewerId),
+    prisma.savedItem.findMany({
+      where: { memberId: viewerId, type: "business" },
+      select: { referenceId: true },
+    }),
   ]);
   const blockedIds = excludedAuthors;
+  const savedBusinessIds = savedBusinessRows.map((row) => row.referenceId);
+  const savedCouponIds =
+    savedBusinessIds.length === 0
+      ? []
+      : (
+          await prisma.coupon.findMany({
+            where: { AND: [{ businessId: { in: savedBusinessIds } }, couponPublicActiveWhere()] },
+            select: { id: true },
+          })
+        ).map((coupon) => coupon.id);
+  const savedBusinessFeedOr = [
+    ...(savedBusinessIds.length > 0 ? [{ sourceBusinessId: { in: savedBusinessIds } }] : []),
+    ...(savedCouponIds.length > 0 ? [{ sourceCouponId: { in: savedCouponIds } }] : []),
+  ];
+  const savedBusinessIdSet = new Set(savedBusinessIds);
+  const savedCouponIdSet = new Set(savedCouponIds);
 
   const followBusinessAuthorIds = followBusinesses
     .map((fb) => fb.business?.memberId)
@@ -258,6 +279,7 @@ export async function loadCommunityFeed(opts: {
 
   const visibilityOr = [
     { authorId: { in: Array.from(authorIds) } },
+    ...savedBusinessFeedOr,
     ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
     ...(followedTagIds.length > 0
       ? [
@@ -282,6 +304,7 @@ export async function loadCommunityFeed(opts: {
         in: [viewerId, ...friendIds, ...followBusinessAuthorIds],
       },
     },
+    ...savedBusinessFeedOr,
     ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
     ...(followedTagIds.length > 0
       ? [
@@ -326,6 +349,12 @@ export async function loadCommunityFeed(opts: {
     const t = new Date(p.createdAt).getTime();
     const aid = p.authorId;
     if (aid === viewerId || viewerFriendIdSet.has(aid) || followBizAuthorSet.has(aid)) {
+      return 3e15 + t;
+    }
+    if (
+      (p.sourceBusinessId && savedBusinessIdSet.has(p.sourceBusinessId)) ||
+      (p.sourceCouponId && savedCouponIdSet.has(p.sourceCouponId))
+    ) {
       return 3e15 + t;
     }
     if (p.groupId && viewerGroupIdSet.has(p.groupId)) return 2e15 + t;

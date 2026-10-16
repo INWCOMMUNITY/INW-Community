@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Switch } from "react-native";
+import { theme } from "@/lib/theme";
 import {
   buyerFieldsToPayload,
   emptyBuyerField,
@@ -10,6 +11,8 @@ export { buyerFieldsToPayload };
 
 const OPTION_LABEL_MAX = 20;
 const DROPDOWN_OPTIONS_MAX = 30;
+/** Same placeholder tone as the rest of the listing form. */
+const PLACEHOLDER_COLOR = "#555555";
 
 function kindLabel(kind: BuyerFieldDraft["kind"]) {
   if (kind === "TEXT") return "Text Box";
@@ -58,6 +61,7 @@ function OptionChipsEditor({
           <TextInput
             style={[styles.input, styles.addInput]}
             placeholder="+ Add option"
+            placeholderTextColor={PLACEHOLDER_COLOR}
             value={draft}
             maxLength={OPTION_LABEL_MAX}
             onChangeText={(v) => setDraft(v.slice(0, OPTION_LABEL_MAX))}
@@ -68,6 +72,86 @@ function OptionChipsEditor({
             <Text style={styles.addBtn}>Add</Text>
           </Pressable>
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+function fileCount(raw: string): number {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return 0;
+  return Math.min(10, n);
+}
+
+function FileUploadEditor({
+  field,
+  onChange,
+}: {
+  field: BuyerFieldDraft;
+  onChange: (next: BuyerFieldDraft) => void;
+}) {
+  const count = fileCount(field.maxFiles);
+  const labels = Array.from({ length: count }, (_, i) => field.options[i] ?? "");
+
+  return (
+    <View style={styles.fileBlock}>
+      <Text style={styles.fieldLabel}>Number of files</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="1–10"
+        placeholderTextColor={PLACEHOLDER_COLOR}
+        keyboardType="number-pad"
+        value={field.maxFiles}
+        onChangeText={(raw) => {
+          const digits = raw.replace(/[^\d]/g, "").slice(0, 2);
+          const nextCount = fileCount(digits);
+          const shown = digits === "" ? "" : String(nextCount);
+          onChange({
+            ...field,
+            maxFiles: shown,
+            options: field.labelEachFile
+              ? Array.from({ length: nextCount }, (_, i) => field.options[i] ?? "")
+              : field.options,
+          });
+        }}
+      />
+      <View style={styles.labelRow}>
+        <Text style={[styles.fieldLabel, styles.labelRowText]}>Label each file</Text>
+        <Switch
+          value={field.labelEachFile}
+          onValueChange={(labelEachFile) => {
+            onChange({
+              ...field,
+              labelEachFile,
+              options: labelEachFile
+                ? Array.from({ length: count }, (_, i) => field.options[i] ?? "")
+                : field.options,
+            });
+          }}
+          trackColor={{ false: "#ccc", true: theme.colors.primary }}
+          thumbColor="#fff"
+        />
+      </View>
+      {field.labelEachFile ? (
+        count < 1 ? (
+          <Text style={styles.hint}>Enter how many files to name each one.</Text>
+        ) : (
+          labels.map((label, i) => (
+            <TextInput
+              key={`file-label-${i}`}
+              style={styles.input}
+              placeholder={`File ${i + 1} label`}
+              placeholderTextColor={PLACEHOLDER_COLOR}
+              value={label}
+              maxLength={OPTION_LABEL_MAX}
+              onChangeText={(text) => {
+                const options = [...labels];
+                options[i] = text.slice(0, OPTION_LABEL_MAX);
+                onChange({ ...field, options });
+              }}
+            />
+          ))
+        )
       ) : null}
     </View>
   );
@@ -98,6 +182,7 @@ export function ListingBuyerFieldsEditor({
           <TextInput
             style={styles.input}
             placeholder="Field title"
+            placeholderTextColor={PLACEHOLDER_COLOR}
             value={field.title}
             maxLength={45}
             onChangeText={(title) => {
@@ -119,6 +204,7 @@ export function ListingBuyerFieldsEditor({
             <TextInput
               style={styles.input}
               placeholder="Instructions (optional)"
+              placeholderTextColor={PLACEHOLDER_COLOR}
               value={field.instructions}
               maxLength={120}
               onChangeText={(instructions) => {
@@ -129,71 +215,40 @@ export function ListingBuyerFieldsEditor({
             />
           ) : null}
           {field.kind === "TEXT" ? (
-            <TextInput
-              style={styles.input}
-              placeholder="Character limit"
-              keyboardType="number-pad"
-              value={field.maxCharacters}
-              onChangeText={(maxCharacters) => {
-                const next = [...fields];
-                next[index] = { ...field, maxCharacters: maxCharacters.replace(/[^\d]/g, "") };
-                onChange(next);
-              }}
-            />
+            <View>
+              <Text style={styles.fieldLabel}>Character limit</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={field.maxCharacters}
+                onChangeText={(maxCharacters) => {
+                  const next = [...fields];
+                  next[index] = { ...field, maxCharacters: maxCharacters.replace(/[^\d]/g, "") };
+                  onChange(next);
+                }}
+              />
+            </View>
           ) : null}
-          {field.kind === "DROPDOWN" || (field.kind === "FILE" && field.labelEachFile) ? (
+          {field.kind === "DROPDOWN" ? (
             <OptionChipsEditor
               labels={field.options}
-              maxCount={field.kind === "DROPDOWN" ? DROPDOWN_OPTIONS_MAX : 10}
+              maxCount={DROPDOWN_OPTIONS_MAX}
               onChange={(options) => {
                 const next = [...fields];
-                const maxFiles =
-                  field.kind === "FILE" && field.labelEachFile
-                    ? String(Math.min(10, Math.max(1, options.length || Number(field.maxFiles) || 1)))
-                    : field.maxFiles;
-                next[index] = {
-                  ...field,
-                  options,
-                  ...(field.kind === "FILE" ? { maxFiles } : {}),
-                };
+                next[index] = { ...field, options };
                 onChange(next);
               }}
             />
           ) : null}
           {field.kind === "FILE" ? (
-            <>
-              <TextInput
-                style={styles.input}
-                placeholder="Number of files"
-                keyboardType="number-pad"
-                value={field.maxFiles}
-                editable={!field.labelEachFile}
-                onChangeText={(maxFiles) => {
-                  if (field.labelEachFile) return;
-                  const next = [...fields];
-                  next[index] = { ...field, maxFiles: maxFiles.replace(/[^\d]/g, "") };
-                  onChange(next);
-                }}
-              />
-              <Pressable
-                onPress={() => {
-                  const labelEachFile = !field.labelEachFile;
-                  const next = [...fields];
-                  next[index] = {
-                    ...field,
-                    labelEachFile,
-                    maxFiles: labelEachFile
-                      ? String(Math.min(10, Math.max(1, field.options.length || Number(field.maxFiles) || 1)))
-                      : field.maxFiles,
-                  };
-                  onChange(next);
-                }}
-              >
-                <Text style={styles.hint}>
-                  {field.labelEachFile ? "Labels on (file count follows labels)" : "Labels off"} — tap to toggle
-                </Text>
-              </Pressable>
-            </>
+            <FileUploadEditor
+              field={field}
+              onChange={(nextField) => {
+                const next = [...fields];
+                next[index] = nextField;
+                onChange(next);
+              }}
+            />
           ) : null}
         </View>
       ))}
@@ -221,6 +276,10 @@ export function ListingBuyerFieldsEditor({
 const styles = StyleSheet.create({
   wrap: { gap: 8, marginBottom: 12 },
   hint: { color: "#555", fontSize: 13 },
+  fieldLabel: { color: "#333", fontSize: 13, fontWeight: "600", marginBottom: 4 },
+  fileBlock: { gap: 6 },
+  labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  labelRowText: { marginBottom: 0, flex: 1 },
   card: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 8, gap: 6 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" },
   title: { fontWeight: "500" },
