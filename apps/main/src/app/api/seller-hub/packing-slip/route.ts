@@ -122,39 +122,43 @@ export async function POST(req: NextRequest) {
     };
 
     const byId = new Map(orders.map((order) => [order.id, order]));
-    const groups: PackingSlipGroup[] = requestedGroups
-      .map((ids) => {
-        const group = ids
-          .map((id) => byId.get(id))
-          .filter((order): order is (typeof orders)[number] => Boolean(order));
-        if (group.length === 0) return null;
-        return {
-          buyer: group[0].buyer,
-          orders: group.map((order) => ({
-            id: order.id,
-            shippingAddress: order.shippingAddress,
-            createdAt: order.createdAt,
-            stripePaymentIntentId: order.stripePaymentIntentId,
-          })),
-          combinedItems: group.flatMap((order) =>
-            order.items.map((item) => ({
-              id: item.id,
-              quantity: item.quantity,
-              priceCentsAtPurchase: item.priceCentsAtPurchase,
-              storeItem: item.storeItem,
-              orderId: order.id,
-            }))
-          ),
-          totalCents: group.reduce((sum, order) => sum + order.totalCents, 0),
-          subtotalCents: group.reduce(
-            (sum, order) => sum + (order.subtotalCents ?? order.totalCents - order.shippingCostCents),
-            0
-          ),
-          shippingCostCents: group.reduce((sum, order) => sum + order.shippingCostCents, 0),
-          taxCents: group.reduce((sum, order) => sum + order.taxCents, 0),
-        };
-      })
-      .filter((group): group is PackingSlipGroup => Boolean(group));
+    const groups: PackingSlipGroup[] = [];
+    for (const ids of requestedGroups) {
+      const group = ids
+        .map((id) => byId.get(id))
+        .filter((order): order is (typeof orders)[number] => order != null);
+      if (group.length === 0) continue;
+      const first = group[0];
+      groups.push({
+        buyer: {
+          firstName: first.buyer.firstName,
+          lastName: first.buyer.lastName,
+          email: first.buyer.email,
+        },
+        orders: group.map((order) => ({
+          id: order.id,
+          shippingAddress: order.shippingAddress,
+          createdAt: order.createdAt,
+          stripePaymentIntentId: order.stripePaymentIntentId,
+        })),
+        combinedItems: group.flatMap((order) =>
+          order.items.map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            priceCentsAtPurchase: item.priceCentsAtPurchase,
+            storeItem: { title: item.storeItem.title },
+            orderId: order.id,
+          }))
+        ),
+        totalCents: group.reduce((sum, order) => sum + order.totalCents, 0),
+        subtotalCents: group.reduce(
+          (sum, order) => sum + (order.subtotalCents ?? order.totalCents - order.shippingCostCents),
+          0
+        ),
+        shippingCostCents: group.reduce((sum, order) => sum + order.shippingCostCents, 0),
+        taxCents: group.reduce((sum, order) => sum + order.taxCents, 0),
+      });
+    }
 
     const pdfBytes = await generatePackingSlipPdf(groups, sellerProfile);
 
