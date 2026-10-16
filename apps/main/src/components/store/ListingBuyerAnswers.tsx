@@ -20,19 +20,17 @@ export function answersPayload(
       field.kind === "FILE" && field.labelEachFile && field.options.length > 0
         ? field.options.slice(0, 10).flatMap((option, index) => {
             const file = draft?.files?.[index];
-            return file?.url ? [{ url: file.url, label: option.label }] : [];
+            return file?.url ? [{ url: file.url, label: option.label, slot: index }] : [];
           })
-        : (draft?.files ?? []).filter((file) => file.url);
-    const labeledComplete =
-      field.kind !== "FILE" ||
-      !field.labelEachFile ||
-      field.options.length === 0 ||
-      files.length === Math.min(10, field.options.length);
+        : (draft?.files ?? [])
+            .filter((file) => file.url)
+            .map((file, index) => ({ url: file.url, label: file.label, slot: index }));
     return {
       fieldId: field.id,
+      title: field.title,
       text: draft?.text ?? "",
       optionLabel: draft?.optionLabel ?? "",
-      files: labeledComplete ? files : [],
+      files,
     };
   });
 }
@@ -190,9 +188,13 @@ export function ListingBuyerAnswers({
                   className="w-full border rounded px-2 py-1.5 text-sm"
                   maxLength={field.maxCharacters ?? 1024}
                   value={draft.text ?? ""}
-                  onChange={(e) =>
-                    onChange({ ...drafts, [field.id]: { ...draft, fieldId: field.id, text: e.target.value } })
-                  }
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    onChange((prev) => ({
+                      ...prev,
+                      [field.id]: { ...prev[field.id], fieldId: field.id, text },
+                    }));
+                  }}
                 />
                 <p className="text-xs text-gray-500 text-right">
                   {(draft.text ?? "").length}/{field.maxCharacters ?? 1024}
@@ -203,12 +205,13 @@ export function ListingBuyerAnswers({
               <select
                 className="w-full border rounded px-2 py-1.5 text-sm"
                 value={draft.optionLabel ?? ""}
-                onChange={(e) =>
-                  onChange({
-                    ...drafts,
-                    [field.id]: { ...draft, fieldId: field.id, optionLabel: e.target.value },
-                  })
-                }
+                onChange={(e) => {
+                  const optionLabel = e.target.value;
+                  onChange((prev) => ({
+                    ...prev,
+                    [field.id]: { ...prev[field.id], fieldId: field.id, optionLabel },
+                  }));
+                }}
               >
                 <option value="">Select an option</option>
                 {field.options.map((option) => (
@@ -223,7 +226,11 @@ export function ListingBuyerAnswers({
                 {fileSlots(field).map((slot, index) => (
                   <BuyerFileSlot
                     key={slot.key}
-                    label={slot.label}
+                    label={
+                      field.labelEachFile && field.options[index]?.required === false
+                        ? `${slot.label} (optional)`
+                        : slot.label
+                    }
                     savedUrl={draft.files?.[index]?.url}
                     savedName={draft.files?.[index]?.name}
                     onUpload={onUpload}

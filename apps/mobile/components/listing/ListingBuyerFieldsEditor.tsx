@@ -112,6 +112,9 @@ function FileUploadEditor({
             options: field.labelEachFile
               ? Array.from({ length: nextCount }, (_, i) => field.options[i] ?? "")
               : field.options,
+            optionRequired: field.labelEachFile
+              ? Array.from({ length: nextCount }, (_, i) => field.optionRequired?.[i] !== false)
+              : field.optionRequired,
           });
         }}
       />
@@ -126,6 +129,9 @@ function FileUploadEditor({
               options: labelEachFile
                 ? Array.from({ length: count }, (_, i) => field.options[i] ?? "")
                 : field.options,
+              optionRequired: labelEachFile
+                ? Array.from({ length: count }, (_, i) => field.optionRequired?.[i] !== false)
+                : field.optionRequired,
             });
           }}
           trackColor={{ false: "#ccc", true: theme.colors.primary }}
@@ -136,21 +142,40 @@ function FileUploadEditor({
         count < 1 ? (
           <Text style={styles.hint}>Enter how many files to name each one.</Text>
         ) : (
-          labels.map((label, i) => (
-            <TextInput
-              key={`file-label-${i}`}
-              style={styles.input}
-              placeholder={`File ${i + 1} label`}
-              placeholderTextColor={PLACEHOLDER_COLOR}
-              value={label}
-              maxLength={OPTION_LABEL_MAX}
-              onChangeText={(text) => {
-                const options = [...labels];
-                options[i] = text.slice(0, OPTION_LABEL_MAX);
-                onChange({ ...field, options });
-              }}
-            />
-          ))
+          labels.map((label, i) => {
+            const slotRequired = field.optionRequired?.[i] !== false;
+            return (
+              <View key={`file-label-${i}`} style={styles.labelRow}>
+                <TextInput
+                  style={[styles.input, styles.labelName]}
+                  placeholder={`File ${i + 1} name`}
+                  placeholderTextColor={PLACEHOLDER_COLOR}
+                  value={label}
+                  maxLength={OPTION_LABEL_MAX}
+                  onChangeText={(text) => {
+                    const options = [...labels];
+                    options[i] = text.slice(0, OPTION_LABEL_MAX);
+                    onChange({ ...field, options });
+                  }}
+                />
+                <Pressable
+                  onPress={() => {
+                    const optionRequired = labels.map((_, index) => field.optionRequired?.[index] !== false);
+                    optionRequired[i] = !slotRequired;
+                    onChange({ ...field, optionRequired });
+                  }}
+                  style={styles.requiredToggle}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: slotRequired }}
+                >
+                  <View style={[styles.checkbox, slotRequired && styles.checkboxOn]}>
+                    {slotRequired ? <Text style={styles.checkboxMark}>✓</Text> : null}
+                  </View>
+                  <Text style={styles.requiredLabel}>Required</Text>
+                </Pressable>
+              </View>
+            );
+          })
         )
       ) : null}
     </View>
@@ -280,6 +305,21 @@ const styles = StyleSheet.create({
   fileBlock: { gap: 6 },
   labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   labelRowText: { marginBottom: 0, flex: 1 },
+  labelName: { flex: 1, marginBottom: 0 },
+  requiredToggle: { flexDirection: "row", alignItems: "center", gap: 6 },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderWidth: 1,
+    borderColor: "#333",
+    borderRadius: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  checkboxOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  checkboxMark: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 14 },
+  requiredLabel: { color: "#333", fontSize: 13 },
   card: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 8, gap: 6 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" },
   title: { fontWeight: "500" },

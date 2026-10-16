@@ -1101,6 +1101,8 @@ model ListingBuyerFieldOption {
   fieldId      String  @map("field_id")
   position     Int
   label        String
+  /// File labels can be optional. Dropdown choices ignore this and stay required as a group.
+  required     Boolean @default(true)
   etsyOptionId String? @map("etsy_option_id")
 
   field ListingBuyerField @relation(fields: [fieldId], references: [id], onDelete: Cascade)

@@ -133,6 +133,7 @@ export default async function EditStoreItemPage({
               etsyQuestionId: field.etsyQuestionId,
               options: field.options.map((option) => ({
                 label: option.label,
+                required: option.required,
                 etsyOptionId: option.etsyOptionId,
               })),
             })),

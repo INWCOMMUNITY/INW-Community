@@ -7,6 +7,40 @@ type BuyerRow = {
   files?: BuyerFile[];
 };
 
+export type BuyerResponseView = {
+  title: string;
+  kind: "TEXT" | "DROPDOWN" | "FILE";
+  text: string | null;
+  optionLabel: string | null;
+  files: Array<{ url: string; label: string | null }>;
+};
+
+export function parseBuyerResponseViews(raw: unknown): BuyerResponseView[] {
+  if (!Array.isArray(raw)) return [];
+  const views: BuyerResponseView[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as BuyerRow;
+    const kind = row.kind === "TEXT" || row.kind === "DROPDOWN" || row.kind === "FILE" ? row.kind : null;
+    if (!kind) continue;
+    const title = typeof row.title === "string" && row.title.trim() ? row.title.trim() : "Custom option";
+    const files = (row.files ?? [])
+      .filter((file) => typeof file?.url === "string" && file.url.trim())
+      .map((file) => ({
+        url: file.url!.trim(),
+        label: typeof file.label === "string" && file.label.trim() ? file.label.trim() : null,
+      }));
+    views.push({
+      title,
+      kind,
+      text: typeof row.text === "string" ? row.text : null,
+      optionLabel: typeof row.optionLabel === "string" ? row.optionLabel : null,
+      files,
+    });
+  }
+  return views;
+}
+
 /** Client-safe display lines. Kept off the database package so the browser bundle does not load Prisma. */
 export function formatBuyerResponseLines(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];

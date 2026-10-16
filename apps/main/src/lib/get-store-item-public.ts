@@ -43,7 +43,7 @@ const storeItemPublicSelect = {
       labelEachFile: true,
       options: {
         orderBy: { position: "asc" },
-        select: { id: true, label: true, position: true },
+        select: { id: true, label: true, position: true, required: true },
       },
     },
   },

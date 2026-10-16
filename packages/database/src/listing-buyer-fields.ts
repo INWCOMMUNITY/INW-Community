@@ -28,6 +28,7 @@ export const LISTING_BUYER_FILES_MAX = 10;
 export type ListingBuyerFieldOptionInput = {
   id?: string | null;
   label: string;
+  required?: boolean;
   etsyOptionId?: string | null;
 };
 
@@ -54,10 +55,10 @@ export type NormalizedListingBuyerField = {
   maxFiles: number | null;
   labelEachFile: boolean;
   etsyQuestionId: string | null;
-  options: Array<{ id?: string; label: string; etsyOptionId: string | null }>;
+  options: Array<{ id?: string; label: string; required: boolean; etsyOptionId: string | null }>;
 };
 
-export type BuyerFieldFileAnswer = { url: string; label?: string | null };
+export type BuyerFieldFileAnswer = { url: string; label?: string | null; slot?: number | null };
 
 export type BuyerFieldResponse = {
   fieldId: string;
@@ -265,6 +266,7 @@ function normalizeOptionLabels(
     labels.push({
       id: typeof option.id === "string" && option.id.trim() ? option.id.trim() : undefined,
       label,
+      required: option.required !== false,
       etsyOptionId:
         typeof option.etsyOptionId === "string" && option.etsyOptionId.trim()
           ? option.etsyOptionId.trim()
@@ -284,7 +286,10 @@ export function buyerFieldsDefinitionFingerprint(fields: NormalizedListingBuyerF
       maxCharacters: field.maxCharacters,
       maxFiles: field.maxFiles,
       labelEachFile: field.labelEachFile,
-      options: field.options.map((option) => option.label),
+      options: field.options.map((option) => ({
+        label: option.label,
+        required: option.required !== false,
+      })),
     }))
   );
 }
@@ -298,15 +303,15 @@ export function validateBuyerResponses(
     return { ok: false, error: "This listing does not collect custom options." };
   }
   if (!Array.isArray(raw)) return { ok: false, error: "Custom option answers are required." };
-  const byId = new Map(raw.map((entry) => {
-    const rec = entry as { fieldId?: unknown };
-    return [typeof rec.fieldId === "string" ? rec.fieldId : "", entry];
+  const entries = raw as Array<{ fieldId?: unknown; title?: unknown; text?: unknown; optionLabel?: unknown; files?: unknown }>;
+  const byId = new Map(entries.map((entry) => {
+    return [typeof entry.fieldId === "string" ? entry.fieldId : "", entry];
   }));
+  const knownIds = new Set(fields.map((field) => field.id));
   const responses: BuyerFieldResponse[] = [];
-  for (const field of fields) {
-    const entry = byId.get(field.id) as
-      | { text?: unknown; optionLabel?: unknown; files?: unknown }
-      | undefined;
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index]!;
+    const entry = answerForField(field, index, entries, byId, knownIds);
     if (field.kind === "TEXT") {
       const text = typeof entry?.text === "string" ? entry.text.trim() : "";
       if (!text && field.required) return { ok: false, error: `${field.title} is required.` };
@@ -330,37 +335,96 @@ export function validateBuyerResponses(
     const files = parseFileAnswers(entry?.files);
     if (!files.ok) return files;
     const labeledSlots = field.labelEachFile ? field.options.slice(0, LISTING_BUYER_FILES_MAX) : [];
+    let kept = files.files;
     if (field.labelEachFile) {
-      if (files.files.length === 0 && field.required) {
-        return { ok: false, error: `${field.title} needs a file for each label.` };
-      }
-      if (files.files.length > 0) {
-        const expected = labeledSlots.map((option) => option.label);
-        if (files.files.length !== expected.length) {
-          return { ok: false, error: `${field.title} needs one file per label.` };
-        }
-        for (let i = 0; i < expected.length; i += 1) {
-          const file = files.files[i]!;
-          if ((file.label ?? expected[i]) !== expected[i] && file.label && file.label !== expected[i]) {
-            return { ok: false, error: `${field.title} file labels do not match.` };
+      const placed = placeLabeledFiles(labeledSlots, files.files);
+      if (!placed.ok) return placed;
+      kept = placed.files;
+      if (field.required) {
+        for (let slot = 0; slot < labeledSlots.length; slot += 1) {
+          const option = labeledSlots[slot]!;
+          if (option.required === false) continue;
+          if (!kept.some((file) => file.slot === slot)) {
+            return { ok: false, error: `${option.label} is required.` };
           }
-          file.label = expected[i];
         }
       }
-    } else if (field.required && files.files.length < 1) {
+    } else if (field.required && kept.length < 1) {
       return { ok: false, error: `${field.title} needs at least one file.` };
     }
     const cap = field.labelEachFile
       ? labeledSlots.length
       : (field.maxFiles ?? LISTING_BUYER_FILES_MAX);
-    if (files.files.length > cap) {
+    if (kept.length > cap) {
       return { ok: false, error: `${field.title} allows up to ${cap} files.` };
     }
-    if (files.files.length > 0) {
-      responses.push({ fieldId: field.id, title: field.title, kind: "FILE", files: files.files });
+    if (kept.length > 0) {
+      responses.push({
+        fieldId: field.id,
+        title: field.title,
+        kind: "FILE",
+        files: kept.map((file) => ({ url: file.url, label: file.label ?? null })),
+      });
     }
   }
   return { ok: true, responses };
+}
+
+function answerForField(
+  field: ListingBuyerFieldPublic,
+  index: number,
+  entries: Array<{ fieldId?: unknown; title?: unknown }>,
+  byId: Map<string, { fieldId?: unknown; title?: unknown; text?: unknown; optionLabel?: unknown; files?: unknown }>,
+  knownIds: Set<string>
+) {
+  const direct = byId.get(field.id);
+  if (direct) return direct;
+  const title = field.title.trim();
+  const titled = entries.find((entry) => {
+    const entryTitle = typeof entry.title === "string" ? entry.title.trim() : "";
+    return entryTitle.length > 0 && entryTitle === title;
+  });
+  if (titled) return titled;
+  if (entries.length !== knownIds.size) return undefined;
+  const positional = entries[index];
+  const positionalId = typeof positional?.fieldId === "string" ? positional.fieldId : "";
+  if (!positional || (positionalId && knownIds.has(positionalId) && positionalId !== field.id)) {
+    return undefined;
+  }
+  return positional;
+}
+
+function placeLabeledFiles(
+  slots: ListingBuyerFieldPublic["options"],
+  files: BuyerFieldFileAnswer[]
+): { ok: true; files: BuyerFieldFileAnswer[] } | { ok: false; error: string } {
+  const used = new Set<number>();
+  const placed: BuyerFieldFileAnswer[] = [];
+  const claim = (slot: number, file: BuyerFieldFileAnswer) => {
+    if (slot < 0 || slot >= slots.length || used.has(slot)) return false;
+    used.add(slot);
+    placed.push({ url: file.url, label: slots[slot]!.label, slot });
+    return true;
+  };
+  const leftover: BuyerFieldFileAnswer[] = [];
+  for (const file of files) {
+    if (typeof file.slot === "number" && claim(file.slot, file)) continue;
+    leftover.push(file);
+  }
+  if (leftover.length === slots.length && placed.length === 0) {
+    leftover.forEach((file, slot) => claim(slot, file));
+    return { ok: true, files: placed };
+  }
+  for (const file of leftover) {
+    const label = file.label?.trim();
+    const slot = label
+      ? slots.findIndex((option, index) => !used.has(index) && option.label === label)
+      : slots.findIndex((_, index) => !used.has(index));
+    if (!claim(slot, file)) {
+      return { ok: false, error: "A file does not match a label on this listing." };
+    }
+  }
+  return { ok: true, files: placed };
 }
 
 function parseFileAnswers(
@@ -379,7 +443,9 @@ function parseFileAnswers(
       entry && typeof entry === "object" && typeof (entry as { label?: unknown }).label === "string"
         ? (entry as { label: string }).label.trim()
         : null;
-    files.push({ url: trimmed.slice(0, 2000), label });
+    const slotRaw = entry && typeof entry === "object" ? (entry as { slot?: unknown }).slot : undefined;
+    const slot = typeof slotRaw === "number" && Number.isInteger(slotRaw) ? slotRaw : null;
+    files.push({ url: trimmed.slice(0, 2000), label, slot });
   }
   return { ok: true, files };
 }
@@ -446,6 +512,7 @@ export async function replaceListingBuyerFields(
           create: field.options.map((option, optionPosition) => ({
             position: optionPosition,
             label: option.label,
+            required: option.required !== false,
             etsyOptionId: option.etsyOptionId,
           })),
         },

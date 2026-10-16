@@ -259,6 +259,96 @@ describe("buyer responses", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("accepts a filled text answer when the saved field id changed", () => {
+    const result = validateBuyerResponses(fields, [
+      { fieldId: "old-id", title: "Specifics", text: "Donivan, 2004" },
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.responses[0]?.text).toBe("Donivan, 2004");
+  });
+
+  it("accepts answers in field order when only the ids are stale", () => {
+    const result = validateBuyerResponses(
+      [
+        fields[0]!,
+        {
+          id: "color",
+          kind: "DROPDOWN",
+          title: "Colors",
+          instructions: null,
+          required: true,
+          maxCharacters: null,
+          maxFiles: null,
+          labelEachFile: false,
+          options: [{ id: "red", label: "Red", required: true }],
+        },
+      ],
+      [
+        { fieldId: "stale-text", text: "Donivan, 2004" },
+        { fieldId: "stale-color", optionLabel: "Red" },
+      ]
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("lets an optional labeled photo be left out", () => {
+    const result = validateBuyerResponses(
+      [
+        {
+          id: "photos",
+          kind: "FILE",
+          title: "Photos",
+          instructions: null,
+          required: true,
+          maxCharacters: null,
+          maxFiles: 2,
+          labelEachFile: true,
+          options: [
+            { id: "dog1", label: "Dog #1", required: true },
+            { id: "dog2", label: "Dog #2", required: false },
+          ],
+        },
+      ],
+      [
+        {
+          fieldId: "photos",
+          files: [{ url: "https://files.example.com/grrr.jpg", label: "Dog #1", slot: 0 }],
+        },
+      ]
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.responses[0]?.files).toEqual([
+      { url: "https://files.example.com/grrr.jpg", label: "Dog #1" },
+    ]);
+  });
+
+  it("still requires a labeled photo that is marked required", () => {
+    const result = validateBuyerResponses(
+      [
+        {
+          id: "photos",
+          kind: "FILE",
+          title: "Photos",
+          instructions: null,
+          required: true,
+          maxCharacters: null,
+          maxFiles: 2,
+          labelEachFile: true,
+          options: [
+            { id: "dog1", label: "Dog #1", required: true },
+            { id: "dog2", label: "Dog #2", required: false },
+          ],
+        },
+      ],
+      [{ fieldId: "photos", files: [] }]
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("Dog #1 is required.");
+  });
+
   it("keeps different answers on different cart fingerprints", () => {
     const a = validateBuyerResponses(fields, [{ fieldId: "f1", text: "MJB" }]);
     const b = validateBuyerResponses(fields, [{ fieldId: "f1", text: "ANN" }]);

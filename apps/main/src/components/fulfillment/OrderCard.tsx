@@ -10,7 +10,7 @@ import {
   sellerOrderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
 import type { FulfillmentStoreOrder } from "./types";
-import { formatBuyerResponseLines } from "@/lib/buyer-response-lines";
+import { parseBuyerResponseViews } from "@/lib/buyer-response-lines";
 
 type OrderCardProps = {
   order: FulfillmentStoreOrder;
@@ -244,6 +244,47 @@ export function CombinedOrderCard({
   );
 }
 
+function BuyerResponseDetails({ raw }: { raw: unknown }) {
+  const rows = parseBuyerResponseViews(raw);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-1 space-y-1">
+      {rows.map((row) => (
+        <div key={`${row.kind}-${row.title}`} className="text-xs text-gray-700">
+          <p className="font-medium text-gray-800">{row.title}</p>
+          {row.kind === "TEXT" && row.text ? <p className="break-words">{row.text}</p> : null}
+          {row.kind === "DROPDOWN" && row.optionLabel ? <p>{row.optionLabel}</p> : null}
+          {row.kind === "FILE"
+            ? row.files.map((file) => {
+                const name = file.label || "Download file";
+                const image = /\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(file.url);
+                return (
+                  <p key={file.url} className="mt-1">
+                    {image ? (
+                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="inline-block">
+                        <img src={file.url} alt={name} className="h-16 w-16 rounded object-cover" />
+                      </a>
+                    ) : null}
+                    <a
+                      href={file.url}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block underline"
+                      style={{ color: "var(--color-link)" }}
+                    >
+                      Download {name}
+                    </a>
+                  </p>
+                );
+              })
+            : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Compact item rows for order detail sidebar / two-column layout. */
 export function OrderCardItemRows({ order }: { order: FulfillmentStoreOrder }) {
   return (
@@ -263,11 +304,7 @@ export function OrderCardItemRows({ order }: { order: FulfillmentStoreOrder }) {
                 ? ` · $${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`
                 : ""}
             </p>
-            {formatBuyerResponseLines(oi.buyerResponses).map((line) => (
-              <p key={line} className="text-xs text-gray-700 break-all">
-                {line}
-              </p>
-            ))}
+            <BuyerResponseDetails raw={oi.buyerResponses} />
           </div>
         </li>
       ))}
