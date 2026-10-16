@@ -431,15 +431,12 @@ export function StorefrontGallery({
 
           {browseExpanded && (
           <div className="p-4">
-            {/* Category chips row */}
-            <div
-              className="flex flex-wrap sm:flex-nowrap gap-2 overflow-x-auto scrollbar-hide"
-              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-            >
+            {/* Category chips — wrap so every category is visible (no sideways slide) */}
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => { setCategory(""); setSubcategory(""); }}
-                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition active:animate-chip-bounce shadow-sm ${
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition active:animate-chip-bounce shadow-sm ${
                   category === ""
                     ? "bg-[var(--color-primary)] text-white"
                     : "border border-[var(--color-primary)]/30 bg-[#faf8f5] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
@@ -452,7 +449,7 @@ export function StorefrontGallery({
                   key={cat.label}
                   type="button"
                   onClick={() => { setCategory(cat.label); setSubcategory(""); }}
-                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition active:animate-chip-bounce shadow-sm ${
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition active:animate-chip-bounce shadow-sm ${
                     category === cat.label
                       ? "bg-[var(--color-primary)] text-white"
                       : "border border-[var(--color-primary)]/30 bg-[#faf8f5] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
@@ -464,7 +461,7 @@ export function StorefrontGallery({
               <button
                 type="button"
                 onClick={() => setFilterOpen(!filterOpen)}
-                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition active:animate-chip-bounce flex items-center gap-1.5 shadow-sm ml-auto sm:ml-0 ${
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition active:animate-chip-bounce flex items-center gap-1.5 shadow-sm ${
                   activeFilterCount > 0 || filterOpen
                     ? "bg-[var(--color-primary)] text-white"
                     : "border border-[var(--color-primary)]/30 bg-[#faf8f5] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
@@ -488,14 +485,11 @@ export function StorefrontGallery({
 
         {/* Subcategory chips (if category selected) */}
         {category && (browseByCategories.find((c) => c.label === category)?.subcategories.length ?? 0) > 0 && (
-          <div
-            className="mt-3 pt-3 border-t border-[var(--color-primary)]/10 flex gap-2 overflow-x-auto scrollbar-hide"
-            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          >
+          <div className="mt-3 pt-3 border-t border-[var(--color-primary)]/10 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setSubcategory("")}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition active:animate-chip-bounce ${
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition active:animate-chip-bounce ${
                 subcategory === ""
                   ? "bg-[var(--color-secondary)] text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
@@ -508,7 +502,7 @@ export function StorefrontGallery({
                 key={sub}
                 type="button"
                 onClick={() => setSubcategory(sub)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition active:animate-chip-bounce ${
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition active:animate-chip-bounce ${
                   subcategory === sub
                     ? "bg-[var(--color-secondary)] text-white"
                     : "border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"

@@ -45,6 +45,7 @@ import {
 } from "./import-discovery";
 import { importEtsyListing } from "./import-listing";
 import {
+  assignedImportShipping,
   handleEtsyImportBatchJob,
   startEtsyImportBatch,
 } from "./import-batch";
@@ -104,6 +105,24 @@ describe("startEtsyImportBatch", () => {
   });
 });
 
+describe("assignedImportShipping", () => {
+  it("requires a price for every listing", () => {
+    expect(assignedImportShipping({ listingIds: ["11"], shippingPrices: {} })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      assignedImportShipping({
+        listingIds: ["11", "22"],
+        shippingPrices: { "11": 500, "22": 0 },
+      })
+    ).toEqual({
+      ok: true,
+      listingIds: ["11", "22"],
+      shippingPrices: { "11": 500, "22": 0 },
+    });
+  });
+});
+
 describe("handleEtsyImportBatchJob", () => {
   const claim = {
     id: "job-1",
@@ -148,6 +167,7 @@ describe("handleEtsyImportBatchJob", () => {
       discoverOffset: 25,
       discoverComplete: true,
       queueJson: ["111", "222"],
+      shippingPricesJson: { "111": 799, "222": 0 },
       failuresJson: [],
       avgItemMs: null,
       startedAt: new Date(),
@@ -170,8 +190,15 @@ describe("handleEtsyImportBatchJob", () => {
       });
 
     const result = await handleEtsyImportBatchJob(claim);
-    // Two items max per claim — both processed; discover complete + empty queue → SUCCESS
     expect(importEtsyListing).toHaveBeenCalledTimes(2);
+    expect(importEtsyListing).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ etsyListingId: "111", shippingCostCents: 799 })
+    );
+    expect(importEtsyListing).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ etsyListingId: "222", shippingCostCents: 0 })
+    );
     expect(result.outcome).toBe("SUCCESS");
   });
 

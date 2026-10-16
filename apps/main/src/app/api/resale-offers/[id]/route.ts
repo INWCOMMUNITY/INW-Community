@@ -39,9 +39,8 @@ async function placeAcceptedOfferInBuyerCart(
     throw new Error("ITEM_UNAVAILABLE");
   }
   let fulfillmentType: "ship" | "local_delivery" | "pickup" = "ship";
-  if (si.shippingDisabled) {
-    if (si.localDeliveryAvailable) fulfillmentType = "local_delivery";
-    else if (si.inStorePickupAvailable) fulfillmentType = "pickup";
+  if (si.shippingDisabled && si.localDeliveryAvailable) {
+    fulfillmentType = "local_delivery";
   }
 
   const deadline = new Date(Date.now() + OFFER_CHECKOUT_HOURS * 60 * 60 * 1000);

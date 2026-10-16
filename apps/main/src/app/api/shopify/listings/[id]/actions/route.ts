@@ -9,7 +9,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ACTIONS = new Set<ShopifyListingAction>(["retry", "reconnect", "unpublish", "remove"]);
+const ACTIONS = new Set<ShopifyListingAction>(["retry", "reconnect", "unpublish", "remove", "end"]);
 
 function kickShopifySyncJobs() {
   waitUntil(

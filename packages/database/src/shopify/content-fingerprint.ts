@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { listingDescriptionPlainText } from "../listing-description-plain";
 
 /** Convert integer minor units to Shopify money decimal string without float error. */
 export function shopifyMoneyFromCents(cents: number): string {
@@ -23,8 +24,9 @@ export function normalizeShopifyTitle(title: string | null | undefined): string 
   return typeof title === "string" ? title.trim() : "";
 }
 
+/** Plain listing text. Shopify `<p>` wrappers compare equal to the same words. */
 export function normalizeShopifyDescription(description: string | null | undefined): string {
-  return typeof description === "string" ? description : "";
+  return listingDescriptionPlainText(description);
 }
 
 export function normalizeShopifyVendor(vendor: string | null | undefined): string {
@@ -117,6 +119,25 @@ export function shopifyVariantContentFingerprint(input: {
         : "",
   };
   return sha256Hex(JSON.stringify(payload));
+}
+
+/** Listing price when combinations share one price; otherwise the variant's own price. */
+export function shopifyPushPriceCents(input: {
+  variants: unknown;
+  listingPriceCents: number;
+  variantPriceCents: number;
+}): number {
+  if (
+    input.variants &&
+    typeof input.variants === "object" &&
+    !Array.isArray(input.variants) &&
+    (input.variants as { pricesVary?: unknown }).pricesVary === false &&
+    Number.isFinite(input.listingPriceCents) &&
+    input.listingPriceCents > 0
+  ) {
+    return Math.round(input.listingPriceCents);
+  }
+  return input.variantPriceCents;
 }
 
 export function shopifyUpdateListingContentDedupeKey(input: {

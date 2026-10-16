@@ -114,7 +114,7 @@ export async function notifyEtsySyncJobDeadOnce(input: {
   const message = (
     input.result.errorMessage ||
     `Etsy ${input.claim.kind.replace(/_/g, " ").toLowerCase()} failed`
-  ).slice(0, 500);
+  ).slice(0, 2000);
 
   // Internal Etsy write lock / batch continue — jobs retry; never surface to sellers.
   if (

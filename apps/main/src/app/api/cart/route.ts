@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, Prisma, publicBuyerFieldsFromRows, resolveCheckoutVariant, validateBuyerResponses } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerAnalyticsSource } from "@/lib/seller-analytics-source";
-import { getAvailableQuantity, getSkuPriceCents } from "@/lib/store-item-variants";
+import { getAvailableQuantity, getSkuPriceCents, listingUsesSharedQuantity } from "@/lib/store-item-variants";
 import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
@@ -91,6 +91,9 @@ export async function GET(req: NextRequest) {
               sellerLocalDeliveryPolicy: true,
               sellerPickupPolicy: true,
               stripeConnectAccountId: true,
+              combineShipping: true,
+              combinedShippingMaxCents: true,
+              freeShippingMinimumCents: true,
             },
           },
         },
@@ -110,11 +113,16 @@ export async function GET(req: NextRequest) {
   const cart = items.map((i) => {
     const storeItem = i.storeItem as typeof i.storeItem & { member?: { stripeConnectAccountId?: string | null } };
     const skuAvailable = getAvailableQuantity(storeItem, i.variant ?? undefined);
-    const available = maxQuantityForCartLine(skuAvailable, items, {
-      id: i.id,
-      storeItemId: i.storeItemId,
-      variant: i.variant,
-    });
+    const available = maxQuantityForCartLine(
+      skuAvailable,
+      items,
+      {
+        id: i.id,
+        storeItemId: i.storeItemId,
+        variant: i.variant,
+      },
+      { sharedQuantity: listingUsesSharedQuantity(storeItem.variants) }
+    );
     const sellerHasConnect = !!storeItem.member?.stripeConnectAccountId?.trim();
     let unavailableReason: string | undefined;
     if (!sellerHasConnect) {
@@ -270,11 +278,16 @@ export async function POST(req: NextRequest) {
     buyerResponses,
   };
   const existing = findMatchingCartLine(existingRows, incoming);
-  const maxForThisLine = maxQuantityForCartLine(available, existingRows, {
-    id: existing?.id,
-    storeItemId: body.storeItemId,
-    variant: body.variant,
-  });
+  const maxForThisLine = maxQuantityForCartLine(
+    available,
+    existingRows,
+    {
+      id: existing?.id,
+      storeItemId: body.storeItemId,
+      variant: body.variant,
+    },
+    { sharedQuantity: listingUsesSharedQuantity(storeItem.variants) }
+  );
 
   if (!existing && body.quantity > maxForThisLine) {
     return NextResponse.json(

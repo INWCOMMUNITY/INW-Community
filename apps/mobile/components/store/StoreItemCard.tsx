@@ -31,6 +31,7 @@ interface StoreItemCardProps {
   width: number;
   variant?: "grid" | "carousel";
   showBadges?: boolean;
+  outlined?: boolean;
   onQuickAdd?: (item: StoreItemData) => void;
   referrer?: ProductReferrer;
 }
@@ -49,6 +50,7 @@ export function StoreItemCard({
   width,
   variant = "grid",
   showBadges = true,
+  outlined = false,
   onQuickAdd,
   referrer,
 }: StoreItemCardProps) {
@@ -58,22 +60,24 @@ export function StoreItemCard({
 
   const hasFreeShipping =
     !item.shippingDisabled && item.shippingCostCents === 0;
-  const hasLocalPickup = item.inStorePickupAvailable || item.localDeliveryAvailable;
 
   const openItem = () => {
     router.push(buildProductPath(item.slug, referrer ?? { type: "storefront" }) as never);
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.card,
+        outlined && styles.cardOutlined,
         { width },
-        pressed && styles.cardPressed,
       ]}
-      onPress={openItem}
     >
       <View style={[styles.cardImageWrap, isCarousel && styles.cardImageWrapCarousel]}>
+        <Pressable
+          style={({ pressed }) => [styles.cardImagePress, pressed && styles.cardPressed]}
+          onPress={openItem}
+        >
         {photoUrl ? (
           <AppImage
             uri={photoUrl}
@@ -88,17 +92,13 @@ export function StoreItemCard({
             <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
           </View>
         )}
+        </Pressable>
 
         {showBadges && (
           <>
             {hasFreeShipping && (
               <View style={[styles.badge, styles.badgeTopRight]}>
                 <Text style={styles.badgeText}>Free Shipping</Text>
-              </View>
-            )}
-            {hasLocalPickup && !hasFreeShipping && (
-              <View style={[styles.badge, styles.badgeTopRight]}>
-                <Text style={styles.badgeText}>Local Pickup</Text>
               </View>
             )}
             {item.business?.logoUrl && (
@@ -120,16 +120,18 @@ export function StoreItemCard({
               styles.quickAddBtn,
               pressed && { opacity: 0.8 },
             ]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              onQuickAdd(item);
-            }}
+            hitSlop={8}
+            onPress={() => onQuickAdd(item)}
           >
             <Ionicons name="add" size={18} color="#fff" />
           </Pressable>
         )}
       </View>
 
+      <Pressable
+        style={({ pressed }) => [pressed && styles.cardPressed]}
+        onPress={openItem}
+      >
       <Text style={styles.cardTitle} numberOfLines={2}>
         {item.title}
       </Text>
@@ -170,7 +172,8 @@ export function StoreItemCard({
           )}
         </View>
       )}
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
@@ -181,6 +184,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     maxWidth: "100%",
     ...theme.shadows.card,
+  },
+  cardOutlined: {
+    borderWidth: 2,
+    borderColor: theme.colors.earth,
   },
   cardPressed: {
     opacity: 0.85,
@@ -193,6 +200,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     padding: 8,
+  },
+  cardImagePress: {
+    flex: 1,
   },
   cardImageWrapCarousel: {
     aspectRatio: 4 / 5,
@@ -241,6 +251,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 8,
     right: 8,
+    zIndex: 2,
     width: 32,
     height: 32,
     borderRadius: 16,

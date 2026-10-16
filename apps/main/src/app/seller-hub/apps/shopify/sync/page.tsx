@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
+import { ShopifyMetafieldListingDialog } from "@/components/shopify/ShopifyMetafieldListingDialog";
+import { ShopifySharedQuantityDialog } from "@/components/shopify/ShopifySharedQuantityDialog";
 import {
-  APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_PATH,
   APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
   formatCents,
@@ -26,6 +27,8 @@ type EligibleListing = {
   variantCount?: number;
   supported?: boolean;
   unsupportedReason?: string | null;
+  needsShopifyMetafields?: boolean;
+  usesSharedQuantityPool?: boolean;
 };
 
 type ListingStatus = {
@@ -106,6 +109,9 @@ export default function AppsAirportShopifySyncPage() {
   const [progress, setProgress] = useState<ShopifySyncProgressStep | null>(null);
   const [progressDetail, setProgressDetail] = useState<string | null>(null);
   const [resultModal, setResultModal] = useState<ResultModal | null>(null);
+  const [metafieldTargets, setMetafieldTargets] = useState<EligibleListing[] | null>(null);
+  const [sharedQuantityOpen, setSharedQuantityOpen] = useState(false);
+  const [sharedQuantityTargets, setSharedQuantityTargets] = useState<EligibleListing[]>([]);
   const busyRef = useRef(false);
   const pollGenerationRef = useRef(0);
 
@@ -169,24 +175,31 @@ export default function AppsAirportShopifySyncPage() {
           listing: null,
         })
       );
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      for (let attempt = 0; attempt < 36; attempt += 1) {
         if (pollGenerationRef.current !== generation) return;
         await new Promise((resolve) =>
           setTimeout(resolve, attempt === 0 ? 800 : 2000)
         );
         if (pollGenerationRef.current !== generation) return;
         const response = await fetch(
-          `/api/shopify/listings?storeItemId=${encodeURIComponent(storeItemId)}`,
+          `/api/shopify/listings/create-status?storeItemId=${encodeURIComponent(storeItemId)}`,
           { credentials: "include" }
         );
         if (!response.ok) continue;
-        const body = (await response.json()) as { listings: ListingStatus[] };
-        const listing =
-          body.listings.find((row) => row.storeItemId === storeItemId) ?? null;
-        const step = resolveShopifySyncProgress({ enqueueStatus, listing });
+        const body = (await response.json()) as {
+          job?: { state?: string; errorMessage?: string | null } | null;
+          listing?: ListingStatus | null;
+        };
+        const listing = body.listing ?? null;
+        const step = resolveShopifySyncProgress({
+          enqueueStatus,
+          jobState: body.job?.state,
+          listing,
+        });
         if (pollGenerationRef.current !== generation) return;
         setProgress(step);
         if (listing?.issueMessage) setProgressDetail(listing.issueMessage);
+        else if (body.job?.errorMessage) setProgressDetail(body.job.errorMessage);
         if (
           step === "published" ||
           step === "needs_attention" ||
@@ -194,15 +207,15 @@ export default function AppsAirportShopifySyncPage() {
         ) {
           if (step === "published") {
             setProgressDetail("This listing is live on your Online Store.");
-          } else if (step === "needs_attention" && !listing?.issueMessage) {
-            setProgressDetail("Open Synced Listings to review what needs attention.");
+          } else if (step === "needs_attention" && !listing?.issueMessage && !body.job?.errorMessage) {
+            setProgressDetail("Open My Items to review what needs attention.");
           }
           return;
         }
       }
       if (pollGenerationRef.current !== generation) return;
       setProgressDetail(
-        "Sync is still running in the background. Check Synced Listings shortly."
+        "Sync is still running in the background. Check My Items shortly."
       );
     },
     []
@@ -292,6 +305,42 @@ export default function AppsAirportShopifySyncPage() {
     [loadEligible, pollListingStatus, showEnqueueModal]
   );
 
+  function continueEnqueue(targets: EligibleListing[]) {
+    if (targets.some((listing) => listing.needsShopifyMetafields)) {
+      setMetafieldTargets(targets);
+      return;
+    }
+    void runEnqueue(targets);
+  }
+
+  function requestEnqueue(targets: EligibleListing[]) {
+    const blocked = targets.filter((listing) => listing.usesSharedQuantityPool);
+    if (blocked.length > 0) {
+      setSharedQuantityTargets(targets);
+      setSharedQuantityOpen(true);
+      return;
+    }
+    continueEnqueue(targets);
+  }
+
+  function skipSharedQuantityListings() {
+    const compatible = sharedQuantityTargets.filter((listing) => !listing.usesSharedQuantityPool);
+    const blockedIds = new Set(
+      sharedQuantityTargets
+        .filter((listing) => listing.usesSharedQuantityPool)
+        .map((listing) => listing.storeItemId)
+    );
+    setSharedQuantityOpen(false);
+    setSharedQuantityTargets([]);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of blockedIds) next.delete(id);
+      return next;
+    });
+    if (compatible.length === 0) return;
+    continueEnqueue(compatible);
+  }
+
   function toggleSelected(storeItemId: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -380,11 +429,11 @@ export default function AppsAirportShopifySyncPage() {
             progress === "mapping" ||
             progress === "publishing") && (
             <Link
-              href={APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}
+              href="/seller-hub/store/items"
               className="btn mt-3 inline-block"
               prefetch={false}
             >
-              View synced listings
+              View my items
             </Link>
           )}
         </div>
@@ -409,7 +458,7 @@ export default function AppsAirportShopifySyncPage() {
               className="btn"
               disabled={!inventoryReady || busy || selectedCount < 1}
               onClick={() =>
-                void runEnqueue(
+                requestEnqueue(
                   selectableListings.filter((row) => selectedIds.has(row.storeItemId))
                 )
               }
@@ -445,7 +494,9 @@ export default function AppsAirportShopifySyncPage() {
                   </th>
                   <th className="py-2 pr-4 font-semibold">INW Listing</th>
                   <th className="py-2 pr-4 font-semibold">Price</th>
-                  <th className="py-2 pr-4 font-semibold">Inventory</th>
+                  <th className="py-2 pr-4 font-semibold" title="Q is a quantity cap. P is a pools cap.">
+                    Q / P
+                  </th>
                   <th className="py-2 pr-4 font-semibold">Variants</th>
                   <th className="py-2 pr-4 font-semibold">SKU</th>
                   <th className="py-2 font-semibold">Action</th>
@@ -498,7 +549,12 @@ export default function AppsAirportShopifySyncPage() {
                         </div>
                       </td>
                       <td className="py-3 pr-4">{formatCents(listing.priceCents)}</td>
-                      <td className="py-3 pr-4">{listing.quantity}</td>
+                      <td
+                        className="py-3 pr-4 whitespace-nowrap"
+                        title={listing.usesSharedQuantityPool ? "Pools cap" : "Quantity cap"}
+                      >
+                        {listing.usesSharedQuantityPool ? `P ${listing.quantity}` : `Q ${listing.quantity}`}
+                      </td>
                       <td className="py-3 pr-4">{listing.variantCount ?? "—"}</td>
                       <td className="py-3 pr-4">{listing.sku ?? "—"}</td>
                       <td className="py-3">
@@ -506,7 +562,7 @@ export default function AppsAirportShopifySyncPage() {
                           type="button"
                           className="btn"
                           disabled={!canSelect || busy}
-                          onClick={() => void runEnqueue([listing])}
+                          onClick={() => requestEnqueue([listing])}
                         >
                           {rowBusy ? "Listing…" : "List on Shopify"}
                         </button>
@@ -519,6 +575,28 @@ export default function AppsAirportShopifySyncPage() {
           </div>
         </>
       ) : null}
+
+      <ShopifySharedQuantityDialog
+        open={sharedQuantityOpen}
+        skippedTitles={sharedQuantityTargets
+          .filter((listing) => listing.usesSharedQuantityPool)
+          .map((listing) => listing.title)}
+        onSkip={skipSharedQuantityListings}
+        onClose={() => {
+          setSharedQuantityOpen(false);
+          setSharedQuantityTargets([]);
+        }}
+      />
+      <ShopifyMetafieldListingDialog
+        open={metafieldTargets != null}
+        itemCount={metafieldTargets?.length ?? 1}
+        onCancel={() => setMetafieldTargets(null)}
+        onConfirm={() => {
+          const targets = metafieldTargets ?? [];
+          setMetafieldTargets(null);
+          void runEnqueue(targets);
+        }}
+      />
 
       {resultModal ? (
         <div
@@ -564,12 +642,12 @@ export default function AppsAirportShopifySyncPage() {
               </button>
               {resultModal.tone !== "error" ? (
                 <Link
-                  href={APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}
+                  href="/seller-hub/store/items"
                   className="btn"
                   prefetch={false}
                   onClick={() => setResultModal(null)}
                 >
-                  View synced listings
+                  View my items
                 </Link>
               ) : null}
             </div>

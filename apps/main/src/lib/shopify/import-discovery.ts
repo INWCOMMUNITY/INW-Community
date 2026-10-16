@@ -474,10 +474,12 @@ export async function discoverShopifyImportCandidates(input: {
           memberId: input.memberId,
           shopifyProductId: { in: productIds },
         },
-        select: { shopifyProductId: true },
+        select: { shopifyProductId: true, storeItem: { select: { status: true } } },
       })
     : [];
-  const mappedSet = new Set(mapped.map((row) => row.shopifyProductId));
+  const mappedSet = new Set(
+    mapped.filter((row) => row.storeItem.status !== "inactive").map((row) => row.shopifyProductId)
+  );
 
   const candidates = nodes
     .filter((node) => {
@@ -541,9 +543,9 @@ export async function fetchShopifyImportProductDetail(input: {
       memberId: input.memberId,
       shopifyProductId: productId,
     },
-    select: { storeItemId: true },
+    select: { storeItemId: true, storeItem: { select: { status: true } } },
   });
-  if (mapped) {
+  if (mapped && mapped.storeItem.status !== "inactive") {
     return {
       status: "ERROR",
       code: "ALREADY_MAPPED",

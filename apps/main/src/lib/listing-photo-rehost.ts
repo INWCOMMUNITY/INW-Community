@@ -62,16 +62,14 @@ async function copyMarketplacePhotoToInw(sourceUrl: string, index: number): Prom
  * Leaves already-INW and non-marketplace URLs unchanged.
  */
 export async function ensureInwHostedListingPhotos(photos: string[]): Promise<string[]> {
-  const out: string[] = [];
-  for (let i = 0; i < photos.length; i++) {
-    const url = typeof photos[i] === "string" ? photos[i]!.trim() : "";
-    if (!url) continue;
-    if (isInwHostedPhotoUrl(url) || !isMarketplaceCdnPhotoUrl(url)) {
-      out.push(url);
-      continue;
-    }
-    const hosted = await copyMarketplacePhotoToInw(url, i);
-    out.push(hosted || url);
-  }
-  return out;
+  const hosted = await Promise.all(
+    photos.map(async (raw, i) => {
+      const url = typeof raw === "string" ? raw.trim() : "";
+      if (!url) return null;
+      if (isInwHostedPhotoUrl(url) || !isMarketplaceCdnPhotoUrl(url)) return url;
+      const copied = await copyMarketplacePhotoToInw(url, i);
+      return copied || url;
+    })
+  );
+  return hosted.filter((url): url is string => Boolean(url));
 }

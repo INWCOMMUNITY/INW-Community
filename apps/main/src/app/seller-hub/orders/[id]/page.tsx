@@ -11,6 +11,7 @@ import { sellerRefundStatusNote } from "@/lib/store-order-refund-status";
 import {
   formatSellerOrderTotal,
   getTrackingUrl,
+  orderHasLocalDeliveryLine,
   orderHasShippedLine,
   sellerOrderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
@@ -215,9 +216,9 @@ function SellerOrderDetailInner() {
               </div>
             ) : null}
 
-            {!needsLabel && !order.shipment ? (
+            {!needsLabel && !order.shipment && orderHasLocalDeliveryLine(order.items) ? (
               <p className="text-sm text-gray-600">
-                Pickup and delivery actions are available from the Fulfillment hub tabs.
+                Local delivery actions are on the Deliveries tab.
               </p>
             ) : null}
 

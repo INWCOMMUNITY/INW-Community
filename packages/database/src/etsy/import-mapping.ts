@@ -122,25 +122,31 @@ export async function createEtsyImportedListingMapping(
     },
   });
 
-  const variantMapIds: string[] = [];
-  for (const variant of input.variants) {
-    const map = await tx.etsyVariantMap.create({
-      data: {
-        etsyConnectionId: input.connectionId,
-        etsyListingLinkId: link.id,
-        memberId: input.memberId,
-        storeItemId: input.storeItemId,
-        storeVariantId: variant.storeVariantId.trim(),
-        etsyProductId: String(variant.etsyProductId).trim(),
-        etsyOfferingId: String(variant.etsyOfferingId).trim(),
-        propertyValuesJson: variant.propertyValuesJson ?? undefined,
-        remoteSku: variant.remoteSku?.trim() || null,
-        inventoryDesiredAvailable: variant.remoteAvailable ?? null,
-        inventoryAppliedAvailable: variant.remoteAvailable ?? null,
-      },
-    });
-    variantMapIds.push(map.id);
-  }
+  await tx.etsyVariantMap.createMany({
+    data: input.variants.map((variant) => ({
+      etsyConnectionId: input.connectionId,
+      etsyListingLinkId: link.id,
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      storeVariantId: variant.storeVariantId.trim(),
+      etsyProductId: String(variant.etsyProductId).trim(),
+      etsyOfferingId: String(variant.etsyOfferingId).trim(),
+      propertyValuesJson: variant.propertyValuesJson ?? undefined,
+      remoteSku: variant.remoteSku?.trim() || null,
+      inventoryDesiredAvailable: variant.remoteAvailable ?? null,
+      inventoryAppliedAvailable: variant.remoteAvailable ?? null,
+    })),
+  });
+  const createdMaps = await tx.etsyVariantMap.findMany({
+    where: { etsyListingLinkId: link.id },
+    select: { id: true, storeVariantId: true },
+  });
+  const idByStoreVariant = new Map(createdMaps.map((map) => [map.storeVariantId, map.id]));
+  const variantMapIds = input.variants.map((variant) => {
+    const id = idByStoreVariant.get(variant.storeVariantId.trim());
+    if (!id) throw new EtsyMappingError("INVALID_VARIANTS", "Variant map was not saved");
+    return id;
+  });
 
   return {
     listingLinkId: link.id,

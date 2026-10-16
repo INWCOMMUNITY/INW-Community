@@ -10,7 +10,7 @@ import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 
 export const dynamic = "force-dynamic";
 
-const ACTIONS = new Set<EtsyListingAction>(["retry", "remove", "reload"]);
+const ACTIONS = new Set<EtsyListingAction>(["retry", "remove", "reload", "end"]);
 
 function kickEtsySyncJobs() {
   waitUntil(

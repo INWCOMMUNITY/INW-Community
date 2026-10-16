@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
 import {
   buyerFieldsToPayload,
@@ -7,6 +7,71 @@ import {
 } from "@/lib/listing-buyer-fields";
 
 export { buyerFieldsToPayload };
+
+const OPTION_LABEL_MAX = 20;
+const DROPDOWN_OPTIONS_MAX = 30;
+
+function kindLabel(kind: BuyerFieldDraft["kind"]) {
+  if (kind === "TEXT") return "Text Box";
+  if (kind === "DROPDOWN") return "List of Options";
+  return "File Upload";
+}
+
+function OptionChipsEditor({
+  labels,
+  onChange,
+  maxCount,
+}: {
+  labels: string[];
+  onChange: (next: string[]) => void;
+  maxCount: number;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function addValue() {
+    const val = draft.trim().slice(0, OPTION_LABEL_MAX);
+    if (!val) return;
+    if (labels.length >= maxCount) return;
+    if (labels.some((label) => label.toLowerCase() === val.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange([...labels, val]);
+    setDraft("");
+  }
+
+  return (
+    <View style={styles.chipWrap}>
+      <Text style={styles.hint}>Options (max {OPTION_LABEL_MAX} characters each)</Text>
+      <View style={styles.chipRow}>
+        {labels.map((value, vi) => (
+          <View key={`${value}-${vi}`} style={styles.chip}>
+            <Text style={styles.chipText}>{value}</Text>
+            <Pressable onPress={() => onChange(labels.filter((_, j) => j !== vi))} hitSlop={8}>
+              <Text style={styles.chipRemove}>×</Text>
+            </Pressable>
+          </View>
+        ))}
+      </View>
+      {labels.length < maxCount ? (
+        <View style={styles.addRow}>
+          <TextInput
+            style={[styles.input, styles.addInput]}
+            placeholder="+ Add option"
+            value={draft}
+            maxLength={OPTION_LABEL_MAX}
+            onChangeText={(v) => setDraft(v.slice(0, OPTION_LABEL_MAX))}
+            onSubmitEditing={addValue}
+            returnKeyType="done"
+          />
+          <Pressable onPress={addValue}>
+            <Text style={styles.addBtn}>Add</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export function ListingBuyerFieldsEditor({
   fields,
@@ -19,14 +84,13 @@ export function ListingBuyerFieldsEditor({
   return (
     <View style={styles.wrap}>
       <Text style={styles.hint}>
-        Custom options for buyers (text, choices, or one file upload). These do not change inventory.
+        Collect details from buyers — text, a choice, or files. These do not change your inventory.
+        Up to 5. One file upload per listing. Synced to Etsy custom options.
       </Text>
       {fields.map((field, index) => (
         <View key={`${field.kind}-${index}`} style={styles.card}>
           <View style={styles.row}>
-            <Text style={styles.title}>
-              {field.kind === "TEXT" ? "Text box" : field.kind === "DROPDOWN" ? "List of options" : "File upload"}
-            </Text>
+            <Text style={styles.title}>{kindLabel(field.kind)}</Text>
             <Pressable onPress={() => onChange(fields.filter((_, i) => i !== index))}>
               <Text style={styles.remove}>Remove</Text>
             </Pressable>
@@ -78,14 +142,20 @@ export function ListingBuyerFieldsEditor({
             />
           ) : null}
           {field.kind === "DROPDOWN" || (field.kind === "FILE" && field.labelEachFile) ? (
-            <TextInput
-              style={[styles.input, { minHeight: 72 }]}
-              placeholder={field.kind === "DROPDOWN" ? "One option per line" : "One file label per line"}
-              multiline
-              value={field.optionsText}
-              onChangeText={(optionsText) => {
+            <OptionChipsEditor
+              labels={field.options}
+              maxCount={field.kind === "DROPDOWN" ? DROPDOWN_OPTIONS_MAX : 10}
+              onChange={(options) => {
                 const next = [...fields];
-                next[index] = { ...field, optionsText };
+                const maxFiles =
+                  field.kind === "FILE" && field.labelEachFile
+                    ? String(Math.min(10, Math.max(1, options.length || Number(field.maxFiles) || 1)))
+                    : field.maxFiles;
+                next[index] = {
+                  ...field,
+                  options,
+                  ...(field.kind === "FILE" ? { maxFiles } : {}),
+                };
                 onChange(next);
               }}
             />
@@ -97,7 +167,9 @@ export function ListingBuyerFieldsEditor({
                 placeholder="Number of files"
                 keyboardType="number-pad"
                 value={field.maxFiles}
+                editable={!field.labelEachFile}
                 onChangeText={(maxFiles) => {
+                  if (field.labelEachFile) return;
                   const next = [...fields];
                   next[index] = { ...field, maxFiles: maxFiles.replace(/[^\d]/g, "") };
                   onChange(next);
@@ -105,13 +177,20 @@ export function ListingBuyerFieldsEditor({
               />
               <Pressable
                 onPress={() => {
+                  const labelEachFile = !field.labelEachFile;
                   const next = [...fields];
-                  next[index] = { ...field, labelEachFile: !field.labelEachFile };
+                  next[index] = {
+                    ...field,
+                    labelEachFile,
+                    maxFiles: labelEachFile
+                      ? String(Math.min(10, Math.max(1, field.options.length || Number(field.maxFiles) || 1)))
+                      : field.maxFiles,
+                  };
                   onChange(next);
                 }}
               >
                 <Text style={styles.hint}>
-                  {field.labelEachFile ? "Labels on" : "Labels off"} — tap to toggle
+                  {field.labelEachFile ? "Labels on (file count follows labels)" : "Labels off"} — tap to toggle
                 </Text>
               </Pressable>
             </>
@@ -121,17 +200,17 @@ export function ListingBuyerFieldsEditor({
       {fields.length < 5 ? (
         <View style={styles.row}>
           <Pressable style={styles.add} onPress={() => onChange([...fields, emptyBuyerField("TEXT")])}>
-            <Text>Text</Text>
+            <Text>Text Box</Text>
           </Pressable>
           <Pressable style={styles.add} onPress={() => onChange([...fields, emptyBuyerField("DROPDOWN")])}>
-            <Text>Options</Text>
+            <Text>List of Options</Text>
           </Pressable>
           <Pressable
             style={[styles.add, fileTaken && { opacity: 0.4 }]}
             disabled={fileTaken}
             onPress={() => onChange([...fields, emptyBuyerField("FILE")])}
           >
-            <Text>File</Text>
+            <Text>File Upload</Text>
           </Pressable>
         </View>
       ) : null}
@@ -143,9 +222,27 @@ const styles = StyleSheet.create({
   wrap: { gap: 8, marginBottom: 12 },
   hint: { color: "#555", fontSize: 13 },
   card: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 8, gap: 6 },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
-  title: { fontWeight: "600" },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  title: { fontWeight: "500" },
   remove: { color: "#b00020" },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 8 },
   add: { borderWidth: 1, borderColor: "#ccc", borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6 },
+  chipWrap: { gap: 6 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: "#fff",
+  },
+  chipText: { fontSize: 13 },
+  chipRemove: { color: "#b00020", fontWeight: "700", fontSize: 16, lineHeight: 16 },
+  addRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  addInput: { flex: 1, minWidth: 120 },
+  addBtn: { color: "#3E432F", fontWeight: "700", fontSize: 14 },
 });

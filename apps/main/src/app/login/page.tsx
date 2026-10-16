@@ -80,11 +80,24 @@ function LoginForm() {
   useEffect(() => {
     if (sessionStatus !== "authenticated" || !session?.user) return;
     if (verifyPending) return;
-    const target =
-      typeof callbackUrl === "string" && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
-        ? callbackUrl
-        : "/my-community";
-    router.replace(target);
+    let cancelled = false;
+    (async () => {
+      const statusRes = await fetch("/api/signup/seller/status", { credentials: "include" });
+      const status = (await statusRes.json().catch(() => ({}))) as { resumePath?: string | null };
+      if (cancelled) return;
+      if (typeof status.resumePath === "string" && status.resumePath.startsWith("/signup/")) {
+        router.replace(status.resumePath);
+        return;
+      }
+      const target =
+        typeof callbackUrl === "string" && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
+          ? callbackUrl
+          : "/my-community";
+      router.replace(target);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionStatus, session?.user, callbackUrl, router, verifyPending]);
 
   const [isSignUp, setIsSignUp] = useState(false);
@@ -257,6 +270,12 @@ function LoginForm() {
         return;
       }
       if (res?.ok) {
+        const statusRes = await fetch("/api/signup/seller/status", { credentials: "include" });
+        const status = (await statusRes.json().catch(() => ({}))) as { resumePath?: string | null };
+        if (typeof status.resumePath === "string" && status.resumePath.startsWith("/signup/")) {
+          window.location.href = status.resumePath;
+          return;
+        }
         window.location.href = postLoginUrlForAdminAccount(email, callbackUrl);
         return;
       }

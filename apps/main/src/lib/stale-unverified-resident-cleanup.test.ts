@@ -24,6 +24,24 @@ describe("stale unverified resident cleanup", () => {
     expect(where.stripeConnectAccountId).toBeNull();
   });
 
+  it("selects abandoned resident and seller signups older than the cutoff", () => {
+    const cutoff = new Date("2020-01-01T00:00:00.000Z");
+    const where = staleUnverifiedResidentWhere(cutoff);
+    expect(where.createdAt).toEqual({ lt: cutoff });
+    expect(where.businesses).toEqual({ none: { adminGrantedAt: { not: null } } });
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          {
+            emailVerifiedAt: null,
+            OR: [{ signupIntent: null }, { signupIntent: "resident" }],
+          },
+          { signupIntent: { in: ["business", "seller"] } },
+        ],
+      },
+    ]);
+  });
+
   it("does not select a stale unverified resident who only has a Report", () => {
     const where = staleUnverifiedResidentWhere(new Date("2020-01-01T00:00:00.000Z"));
     expect(where.reports).toEqual({ none: {} });

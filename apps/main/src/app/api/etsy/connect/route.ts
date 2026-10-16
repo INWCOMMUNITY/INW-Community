@@ -3,6 +3,7 @@ import { etsyBrowserBindingCookie } from "@/lib/etsy/browser-binding";
 import { beginEtsyConnect, EtsyConnectError } from "@/lib/etsy/connect";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { setSellerOnboardingReturnCookie } from "@/lib/seller-onboarding-return";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,19 @@ export async function POST(req: NextRequest) {
   if (!(await memberHasStorefrontListingAccess(memberId))) {
     return NextResponse.json({ error: "Seller access required" }, { status: 403 });
   }
+  let onboarding = false;
+  try {
+    const body = (await req.json()) as { onboarding?: unknown };
+    onboarding = body.onboarding === true;
+  } catch {
+    onboarding = false;
+  }
   try {
     const { authorizeUrl, browserBindingSecret } = await beginEtsyConnect(memberId);
     const response = NextResponse.json({ authorizeUrl });
     const cookie = etsyBrowserBindingCookie(browserBindingSecret);
     response.cookies.set(cookie.name, cookie.value, cookie.options);
+    if (onboarding) setSellerOnboardingReturnCookie(response, "import");
     console.info("ETSY_OAUTH_CONNECT_BINDING_ISSUED", {
       host: req.nextUrl.host,
       path: req.nextUrl.pathname,

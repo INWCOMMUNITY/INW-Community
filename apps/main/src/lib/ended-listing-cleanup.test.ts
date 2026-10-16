@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { storeItemStatusWrite } from "./store-item-ended-status";
+import {
+  ENDED_LISTING_RETENTION_MS,
+  storeItemStatusWrite,
+  visibleEndedStoreItemWhere,
+} from "./store-item-ended-status";
 
 describe("storeItemStatusWrite", () => {
   it("stamps endedAt when a listing is ended", () => {
@@ -20,6 +24,18 @@ describe("storeItemStatusWrite", () => {
 
   it("does not treat sold_out as ending", () => {
     expect(storeItemStatusWrite("sold_out", "active")).toEqual({ status: "sold_out" });
+  });
+});
+
+describe("visibleEndedStoreItemWhere", () => {
+  it("shows ended listings only for 14 days", () => {
+    const now = new Date("2026-08-25T12:00:00.000Z");
+    const cutoff = new Date(now.getTime() - ENDED_LISTING_RETENTION_MS);
+    expect(visibleEndedStoreItemWhere("seller-1", now)).toEqual({
+      memberId: "seller-1",
+      status: "inactive",
+      OR: [{ endedAt: { gt: cutoff } }, { endedAt: null, updatedAt: { gt: cutoff } }],
+    });
   });
 });
 

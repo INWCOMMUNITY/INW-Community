@@ -21,8 +21,10 @@ import {
   aspectsEqual,
   mergeEtsyInboundAspects,
   normalizeEtsyTags,
+  stripEtsyPackageDimensionAspects,
   tagsEqual,
   type EtsyInboundAspect,
+  type EtsyPackageDimensionLabels,
 } from "./listing-aspects";
 import {
   buyerFieldsFromEtsyQuestions,
@@ -44,10 +46,12 @@ export type EtsyRemoteListingObservation = {
   state?: string | null;
   /** Diagnostic only. */
   updatedAt?: Date | null;
-  /** Shop Manager Attributes (+ materials/dimensions) mapped to INW Item Details. */
+  /** Shop Manager Attributes and materials mapped to INW Item Details. */
   aspects?: EtsyInboundAspect[] | null;
   /** True when listing properties were fetched (even if empty). */
   aspectsObserved?: boolean;
+  /** Etsy package size. Matching Width / Height / Depth rows are removed from Item Details. */
+  packageDimensions?: EtsyPackageDimensionLabels | null;
   /** Etsy search tags. */
   tags?: string[] | null;
   tagsObserved?: boolean;
@@ -203,30 +207,39 @@ export async function applyEtsyListingContentInbound(
   const observedState = String(input.remote.state ?? "")
     .trim()
     .toLowerCase();
+  const remoteLive = observedState === "active" || observedState === "sold_out";
+  const remoteNotLive =
+    observedState === "draft" ||
+    observedState === "inactive" ||
+    observedState === "expired" ||
+    observedState === "removed";
   if (observedState && observedState !== String(listing.remoteListingState ?? "").toLowerCase()) {
     await db.etsyListingLink.update({
       where: { id: listing.id },
-      data:
-        observedState === "active"
+      data: remoteLive
+        ? {
+            remoteListingState: observedState,
+            ...(listing.issueCode === "DRAFT_NOT_ACTIVE" || listing.issueCode === "ACTIVATE_FAILED"
+              ? {
+                  readiness: "READY_TO_PUBLISH" as const,
+                  contentHealth: "HEALTHY" as const,
+                  issueCode: null,
+                  issueMessage: null,
+                }
+              : {}),
+          }
+        : remoteNotLive
           ? {
-              remoteListingState: "active",
-              ...(listing.issueCode === "DRAFT_NOT_ACTIVE" || listing.issueCode === "ACTIVATE_FAILED"
-                ? {
-                    readiness: "READY_TO_PUBLISH" as const,
-                    contentHealth: "HEALTHY" as const,
-                    issueCode: null,
-                    issueMessage: null,
-                  }
-                : {}),
-            }
-          : {
               remoteListingState: observedState,
               readiness: "ACTION_REQUIRED" as const,
               contentHealth: "DEGRADED" as const,
               issueCode: "DRAFT_NOT_ACTIVE",
               issueMessage:
-                "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish.",
-            },
+                observedState === "draft"
+                  ? "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish."
+                  : `Etsy listing is ${observedState} (not live). Re-list from Sync Airport to publish.`,
+            }
+          : { remoteListingState: observedState },
     });
     listing.remoteListingState = observedState;
   }
@@ -327,12 +340,16 @@ export async function applyEtsyListingContentInbound(
 
   // Attributes / tags are Etsy→INW only (aspects ignored by Etsy outbound).
   // Apply independently of title/description LWW so Shop Manager Attributes land in Item Details.
+  // Package width/height/length stay off Item Details and clear any earlier echo.
   const aspectPatch: {
     aspects?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
     tags?: string[];
   } = {};
   if (input.remote.aspectsObserved) {
-    const merged = mergeEtsyInboundAspects(storeItem.aspects, input.remote.aspects ?? []);
+    const merged = stripEtsyPackageDimensionAspects(
+      mergeEtsyInboundAspects(storeItem.aspects, input.remote.aspects ?? []),
+      input.remote.packageDimensions
+    );
     if (!aspectsEqual(storeItem.aspects, merged)) {
       aspectPatch.aspects =
         merged.length > 0 ? (merged as unknown as Prisma.InputJsonValue) : Prisma.JsonNull;

@@ -9,9 +9,11 @@ import {
   decrementSingleAxisOptionQuantities,
   hasMeaningfulVariantSelection,
   hasOptionQuantities,
+  listingUsesSharedQuantity,
+  sharedPoolAvailable,
   sumOptionQuantities,
 } from "@/lib/store-item-variants";
-import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 
 export { ConcurrentModificationError, InsufficientStockError };
 
@@ -68,6 +70,48 @@ export async function applyStoreItemDecrementAfterSale(
             select: { quantity: true, updatedAt: true },
           });
           if (!fresh || fresh.quantity < sold) {
+            throw new InsufficientStockError(storeItem.id, sold, fresh?.quantity ?? 0);
+          }
+          throw new ConcurrentModificationError(storeItem.id);
+        }
+        return;
+      }
+
+      if (listingUsesSharedQuantity(variants)) {
+        const pool = sharedPoolAvailable(currentItem);
+        if (pool < sold) {
+          throw new InsufficientStockError(storeItem.id, sold, pool);
+        }
+        const matrix = normalizeVariantMatrix(variants);
+        const nextQty = pool - sold;
+        const nextVariants = matrix
+          ? {
+              ...matrix,
+              sharedQuantity: true,
+              quantitiesVary: false,
+              skus: matrix.skus.map((sku) => ({
+                ...sku,
+                quantity: sku.quantity > 0 ? nextQty : 0,
+              })),
+            }
+          : variants;
+        const result = await prisma.storeItem.updateMany({
+          where: {
+            id: storeItem.id,
+            updatedAt: updatedAt,
+            quantity: { gte: sold },
+          },
+          data: {
+            variants: nextVariants as object,
+            quantity: nextQty,
+          },
+        });
+        if (result.count === 0) {
+          const fresh = await prisma.storeItem.findUnique({
+            where: { id: storeItem.id },
+            select: { quantity: true, updatedAt: true },
+          });
+          if (!fresh || sharedPoolAvailable({ variants, quantity: fresh?.quantity ?? 0 }) < sold) {
             throw new InsufficientStockError(storeItem.id, sold, fresh?.quantity ?? 0);
           }
           throw new ConcurrentModificationError(storeItem.id);

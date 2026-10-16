@@ -93,6 +93,29 @@ describe("quantity caps", () => {
     expect(maxQuantityForCartLine(5, lines, { id: "ship", storeItemId: "shirt", variant: { Size: "L" } })).toBe(4);
     expect(maxQuantityForCartLine(5, lines, { id: "m", storeItemId: "shirt", variant: { Size: "M" } })).toBe(5);
   });
+
+  it("counts every combination against a shared listing quantity", () => {
+    const lines = [
+      { id: "black", storeItemId: "dogs", variant: { "Primary color": "Brown", "Secondary color": "Black" }, quantity: 10 },
+      { id: "blue", storeItemId: "dogs", variant: { "Primary color": "Brown", "Secondary color": "Blue" }, quantity: 10 },
+    ];
+    expect(
+      maxQuantityForCartLine(
+        10,
+        lines,
+        { id: "blue", storeItemId: "dogs", variant: { "Primary color": "Brown", "Secondary color": "Blue" } },
+        { sharedQuantity: true }
+      )
+    ).toBe(0);
+    expect(
+      maxQuantityForCartLine(
+        10,
+        lines,
+        { storeItemId: "dogs", variant: { "Primary color": "Black", "Secondary color": "Blue" } },
+        { sharedQuantity: true }
+      )
+    ).toBe(0);
+  });
 });
 
 describe("findCartRowForCheckoutLine", () => {

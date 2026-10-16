@@ -302,7 +302,7 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
     }
   });
 
-  it("repairs empty on_property arrays when rewriting a multi-product inventory GET", () => {
+  it("keeps listing-level price and quantity when every combination matches", () => {
     const body = toEtsyInventoryPutBody({
       products: [
         {
@@ -330,10 +330,38 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
       quantity_on_property: [],
       sku_on_property: [],
     });
-    expect(body.price_on_property.sort()).toEqual([200, 507, 513]);
-    expect(body.quantity_on_property.sort()).toEqual([200, 507, 513]);
+    expect(body.price_on_property).toEqual([]);
+    expect(body.quantity_on_property).toEqual([]);
     expect(body.products).toHaveLength(2);
     expect(body.products.every((p) => p.offerings[0]?.quantity === 2)).toBe(true);
+  });
+
+  it("fills on_property when combination prices or quantities differ", () => {
+    const body = toEtsyInventoryPutBody({
+      products: [
+        {
+          product_id: 1,
+          sku: "",
+          property_values: [
+            { property_id: 200, property_name: "Primary color", values: ["Black"], value_ids: [] },
+          ],
+          offerings: [{ offering_id: 11, price: 5, quantity: 2, is_enabled: true }],
+        },
+        {
+          product_id: 2,
+          sku: "",
+          property_values: [
+            { property_id: 200, property_name: "Primary color", values: ["Blue"], value_ids: [] },
+          ],
+          offerings: [{ offering_id: 22, price: 8, quantity: 9, is_enabled: true }],
+        },
+      ],
+      price_on_property: [],
+      quantity_on_property: [],
+      sku_on_property: [],
+    });
+    expect(body.price_on_property).toEqual([200]);
+    expect(body.quantity_on_property).toEqual([200]);
   });
 
   it("keeps per-combination price and quantity on Etsy when every row matches", () => {
@@ -369,6 +397,42 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
     expect(built.price_on_property).toEqual([507, 200, 513]);
     expect(built.quantity_on_property).toEqual([507, 200, 513]);
     expect(built.sku_on_property).toEqual([]);
+  });
+
+  it("pushes one listing quantity when quantities do not vary", () => {
+    const variants = [
+      {
+        id: "v1",
+        options: { "Primary color": "Black", "Secondary color": "Blue" },
+        priceCents: 4000,
+        sku: "PHOTO",
+        inventory: { mode: "TRACKED_FINITE" as const, onHand: 25, reserved: 0 },
+      },
+      {
+        id: "v2",
+        options: { "Primary color": "Brown", "Secondary color": "Black" },
+        priceCents: 4000,
+        sku: "PHOTO",
+        inventory: { mode: "TRACKED_FINITE" as const, onHand: 25, reserved: 0 },
+      },
+    ];
+    const built = buildEtsyInventoryProductsPayload({
+      variants,
+      inventoryTracking: "tracked",
+      axisNames: ["Primary color", "Secondary color"],
+      propertyMap: new Map([
+        ["Primary color", { propertyId: 200, scaleId: null }],
+        ["Secondary color", { propertyId: 513, scaleId: null }],
+      ]),
+      readinessStateId: 99,
+      pricesVary: false,
+      quantitiesVary: false,
+      skusVary: false,
+    });
+    expect(built.quantity_on_property).toEqual([]);
+    expect(built.price_on_property).toEqual([]);
+    expect(built.sku_on_property).toEqual([]);
+    expect(built.products.every((product) => product.offerings[0]?.quantity === 25)).toBe(true);
   });
 
   it("correlates when Etsy renames axes but keeps the option values", () => {

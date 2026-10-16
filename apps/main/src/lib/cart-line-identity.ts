@@ -93,13 +93,29 @@ export function quantityOnSameSku(lines: CartLineQty[], target: { storeItemId: s
   }, 0);
 }
 
-/** Max this line can be, given SKU stock and other cart rows of the same options. */
+/** Every combination of a shared-quantity listing draws from one pool. */
+export function quantityOnSameListing(
+  lines: CartLineQty[],
+  target: { storeItemId: string },
+  excludeId?: string
+): number {
+  return lines.reduce((sum, line) => {
+    if (excludeId && line.id === excludeId) return sum;
+    if (line.storeItemId !== target.storeItemId) return sum;
+    return sum + line.quantity;
+  }, 0);
+}
+
+/** Max this line can be. Shared listings count every combination; other listings count the same options only. */
 export function maxQuantityForCartLine(
   skuAvailable: number,
   lines: CartLineQty[],
-  target: { id?: string; storeItemId: string; variant?: unknown }
+  target: { id?: string; storeItemId: string; variant?: unknown },
+  options?: { sharedQuantity?: boolean }
 ): number {
-  const others = quantityOnSameSku(lines, target, target.id);
+  const others = options?.sharedQuantity
+    ? quantityOnSameListing(lines, target, target.id)
+    : quantityOnSameSku(lines, target, target.id);
   return Math.max(0, skuAvailable - others);
 }
 

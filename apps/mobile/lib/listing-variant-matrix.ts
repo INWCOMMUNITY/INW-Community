@@ -40,6 +40,8 @@ export type VariantMatrix = {
   pricesVary?: boolean;
   quantitiesVary?: boolean;
   skusVary?: boolean;
+  /** One quantity covers every combination. Unchecked places stay per-combination. */
+  sharedQuantity?: boolean;
   /** Option type whose values own photos (Etsy/eBay allow one). */
   imageAxis?: string | null;
 };
@@ -178,7 +180,9 @@ export function inferMatrixVaryFlags(matrix: VariantMatrix): {
   const skusVary = matrix.skusVary ?? matrix.skus.some((s) => Boolean(s.sku?.trim()));
   const qtys = matrix.skus.map((s) => s.quantity);
   const quantitiesVary =
-    matrix.quantitiesVary ?? (qtys.length > 1 && new Set(qtys).size > 1);
+    matrix.sharedQuantity === true
+      ? false
+      : matrix.quantitiesVary ?? (qtys.length > 1 && new Set(qtys).size > 1);
   return { pricesVary, quantitiesVary, skusVary };
 }
 
@@ -612,6 +616,7 @@ function withMatrixMeta(matrix: VariantMatrix, obj: Record<string, unknown>): Va
     ...(readBoolFlag(obj.pricesVary) != null ? { pricesVary: readBoolFlag(obj.pricesVary) } : {}),
     ...(readBoolFlag(obj.quantitiesVary) != null ? { quantitiesVary: readBoolFlag(obj.quantitiesVary) } : {}),
     ...(readBoolFlag(obj.skusVary) != null ? { skusVary: readBoolFlag(obj.skusVary) } : {}),
+    ...(obj.sharedQuantity === true ? { sharedQuantity: true } : {}),
     ...(imageAxis != null ? { imageAxis } : {}),
   };
   const inferred = inferMatrixVaryFlags(next);
@@ -711,6 +716,7 @@ export function serializeVariantMatrix(matrix: VariantMatrix): VariantMatrix {
     pricesVary: flags.pricesVary,
     quantitiesVary: flags.quantitiesVary,
     skusVary: flags.skusVary,
+    ...(matrix.sharedQuantity === true ? { sharedQuantity: true } : {}),
     imageAxis,
   };
 }

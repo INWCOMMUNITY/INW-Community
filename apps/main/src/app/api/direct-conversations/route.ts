@@ -320,10 +320,20 @@ export async function POST(req: NextRequest) {
         }
         const otherId = conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
         const isRequest = conversation.status === "pending";
-        const pushTitle = isRequest ? "Somebody wants to chat!" : "New Message!";
+        const senderName =
+          [message.sender.firstName, message.sender.lastName].filter(Boolean).join(" ").trim() ||
+          "Someone";
+        const messagePreview = `${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`;
+        const pushTitle = isRequest
+          ? "Somebody wants to chat!"
+          : contentTrimmed.length > 0
+            ? `${senderName} sent you a message!`
+            : "New Message!";
         const pushBody =
           contentTrimmed.length > 0
-            ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+            ? isRequest
+              ? `${message.sender.firstName}: ${messagePreview}`
+              : messagePreview
             : isRequest
               ? `${message.sender.firstName} sent a message request — tap to accept or decline.`
               : `${message.sender.firstName} messaged you — tap to read.`;
@@ -348,10 +358,19 @@ export async function POST(req: NextRequest) {
     const otherId =
       conversation.memberAId === session.user.id ? conversation.memberBId : conversation.memberAId;
     const isRequest = conversation.status === "pending";
-    const pushTitle = isRequest ? "Somebody wants to chat!" : "New Message!";
+    const senderName =
+      [message.sender.firstName, message.sender.lastName].filter(Boolean).join(" ").trim() || "Someone";
+    const messagePreview = `${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`;
+    const pushTitle = isRequest
+      ? "Somebody wants to chat!"
+      : contentTrimmed.length > 0
+        ? `${senderName} sent you a message!`
+        : "New Message!";
     const pushBody =
       contentTrimmed.length > 0
-        ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+        ? isRequest
+          ? `${message.sender.firstName}: ${messagePreview}`
+          : messagePreview
         : isRequest
           ? `${message.sender.firstName} sent a message request — tap to accept or decline.`
           : `${message.sender.firstName} messaged you — tap to read.`;

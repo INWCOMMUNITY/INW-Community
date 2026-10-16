@@ -14,9 +14,9 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
-const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
+import { buildProductPath } from "@/lib/product-referrer";
+import { ListingPhotoCollage } from "@/components/apps-airport/ListingPhotoCollage";
+import { HubButton } from "@/components/apps-airport/chrome";
 
 type Connection = {
   id: string;
@@ -38,6 +38,7 @@ type ListingRow = {
   shopifyProductId: string;
   title: string;
   slug?: string | null;
+  photos?: string[];
   priceCents: number;
   quantity?: number;
   readiness: string;
@@ -53,7 +54,7 @@ type ListingRow = {
 function inwLivePath(row: Pick<ListingRow, "slug" | "storeItemId">): string {
   const slug = row.slug?.trim();
   return slug
-    ? `/storefront/${slug}?from=shopify-sync`
+    ? buildProductPath(slug, { type: "storefront" })
     : `/seller-hub/store/new?edit=${row.storeItemId}`;
 }
 
@@ -268,11 +269,6 @@ export default function ShopifySellerScreen() {
     );
   };
 
-  const openWeb = (path: string, title: string) => {
-    const url = `${siteBase}${path}`;
-    router.push(`/web?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}` as never);
-  };
-
   const uiStatus = classifyConnection(connection);
   const canImport = uiStatus !== "disconnected";
   const canList = uiStatus === "connected";
@@ -341,34 +337,30 @@ export default function ShopifySellerScreen() {
       {toast ? <Text style={styles.toast}>{toast}</Text> : null}
 
       <View style={styles.actionsRow}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.actionBtn,
-            !canImport && styles.actionBtnDisabled,
-            pressed && canImport && { opacity: 0.85 },
-          ]}
-          disabled={!canImport}
-          onPress={() => openWeb("/seller-hub/apps/shopify/import", "Import Listings")}
-        >
-          <Text style={styles.actionBtnText}>Import Listings</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [
-            styles.actionBtn,
-            !canList && styles.actionBtnDisabled,
-            pressed && canList && { opacity: 0.85 },
-          ]}
-          disabled={!canList}
-          onPress={() => openWeb("/seller-hub/apps/shopify/sync", "List Items on Shopify")}
-        >
-          <Text style={styles.actionBtnText}>List Items on Shopify</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.85 }]}
-          onPress={() => openWeb("/seller-hub/apps/shopify/settings", "Connection Settings")}
-        >
-          <Text style={styles.actionBtnText}>Connection Settings</Text>
-        </Pressable>
+        {canImport ? (
+          <HubButton
+            label="Import Listings"
+            onPress={() => router.push("/seller-hub/shopify/import" as never)}
+          />
+        ) : null}
+        {canList ? (
+          <HubButton
+            label="List Items on Shopify"
+            tone="honey"
+            onPress={() => router.push("/seller-hub/shopify/sync" as never)}
+          />
+        ) : null}
+        {uiStatus !== "disconnected" ? (
+          <HubButton
+            label="Open Shopify Dashboard"
+            tone="earth"
+            onPress={() => void Linking.openURL("https://admin.shopify.com/")}
+          />
+        ) : null}
+        <HubButton
+          label="Settings"
+          onPress={() => router.push("/seller-hub/shopify/settings" as never)}
+        />
       </View>
 
       {remountLine ? <Text style={styles.remount}>{remountLine}</Text> : null}
@@ -416,6 +408,9 @@ export default function ShopifySellerScreen() {
               const inwQty = typeof row.quantity === "number" ? row.quantity : "—";
               return (
                 <View key={row.storeItemId} style={styles.listCard}>
+                  <View style={styles.listBody}>
+                    <ListingPhotoCollage photos={row.photos} />
+                    <View style={styles.listCopy}>
                   <View style={styles.listHeader}>
                     <Text style={styles.listTitle}>{row.title}</Text>
                     <View style={[styles.chip, { backgroundColor: chip.bg }]}>
@@ -436,6 +431,8 @@ export default function ShopifySellerScreen() {
                   >
                     <Text style={styles.manageBtnText}>{busy ? "Working…" : "Manage"}</Text>
                   </Pressable>
+                    </View>
+                  </View>
                 </View>
               );
             })
@@ -466,7 +463,7 @@ export default function ShopifySellerScreen() {
                 <Pressable
                   onPress={() => {
                     setMenuFor(null);
-                    openWeb(inwLivePath(menuFor), "View on INW");
+                    router.push(inwLivePath(menuFor) as never);
                   }}
                 >
                   <Text style={styles.menuItem}>View on INW</Text>
@@ -576,6 +573,8 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
   },
+  listBody: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  listCopy: { flex: 1 },
   listHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

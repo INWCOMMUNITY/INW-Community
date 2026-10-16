@@ -20,7 +20,14 @@ import {
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
-import { getAvailableQuantity, getSkuPriceCents, hasMeaningfulVariantSelection, hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  getAvailableQuantity,
+  getSkuPriceCents,
+  hasMeaningfulVariantSelection,
+  hasOptionQuantities,
+  listingUsesSharedQuantity,
+  sharedPoolAvailable,
+} from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import { cartSkuQuantityKey, findCartRowForCheckoutLine, formatCartVariantLabel } from "@/lib/cart-line-identity";
 import {
@@ -102,7 +109,7 @@ export async function POST(req: NextRequest) {
     returnBaseUrl?: string;
     /**
      * When true with shipped line(s), skip app-provided shipping; Stripe Checkout collects shipping.
-     * Used by product-page “Buy It Now”. Webhook copies `shipping_details` onto pending orders.
+     * Used by product-page Buy It Now and the cart. Fulfillment copies `shipping_details` onto the order.
      */
     shippingCollectedByStripe?: boolean;
   };
@@ -240,8 +247,17 @@ export async function POST(req: NextRequest) {
   }
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
-    const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
-    const needed = qtyBySku.get(cartSkuQuantityKey(item.storeItemId, item.variant)) ?? item.quantity;
+    const shared = storeItem ? listingUsesSharedQuantity(storeItem.variants) : false;
+    const available = !storeItem
+      ? 0
+      : shared
+        ? sharedPoolAvailable(storeItem)
+        : getAvailableQuantity(storeItem, item.variant);
+    const needed = shared
+      ? items
+          .filter((row) => row.storeItemId === item.storeItemId)
+          .reduce((sum, row) => sum + row.quantity, 0)
+      : (qtyBySku.get(cartSkuQuantityKey(item.storeItemId, item.variant)) ?? item.quantity);
     if (!storeItem || item.quantity < 1 || needed > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
@@ -269,9 +285,25 @@ export async function POST(req: NextRequest) {
   const sellerIdsForConnect = [...bySeller.keys()];
   const membersForConnect = await prisma.member.findMany({
     where: { id: { in: sellerIdsForConnect } },
-    select: { id: true, stripeConnectAccountId: true },
+    select: {
+      id: true,
+      stripeConnectAccountId: true,
+      combineShipping: true,
+      combinedShippingMaxCents: true,
+      freeShippingMinimumCents: true,
+    },
   });
   const connectMap = new Map(membersForConnect.map((m) => [m.id, m.stripeConnectAccountId]));
+  const shippingRulesBySeller = new Map(
+    membersForConnect.map((m) => [
+      m.id,
+      {
+        combineShipping: m.combineShipping,
+        combinedShippingMaxCents: m.combinedShippingMaxCents,
+        freeShippingMinimumCents: m.freeShippingMinimumCents,
+      },
+    ])
+  );
   for (const sid of sellerIdsForConnect) {
     if (!connectMap.get(sid)?.trim()) {
       return NextResponse.json(
@@ -394,10 +426,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const orderShippingCents =
-      hasShippedInThisOrder && !deferShippingToStripe
-        ? shippingCentsForSellerLines(sellerItems, itemMap)
-        : 0;
+    const orderShippingCents = hasShippedInThisOrder
+      ? shippingCentsForSellerLines(sellerItems, itemMap, {
+          merchandiseCents: subtotalCents,
+          rules: shippingRulesBySeller.get(sellerId) ?? null,
+        })
+      : 0;
     const totalCents = subtotalCents + orderShippingCents + localDeliveryFeeCentsTotal;
 
     if (orderShippingCents > 0) {
@@ -565,7 +599,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ["card"],
       success_url: successUrl,
       cancel_url: `${baseUrl}/storefront?canceled=1`,
-      // Cart: Customer.shipping pre-synced. Buy It Now: Stripe collects shipping + customer_update.shipping=auto for Tax.
+      // Shipped cart and Buy It Now: Stripe collects shipping + customer_update.shipping=auto for Tax.
       ...storefrontCheckoutTaxShippingParams({ deferShippingToStripe }),
       customer: customerId,
       metadata,

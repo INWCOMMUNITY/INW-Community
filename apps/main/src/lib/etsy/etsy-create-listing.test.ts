@@ -7,6 +7,22 @@ import {
   ETSY_DEFAULT_PACKAGE,
   resolveEtsyListingPackageFields,
 } from "./listing-package";
+import { extractEtsyListingState } from "./create-listing";
+
+describe("extractEtsyListingState", () => {
+  it("reads state from a bare listing object", () => {
+    expect(extractEtsyListingState({ state: "active", listing_id: 1 })).toBe("active");
+  });
+
+  it("reads state from a results envelope when PATCH omits top-level state", () => {
+    expect(extractEtsyListingState({ results: [{ state: "active" }] })).toBe("active");
+  });
+
+  it("returns null when state is missing so callers can GET-confirm", () => {
+    expect(extractEtsyListingState({ listing_id: 1 })).toBeNull();
+    expect(extractEtsyListingState(null)).toBeNull();
+  });
+});
 
 describe("resolveEtsyListingPackageFields", () => {
   it("defaults when no shipping option measurements exist", () => {

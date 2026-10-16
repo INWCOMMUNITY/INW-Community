@@ -1,13 +1,13 @@
 import { createHash } from "crypto";
+import { listingDescriptionPlainText } from "../listing-description-plain";
 
 export function normalizeEtsyTitle(title: string | null | undefined): string {
   return typeof title === "string" ? title.trim() : "";
 }
 
-/** Stable description compare/write for INW↔Etsy (trim + normalize newlines). */
+/** Stable description compare/write for INW↔Etsy. HTML wrappers become plain text. */
 export function normalizeEtsyDescription(description: string | null | undefined): string {
-  if (typeof description !== "string") return "";
-  return description.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  return listingDescriptionPlainText(description);
 }
 
 export function normalizeEtsySku(sku: string | null | undefined): string {

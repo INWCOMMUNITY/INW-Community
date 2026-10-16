@@ -8,10 +8,10 @@ import { buildBusinessHref } from "@/lib/business-referrer";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { SaveToCollectionButton } from "@/components/SaveToCollectionButton";
 import { ShareButton } from "@/components/ShareButton";
 import { useCart } from "@/contexts/CartContext";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
-import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { IonIcon } from "@/components/IonIcon";
 import {
   StoreItemFulfillmentPicker,
@@ -24,7 +24,6 @@ import {
   hasOptionQuantities,
   getMaxPurchasableQuantity,
   optionIsSoldOut,
-  getOptionQuantity,
   listingVariantDisplayAxes,
   getSkuPriceCents,
   getSkuPhotos,
@@ -38,8 +37,12 @@ import {
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
 } from "@/lib/store-return";
+import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
+import { answersPayload, ListingBuyerAnswers, type BuyerAnswerDraft } from "@/components/store/ListingBuyerAnswers";
+import { uploadBuyerFile } from "@/lib/upload-buyer-file-browser";
+import type { ListingBuyerFieldPublic } from "database/src/public-buyer-fields";
 
-type FulfillmentType = "ship" | "local_delivery" | "pickup";
+type FulfillmentType = "ship" | "local_delivery";
 
 interface StoreItem {
   id: string;
@@ -72,7 +75,9 @@ interface StoreItem {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    freeShippingMinimumCents?: number | null;
   };
+  freeShippingBanner?: FreeShippingBanner | null;
   business?: {
     id: string;
     name: string;
@@ -85,13 +90,13 @@ interface StoreItem {
     fullDescription?: string | null;
   };
   soldAt?: string;
+  buyerFields?: ListingBuyerFieldPublic[];
 }
 
 function buyBoxFulfillmentSummary(
   fulfillmentType: FulfillmentType,
   listing: StoreItem
 ): string | null {
-  if (fulfillmentType === "pickup") return "Local pickup";
   if (fulfillmentType === "local_delivery") {
     const fee = listing.localDeliveryFeeCents ?? 0;
     return fee > 0
@@ -126,6 +131,7 @@ export function StorefrontListingContent({
   const [itemUnavailable, setItemUnavailable] = useState(initialUnavailable);
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
+  const [buyerDrafts, setBuyerDrafts] = useState<Record<string, BuyerAnswerDraft>>({});
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [loading, setLoading] = useState(!initialItem);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -143,7 +149,6 @@ export function StorefrontListingContent({
   const ITEMS_PER_SCROLL = 2;
   const { refresh, setOpen: setCartOpen } = useCart();
 
-  // Fulfillment: ship | local_delivery | pickup
   const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("ship");
   const [localDeliveryModalOpen, setLocalDeliveryModalOpen] = useState(false);
   const [localDeliveryForm, setLocalDeliveryForm] = useState<Partial<LocalDeliveryDetails>>({
@@ -156,17 +161,6 @@ export function StorefrontListingContent({
     note: "",
   });
   const [localDeliveryDetailsSaved, setLocalDeliveryDetailsSaved] = useState(false);
-  const [pickupModalOpen, setPickupModalOpen] = useState(false);
-  const [pickupForm, setPickupForm] = useState<Partial<PickupDetails>>({
-    firstName: "",
-    lastName: "",
-    phone: "",
-    email: "",
-    preferredPickupDate: "",
-    preferredPickupTime: "",
-    note: "",
-  });
-  const [pickupDetailsSaved, setPickupDetailsSaved] = useState(false);
   const [nwcRefundPolicyOpen, setNwcRefundPolicyOpen] = useState(false);
 
   useEffect(() => {
@@ -189,7 +183,6 @@ export function StorefrontListingContent({
   useEffect(() => {
     if (initialItem && !initialItem.shippingDisabled) setFulfillmentType("ship");
     else if (initialItem?.localDeliveryAvailable) setFulfillmentType("local_delivery");
-    else if (initialItem?.inStorePickupAvailable) setFulfillmentType("pickup");
   }, [initialItem]);
 
   useEffect(() => {
@@ -212,7 +205,6 @@ export function StorefrontListingContent({
           setItem(data);
           if (!data.shippingDisabled) setFulfillmentType("ship");
           else if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
           return;
         }
         return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&includeUnavailable=1`)
@@ -223,7 +215,6 @@ export function StorefrontListingContent({
               setItemUnavailable(true);
               if (!data2.shippingDisabled) setFulfillmentType("ship");
               else if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
-              else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
             } else {
               setItem(null);
             }
@@ -350,13 +341,10 @@ export function StorefrontListingContent({
     item?.member?.sellerLocalDeliveryPolicy ??
     null;
 
-  const canAddToCart =
-    (fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved) &&
-    (fulfillmentType !== "pickup" || pickupDetailsSaved);
+  const canAddToCart = fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved;
 
   const needsFulfillmentForm =
-    (fulfillmentType === "pickup" && !pickupDetailsSaved) ||
-    (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
+    fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved;
 
   async function handleAddToCart() {
     if (!item || quantity < 1 || quantity > maxPurchasableQty) return;
@@ -368,10 +356,6 @@ export function StorefrontListingContent({
       setLocalDeliveryModalOpen(true);
       return;
     }
-    if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setPickupModalOpen(true);
-      return;
-    }
     setError("");
     setAddingToCart(true);
     try {
@@ -381,12 +365,13 @@ export function StorefrontListingContent({
         variant?: Record<string, string>;
         fulfillmentType?: FulfillmentType;
         localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
-        pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
+        buyerResponses?: unknown;
       } = {
         storeItemId: item.id,
         quantity,
         variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
         fulfillmentType,
+        buyerResponses: answersPayload(item.buyerFields ?? [], buyerDrafts),
       };
       if (fulfillmentType === "local_delivery" && localDeliveryForm && localDeliveryDetailsSaved) {
         body.localDeliveryDetails = {
@@ -398,19 +383,6 @@ export function StorefrontListingContent({
           availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
-        };
-      }
-      if (fulfillmentType === "pickup" && pickupForm && pickupDetailsSaved) {
-        body.pickupDetails = {
-          ...pickupForm,
-          firstName: pickupForm.firstName ?? "",
-          lastName: pickupForm.lastName ?? "",
-          phone: pickupForm.phone ?? "",
-          email: pickupForm.email ?? "",
-          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
-          preferredPickupTime: pickupForm.preferredPickupTime ?? "",
-          note: pickupForm.note ?? "",
-          termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
         };
       }
       const res = await fetch("/api/cart", {
@@ -440,10 +412,6 @@ export function StorefrontListingContent({
       setLocalDeliveryModalOpen(true);
       return;
     }
-    if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
-      setPickupModalOpen(true);
-      return;
-    }
     setError("");
     setCheckingOut(true);
     try {
@@ -453,6 +421,7 @@ export function StorefrontListingContent({
           quantity,
           variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
           fulfillmentType,
+          buyerResponses: answersPayload(item.buyerFields ?? [], buyerDrafts),
         },
       ];
       const body: {
@@ -460,7 +429,6 @@ export function StorefrontListingContent({
         shippingCostCents?: number;
         shippingAddress?: unknown;
         localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
-        pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
       } = {
         items,
         shippingCostCents: fulfillmentType === "ship" ? (item.shippingCostCents ?? 0) : 0,
@@ -476,19 +444,6 @@ export function StorefrontListingContent({
           availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
           note: localDeliveryForm.note ?? "",
           termsAcceptedAt: new Date().toISOString(),
-        };
-      }
-      if (fulfillmentType === "pickup" && pickupForm && pickupDetailsSaved) {
-        body.pickupDetails = {
-          ...pickupForm,
-          firstName: pickupForm.firstName ?? "",
-          lastName: pickupForm.lastName ?? "",
-          phone: pickupForm.phone ?? "",
-          email: pickupForm.email ?? "",
-          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
-          preferredPickupTime: pickupForm.preferredPickupTime ?? "",
-          note: pickupForm.note ?? "",
-          termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
         };
       }
 
@@ -762,27 +717,6 @@ export function StorefrontListingContent({
           }}
         />
         )}
-        {pickupModalOpen && item && (
-        <PickupTermsModal
-          open
-          onClose={() => setPickupModalOpen(false)}
-          policyText={item?.pickupTerms ?? item?.member?.sellerPickupPolicy ?? undefined}
-          initialForm={{
-            firstName: pickupForm.firstName ?? "",
-            lastName: pickupForm.lastName ?? "",
-            phone: pickupForm.phone ?? "",
-            email: pickupForm.email ?? "",
-            preferredPickupDate: pickupForm.preferredPickupDate ?? "",
-            preferredPickupTime: pickupForm.preferredPickupTime ?? "",
-            note: pickupForm.note ?? "",
-          }}
-          onSave={(form) => {
-            setPickupForm(form);
-            setPickupDetailsSaved(true);
-            setPickupModalOpen(false);
-          }}
-        />
-        )}
 
         {/* Product Details - boxed */}
         <div
@@ -911,18 +845,10 @@ export function StorefrontListingContent({
               onFulfillmentTypeChange={setFulfillmentType}
               shippingDisabled={item.shippingDisabled}
               localDeliveryAvailable={item.localDeliveryAvailable}
-              inStorePickupAvailable={item.inStorePickupAvailable}
               shippingCostCents={item.shippingCostCents}
               localDeliveryFeeCents={item.localDeliveryFeeCents}
               localDeliveryDetailsSaved={localDeliveryDetailsSaved}
-              pickupDetailsSaved={pickupDetailsSaved}
             />
-            {fulfillmentType === "pickup" && (item.pickupTerms ?? item.member?.sellerPickupPolicy) && (
-              <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm">
-                <strong>Seller&apos;s pickup policy:</strong>
-                <div className="mt-1 whitespace-pre-wrap text-gray-700">{item.pickupTerms ?? item.member?.sellerPickupPolicy}</div>
-              </div>
-            )}
             {displayAxes.length > 0 && (
               <div className="mt-6 space-y-3">
                 {displayAxes.map((v) => (
@@ -937,17 +863,6 @@ export function StorefrontListingContent({
                           item.inventoryTracking,
                           selectedVariant
                         );
-                        const optQty = getOptionQuantity(
-                          item.variants,
-                          v.name,
-                          opt,
-                          selectedVariant
-                        );
-                        const lowStock =
-                          perOptionStock &&
-                          optQty != null &&
-                          optQty > 0 &&
-                          optQty < 10;
                         return (
                         <button
                           key={opt}
@@ -965,7 +880,7 @@ export function StorefrontListingContent({
                           }`}
                         >
                           {opt}
-                          {soldOut ? " (Out)" : lowStock ? ` (${optQty})` : ""}
+                          {soldOut ? " (Out)" : ""}
                         </button>
                         );
                       })}
@@ -976,6 +891,12 @@ export function StorefrontListingContent({
             )}
             {!itemUnavailable && (
               <>
+                <ListingBuyerAnswers
+                  fields={item.buyerFields ?? []}
+                  drafts={buyerDrafts}
+                  onChange={setBuyerDrafts}
+                  onUpload={uploadBuyerFile}
+                />
                 {perOptionStock && !allVariantsSelected ? (
                   <p className="text-sm text-gray-600 mt-6">
                     Select all options to see available quantity.
@@ -1039,6 +960,11 @@ export function StorefrontListingContent({
                     return next;
                   });
                 }}
+              />
+              <SaveToCollectionButton
+                storeItemId={item.id}
+                storeItemTitle={item.title}
+                variant="full"
               />
               <div className="lg:hidden">
                 <ShareButton
@@ -1211,7 +1137,7 @@ export function StorefrontListingContent({
           </div>
         )}
 
-        {/* Seller Policy - same design as Store Information; always includes NWC marketplace refund rules */}
+        {/* Seller Policy - always includes NWC marketplace refund rules */}
         <div className="border rounded-lg overflow-hidden mb-8">
           <div
             className="px-6 py-3 text-white font-semibold"
@@ -1220,12 +1146,28 @@ export function StorefrontListingContent({
             Seller Policy
           </div>
           <div className="p-6 bg-gray-50">
+            {item.freeShippingBanner ? (
+              <div
+                className="relative mb-6 flex items-center justify-center rounded-lg px-12 py-3 text-white"
+                style={{ backgroundColor: "var(--color-earth)" }}
+              >
+                <IonIcon name="gift-outline" size={22} className="absolute left-4 shrink-0 text-white" />
+                <p className="text-center text-sm font-semibold leading-snug">
+                  {freeShippingBannerText(
+                    item.business?.name ?? "This seller",
+                    item.freeShippingBanner,
+                    item.member?.freeShippingMinimumCents
+                  )}
+                </p>
+                <IonIcon name="gift-outline" size={22} className="absolute right-4 shrink-0 text-white" />
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
               {effectiveLocalDeliveryPolicy && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Local Delivery / Pick Up Policy
+                      Local Delivery Policy
                     </label>
                     <div
                       className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
@@ -1271,7 +1213,7 @@ export function StorefrontListingContent({
                   <button
                     type="button"
                     onClick={() => setNwcRefundPolicyOpen((v) => !v)}
-                    className="flex w-full items-center justify-between gap-2 text-left mb-1"
+                    className="mb-1 flex w-full items-center justify-between gap-2 text-left"
                     aria-expanded={nwcRefundPolicyOpen}
                   >
                     <span className="block text-sm font-medium text-gray-700">
@@ -1294,7 +1236,7 @@ export function StorefrontListingContent({
                     <button
                       type="button"
                       onClick={() => setNwcRefundPolicyOpen(true)}
-                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-500 w-full text-left"
+                      className="w-full rounded-lg border-2 bg-white p-3 text-left text-sm text-gray-500"
                       style={{ borderColor: "#C9A86C" }}
                     >
                       Tap to view marketplace refund rules

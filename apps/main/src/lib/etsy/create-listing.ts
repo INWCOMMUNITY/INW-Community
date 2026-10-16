@@ -1,10 +1,11 @@
 import {
   captureEtsyInventoryProjectionDesire,
   createEtsyImportedListingMapping,
-  enqueueEtsySyncJob,
+  reopenEtsySyncJob,
   EtsyMappingConflictError,
   EtsySyncJobConflictError,
   lookupEtsyListingByRemoteId,
+  normalizeEtsyDescription,
   prisma,
   provisionNativeFoundationListing,
   replaceEtsyListingVariantMaps,
@@ -18,12 +19,19 @@ import { resolveEtsyListingPackageFields } from "./listing-package";
 import { etsyListingHasImages, uploadEtsyListingPhotosFromUrls } from "./listing-images";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "./apps-airport";
+import {
+  ETSY_PRODUCTION_PARTNER_DRAFT_MESSAGE,
+  ETSY_PRODUCTION_PARTNER_REQUIRED_MESSAGE,
+  requiresEtsyProductionPartner,
+  sellerEtsyErrorMessage,
+} from "./marketplace-rejection";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
 import { pushEtsyListingPersonalization } from "./personalization";
 import {
   buildEtsyInventoryProductsPayload,
+  etsyVaryFlagsFromMatrix,
   correlateEtsyProductsToStoreVariants,
   ETSY_INVENTORY_QUERY,
   parseStoreVariantOptions,
@@ -36,6 +44,47 @@ import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
+
+/** Pull listing.state from a bare listing object or Etsy `{ results: [...] }` envelope. */
+export function extractEtsyListingState(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.state === "string" && rec.state.trim()) {
+    return rec.state.trim().toLowerCase();
+  }
+  const results = rec.results;
+  if (Array.isArray(results) && results[0] && typeof results[0] === "object") {
+    const state = (results[0] as Record<string, unknown>).state;
+    if (typeof state === "string" && state.trim()) return state.trim().toLowerCase();
+  }
+  const listing = rec.listing;
+  if (listing && typeof listing === "object") {
+    const state = (listing as Record<string, unknown>).state;
+    if (typeof state === "string" && state.trim()) return state.trim().toLowerCase();
+  }
+  return null;
+}
+
+async function fetchConfirmedEtsyListingState(input: {
+  connectionId: string;
+  memberId: string;
+  etsyListingId: string;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<string | null> {
+  const res = await etsyConnectionRequest<unknown>({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/listings/${encodeURIComponent(input.etsyListingId)}`,
+    query: { legacy: false },
+    maxAttempts: 2,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!res.ok) return null;
+  return extractEtsyListingState(res.data);
+}
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -206,7 +255,9 @@ export async function enqueueEtsyCreateListing(input: {
   }
 
   try {
-    const job = await enqueueEtsySyncJob(prisma, {
+    // Same as Shopify create: reopen replaces sticky jobs when variants/payload changed
+    // after a prior attempt (even when no Etsy listing link is visible yet).
+    const job = await reopenEtsySyncJob(prisma, {
       etsyConnectionId: connection.id,
       kind: "CREATE_LISTING",
       dedupeKey: etsyCreateListingDedupeKey(connection.id, storeItem.id),
@@ -227,7 +278,9 @@ export async function enqueueEtsyCreateListing(input: {
       return {
         status: "ERROR",
         code: "CONFLICT",
-        message: "A create-listing job already exists with different payload",
+        message:
+          error.message?.trim() ||
+          "A create-listing job is already running. Wait a moment and try again.",
       };
     }
     throw error;
@@ -274,6 +327,39 @@ function classifyFailure(
     errorCode: apiClass || "PROVIDER_ERROR",
     errorMessage: message ?? "Etsy CREATE_LISTING failed permanently",
   };
+}
+
+async function loadEtsyProductionPartnerIds(input: {
+  connectionId: string;
+  memberId: string;
+  shopId: string;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<
+  | { ok: true; ids: number[] }
+  | { ok: false; failure: Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }
+> {
+  const res = await etsyConnectionRequest<{
+    results?: Array<{ production_partner_id?: number | string }>;
+  }>({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/shops/${encodeURIComponent(input.shopId)}/production-partners`,
+    maxAttempts: 2,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!res.ok) {
+    if (res.class === "THROTTLED" || res.class === "TRANSIENT" || res.class === "NETWORK") {
+      return { ok: false, failure: classifyFailure(res.class, res.retryAfterMs, res.message) };
+    }
+    return { ok: true, ids: [] };
+  }
+  const ids = (res.data?.results ?? [])
+    .map((row) => Number(row.production_partner_id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  return { ok: true, ids: [...new Set(ids)] };
 }
 
 /**
@@ -401,6 +487,7 @@ export async function handleEtsyCreateListingJob(
       readinessStateId: readiness.readinessStateId,
       packageFields,
       taxonomyId: how.taxonomyId,
+      holdAsDraft: requiresEtsyProductionPartner(how),
       fetchImpl: deps.fetchImpl,
       now: deps.now,
     });
@@ -415,7 +502,8 @@ export async function handleEtsyCreateListingJob(
   const createBody: Record<string, unknown> = {
     quantity: qty,
     title: storeItem.title.trim().slice(0, 140),
-    description: (storeItem.description ?? storeItem.title).trim() || storeItem.title,
+    description:
+      normalizeEtsyDescription(storeItem.description) || storeItem.title.trim(),
     price,
     who_made: how.whoMade,
     when_made: how.whenMade,
@@ -432,6 +520,33 @@ export async function handleEtsyCreateListingJob(
   };
   if (connection.defaultShippingProfileId) {
     createBody.shipping_profile_id = connection.defaultShippingProfileId;
+  }
+
+  const partnerRequired = requiresEtsyProductionPartner(how);
+  if (partnerRequired) {
+    const partners = await loadEtsyProductionPartnerIds({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      shopId: connection.shopId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!partners.ok) return partners.failure;
+    if (partners.ids.length === 0) {
+      if (storeItem.status === "active") {
+        await prisma.storeItem.update({
+          where: { id: storeItem.id },
+          data: { status: "draft" },
+        });
+      }
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "PRODUCTION_PARTNER_REQUIRED",
+        errorMessage: ETSY_PRODUCTION_PARTNER_REQUIRED_MESSAGE,
+      };
+    }
+    createBody.production_partner_ids = partners.ids;
   }
 
   const createRes = await etsyConnectionRequest<{
@@ -487,11 +602,23 @@ export async function handleEtsyCreateListingJob(
         return classifyFailure(
           createRes.class,
           createRes.retryAfterMs,
-          createRes.message || retry.message
+          sellerEtsyErrorMessage(createRes.message || retry.message, {
+            whoMade: how.whoMade,
+            whenMade: how.whenMade,
+            isSupply: how.isSupply,
+          }) ?? undefined
         );
       }
     } else {
-      return classifyFailure(createRes.class, createRes.retryAfterMs, createRes.message);
+      return classifyFailure(
+        createRes.class,
+        createRes.retryAfterMs,
+        sellerEtsyErrorMessage(createRes.message, {
+          whoMade: how.whoMade,
+          whenMade: how.whenMade,
+          isSupply: how.isSupply,
+        }) ?? undefined
+      );
     }
   }
 
@@ -586,6 +713,7 @@ export async function handleEtsyCreateListingJob(
       axisNames: gate.axisNames,
       propertyMap,
       readinessStateId: readiness.readinessStateId,
+      ...etsyVaryFlagsFromMatrix(storeItem.variants),
     });
     const put = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
       connectionId: connection.id,
@@ -753,6 +881,7 @@ export async function handleEtsyCreateListingJob(
     readinessStateId: readiness.readinessStateId,
     packageFields,
     taxonomyId: (createBody.taxonomy_id as number | undefined) ?? how.taxonomyId,
+    holdAsDraft: partnerRequired,
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
@@ -831,6 +960,8 @@ async function finalizeEtsyListingActivation(input: {
   readinessStateId: number | string;
   packageFields: ReturnType<typeof resolveEtsyListingPackageFields>;
   taxonomyId: number;
+  /** Leave the Etsy listing as a draft and tell the seller to add a production partner. */
+  holdAsDraft?: boolean;
   fetchImpl?: EtsyFetch;
   now?: Date;
 }): Promise<EtsyJobHandlerResult> {
@@ -846,7 +977,7 @@ async function finalizeEtsyListingActivation(input: {
       now: input.now,
     });
 
-  if (!connection.defaultShippingProfileId) {
+  if (!connection.defaultShippingProfileId && !input.holdAsDraft) {
     const issueMessage =
       "Listing created as an Etsy draft. Set a default shipping profile on the Etsy connection to activate.";
     await prisma.etsyListingLink.updateMany({
@@ -933,7 +1064,7 @@ async function finalizeEtsyListingActivation(input: {
       uploaded.attempted < 1
         ? "Add at least one photo on INW before activating on Etsy."
         : uploaded.lastError ||
-          "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (Connection Settings → Linked Listings will show IMAGES_REQUIRED until fixed)."
+          "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (My Items will show IMAGES_REQUIRED until fixed)."
     ).slice(0, 500);
     await prisma.etsyListingLink.updateMany({
       where: { etsyConnectionId: connection.id, etsyListingId },
@@ -965,7 +1096,39 @@ async function finalizeEtsyListingActivation(input: {
     return { outcome: "SUCCESS" };
   }
 
-  const activate = await etsyConnectionRequest<{ state?: string }>({
+  if (input.holdAsDraft) {
+    const issueMessage = ETSY_PRODUCTION_PARTNER_DRAFT_MESSAGE;
+    await prisma.etsyListingLink.updateMany({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      data: {
+        remoteListingState: "draft",
+        readiness: "ACTION_REQUIRED",
+        issueCode: "PRODUCTION_PARTNER_REQUIRED",
+        issueMessage,
+      },
+    });
+    const link = await prisma.etsyListingLink.findFirst({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      select: { id: true },
+    });
+    if (link) {
+      await notifyEtsyListingIssueOnce({
+        memberId: connection.memberId,
+        storeItemId: storeItem.id,
+        connectionId: connection.id,
+        subjectId: link.id,
+        issueCode: "PRODUCTION_PARTNER_REQUIRED",
+        issueFingerprint: issueMessage,
+        severity: "ACTION_REQUIRED",
+        message: issueMessage,
+      }).catch(() => undefined);
+    }
+    const personalization = await pushPersonalization();
+    if (personalization) return personalization;
+    return { outcome: "SUCCESS" };
+  }
+
+  const activate = await etsyConnectionRequest<unknown>({
     connectionId: connection.id,
     memberId: connection.memberId,
     method: "PATCH",
@@ -992,10 +1155,18 @@ async function finalizeEtsyListingActivation(input: {
     now: input.now,
   });
   if (activate.ok) {
-    const activatedState = String(activate.data?.state ?? "")
-      .trim()
-      .toLowerCase();
-    // Only mark Live when Etsy confirms active — HTTP 200 alone is not enough.
+    // PATCH often succeeds without returning `state`. Confirm with GET before marking draft.
+    let activatedState = extractEtsyListingState(activate.data);
+    if (activatedState !== "active") {
+      activatedState =
+        (await fetchConfirmedEtsyListingState({
+          connectionId: connection.id,
+          memberId: connection.memberId,
+          etsyListingId,
+          fetchImpl: input.fetchImpl,
+          now: input.now,
+        })) ?? activatedState;
+    }
     if (activatedState === "active") {
       await prisma.etsyListingLink.updateMany({
         where: { etsyConnectionId: connection.id, etsyListingId },
@@ -1022,15 +1193,41 @@ async function finalizeEtsyListingActivation(input: {
     return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
   }
 
+  // Last chance: activate HTTP failed but listing may already be live (race / prior attempt).
+  const confirmedAfterFailure = await fetchConfirmedEtsyListingState({
+    connectionId: connection.id,
+    memberId: connection.memberId,
+    etsyListingId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (confirmedAfterFailure === "active") {
+    await prisma.etsyListingLink.updateMany({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      data: {
+        remoteListingState: "active",
+        readiness: "READY_TO_PUBLISH",
+        contentHealth: "HEALTHY",
+        inventoryHealth: "HEALTHY",
+        issueCode: null,
+        issueMessage: null,
+      },
+    });
+    const personalization = await pushPersonalization();
+    if (personalization) return personalization;
+    return { outcome: "SUCCESS" };
+  }
+
+  const observedState = confirmedAfterFailure || extractEtsyListingState(activate.data) || "draft";
   const issueMessage = (
     activate.ok
-      ? `Etsy left the listing as ${String(activate.data?.state ?? "draft")} instead of active. Add photos and re-list to publish.`
+      ? `Etsy left the listing as ${observedState} instead of active. Add photos and re-list to publish.`
       : activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy"
   ).slice(0, 500);
   await prisma.etsyListingLink.updateMany({
     where: { etsyConnectionId: connection.id, etsyListingId },
     data: {
-      remoteListingState: "draft",
+      remoteListingState: observedState === "active" ? "active" : observedState || "draft",
       readiness: "ACTION_REQUIRED",
       issueCode: "ACTIVATE_FAILED",
       issueMessage,

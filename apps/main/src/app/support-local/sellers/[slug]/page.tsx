@@ -8,6 +8,7 @@ import { photosExcludingLogo } from "@/lib/business-photos";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { withPublicStockWhere } from "@/lib/store-item-public-access";
+import { freeShippingBannerForStore } from "@/lib/free-shipping-banner";
 import {
   SellerStorefrontContent,
   type SellerStorefrontData,
@@ -35,6 +36,7 @@ const getSellerStorefrontBusiness = cache(async (slug: string) => {
           offerShipping: true,
           offerLocalDelivery: true,
           offerLocalPickup: true,
+          freeShippingMinimumCents: true,
           acceptMessagesForListings: true,
         },
       },
@@ -78,24 +80,31 @@ export default async function SellerStorefrontPage({
   });
   if (!sellerSub) notFound();
 
-  const storeItems = await prisma.storeItem.findMany({
-    where: withPublicStockWhere({
-      memberId: business.memberId,
-      status: "active",
-    }),
-    orderBy: { createdAt: "desc" },
-    take: 48,
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      description: true,
-      photos: true,
-      category: true,
-      variants: true,
-      priceCents: true,
-    },
+  const itemWhere = withPublicStockWhere({
+    memberId: business.memberId,
+    status: "active",
   });
+  const [storeItems, shippingRows] = await Promise.all([
+    prisma.storeItem.findMany({
+      where: itemWhere,
+      orderBy: { createdAt: "desc" },
+      take: 48,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        description: true,
+        photos: true,
+        category: true,
+        variants: true,
+        priceCents: true,
+      },
+    }),
+    prisma.storeItem.findMany({
+      where: itemWhere,
+      select: { shippingCostCents: true, shippingDisabled: true },
+    }),
+  ]);
 
   const cityLine = extractBusinessDisplayCity(business.city) ?? business.city ?? "";
   const addressDisplay = [business.address, cityLine].filter(Boolean).join(", ");
@@ -131,6 +140,11 @@ export default async function SellerStorefrontPage({
     offerShipping: business.member.offerShipping,
     offerLocalDelivery: business.member.offerLocalDelivery,
     offerLocalPickup: business.member.offerLocalPickup,
+    freeShippingMinimumCents: business.member.freeShippingMinimumCents,
+    freeShippingBanner: freeShippingBannerForStore({
+      freeShippingMinimumCents: business.member.freeShippingMinimumCents,
+      items: shippingRows,
+    }),
     sellerShippingPolicy: business.member.sellerShippingPolicy,
     sellerLocalDeliveryPolicy: business.member.sellerLocalDeliveryPolicy,
     sellerPickupPolicy: business.member.sellerPickupPolicy,

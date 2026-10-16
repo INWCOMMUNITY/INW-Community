@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
   etsyListingIsPubliclyViewable,
   etsyListingPublicUrl,
@@ -22,7 +21,7 @@ type Props = {
   onActionComplete?: (message?: string) => void;
 };
 
-type ConfirmStep = null | "unlink" | "deleteRemote";
+type ConfirmStep = null | "unlink" | "deleteRemote" | "removeInw";
 
 export function EtsyListingActionButtons({
   storeItemId,
@@ -47,8 +46,32 @@ export function EtsyListingActionButtons({
     remoteListingState,
   });
 
+  async function removeFromInw() {
+    setBusy("remove-inw");
+    setError(null);
+    setConfirmStep(null);
+    try {
+      const response = await fetch(`/api/store-items/${encodeURIComponent(storeItemId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "inactive" }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setError(body.error?.trim() || "Could not remove from INW");
+        return;
+      }
+      onActionComplete?.("Removed from INW. It stays on Etsy.");
+    } catch {
+      setError("Could not remove from INW");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function callAction(
-    action: "retry" | "remove" | "reload",
+    action: "retry" | "remove" | "reload" | "end",
     extra?: { confirmDelete?: boolean },
     successFallback?: string
   ) {
@@ -107,6 +130,16 @@ export function EtsyListingActionButtons({
       },
     },
     {
+      kind: "action",
+      id: "remove-inw",
+      label: "Remove from INW",
+      disabled: busy !== null,
+      onSelect: () => {
+        setError(null);
+        setConfirmStep("removeInw");
+      },
+    },
+    {
       kind: "link",
       id: "view-inw",
       label: "View on INW",
@@ -125,8 +158,8 @@ export function EtsyListingActionButtons({
     {
       kind: "link",
       id: "view-linked",
-      label: "View linked listings",
-      href: APPS_AIRPORT_ETSY_LISTINGS_PATH,
+      label: "View my items",
+      href: "/seller-hub/store/items",
     },
     ...(!live
       ? ([
@@ -164,6 +197,32 @@ export function EtsyListingActionButtons({
               onClick={() => setConfirmStep("deleteRemote")}
             >
               Continue
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-neutral-300 bg-white px-2 py-1 font-semibold text-neutral-800 disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => setConfirmStep(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {confirmStep === "removeInw" ? (
+        <div className="max-w-[16rem] rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-900">
+          <p className="font-semibold">Remove from INW?</p>
+          <p className="mt-1 text-neutral-700">
+            Takes this listing off your INW storefront. It stays live on Etsy, and INW drops the link so you can import it again as a new listing.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md bg-[var(--color-earth)] px-2 py-1 font-semibold text-white disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => void removeFromInw()}
+            >
+              {busy === "remove-inw" ? "Removing…" : "Remove from INW"}
             </button>
             <button
               type="button"

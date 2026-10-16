@@ -5,21 +5,29 @@ import {
   failEtsyListingImportAttempt,
   isEtsyWhenMade,
   isEtsyWhoMade,
+  normalizeEtsyDescription,
   prisma,
   provisionNativeFoundationListing,
   EtsyMappingConflictError,
   EtsyMappingError,
 } from "database";
 import { fetchEtsyImportListingDetail, type EtsyImportCandidate } from "./import-discovery";
+import { mapEtsyTaxonomyToInw } from "./map-etsy-category";
 import { importEtsyListingPersonalization } from "./personalization";
-import {
-  importedInwShippingCents,
-  shouldAttachImportedEtsyPackage,
-  type EtsyImportShippingPolicy,
-} from "./import-shipping";
 import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 
-export type ImportEtsyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
+export type ImportEtsyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER" | "RECOMMENDED";
+
+/** Same ceiling as Shopify. Variant provisioning plus mapping runs past 20s on Neon. */
+const ETSY_IMPORT_TX_TIMEOUT_MS = 60_000;
+
+function resolvedImportStockMode(
+  requested: ImportEtsyListingStockMode,
+  recommended: "PHYSICAL" | "MADE_TO_ORDER" | null | undefined
+): "PHYSICAL" | "MADE_TO_ORDER" {
+  if (requested === "PHYSICAL" || requested === "MADE_TO_ORDER") return requested;
+  return recommended === "MADE_TO_ORDER" ? "MADE_TO_ORDER" : "PHYSICAL";
+}
 
 export type ImportEtsyListingResult =
   | {
@@ -46,14 +54,21 @@ function uniqueSlug(base: string): string {
 
 function matrixFromCandidate(candidate: EtsyImportCandidate) {
   if (candidate.axes.length === 0 || candidate.variants.length <= 1) return null;
+  const pricesVary = candidate.pricesVary === true;
+  const quantitiesVary = candidate.quantitiesVary === true;
+  const skusVary = candidate.skusVary === true;
   return {
     axes: candidate.axes.map((axis) => ({ name: axis.name, values: axis.values })),
     skus: candidate.variants.map((variant) => ({
       options: variant.options,
       quantity: variant.quantity,
-      priceCents: variant.priceCents,
-      sku: variant.sku ?? undefined,
+      ...(pricesVary ? { priceCents: variant.priceCents } : {}),
+      ...(skusVary && variant.sku ? { sku: variant.sku } : {}),
     })),
+    pricesVary,
+    quantitiesVary,
+    skusVary,
+    ...(candidate.sharedQuantity ? { sharedQuantity: true } : {}),
   };
 }
 
@@ -65,11 +80,14 @@ export async function importEtsyListing(input: {
   memberId: string;
   etsyListingId: string;
   stockMode: ImportEtsyListingStockMode;
-  /** Set by bulk import. Omitted for a single listing, which leaves shipping unchanged. */
-  shippingPolicy?: EtsyImportShippingPolicy;
-  resolveDomesticShippingCents?: (shippingProfileId: string) => Promise<number | null>;
+  /** Seller-chosen INW shipping charge. Omitted leaves the listing's shipping unset. */
+  shippingCostCents?: number;
 }): Promise<ImportEtsyListingResult> {
-  if (input.stockMode !== "PHYSICAL" && input.stockMode !== "MADE_TO_ORDER") {
+  if (
+    input.stockMode !== "PHYSICAL" &&
+    input.stockMode !== "MADE_TO_ORDER" &&
+    input.stockMode !== "RECOMMENDED"
+  ) {
     return {
       status: "ERROR",
       code: "STOCK_MODE_REQUIRED",
@@ -95,11 +113,12 @@ export async function importEtsyListing(input: {
     };
   }
 
+  const beginStockMode = input.stockMode === "RECOMMENDED" ? "PHYSICAL" : input.stockMode;
   const begin = await beginEtsyListingImportAttempt(prisma, {
     memberId: input.memberId,
     connectionId: connection.id,
     etsyListingId: listingId,
-    stockMode: input.stockMode,
+    stockMode: beginStockMode,
   });
 
   if (begin.status === "ALREADY_COMPLETED") {
@@ -168,13 +187,24 @@ export async function importEtsyListing(input: {
     };
   }
 
-  const inventoryTracking = input.stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
+  const stockMode = resolvedImportStockMode(input.stockMode, snap.recommendedStockMode);
+  if (stockMode !== beginStockMode) {
+    await prisma.etsyListingImportAttempt.update({
+      where: { id: attempt.id },
+      data: { stockMode },
+    });
+  }
+
+  const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
+  const sharedQuantity = snap.sharedQuantity === true && snap.variants.length > 1;
   const totalQty =
-    input.stockMode === "PHYSICAL"
-      ? snap.variants.reduce((sum, variant) => sum + Math.max(0, variant.quantity), 0)
+    stockMode === "PHYSICAL"
+      ? sharedQuantity
+        ? Math.max(0, snap.quantity ?? snap.variants[0]?.quantity ?? 0)
+        : snap.variants.reduce((sum, variant) => sum + Math.max(0, variant.quantity), 0)
       : 0;
   const title = snap.title.slice(0, 200);
-  const description = snap.description.trim() ? snap.description : null;
+  const description = normalizeEtsyDescription(snap.description) || null;
   const photos = await ensureInwHostedListingPhotos(snap.photos.slice(0, 20));
   const priceCents = snap.variants[0]?.priceCents ?? snap.priceCents ?? 0;
   const sku = snap.variants[0]?.sku ?? null;
@@ -192,31 +222,12 @@ export async function importEtsyListing(input: {
     snap.etsyTaxonomyId > 0
       ? snap.etsyTaxonomyId
       : null;
+  const inwCategory = etsyTaxonomyId != null ? mapEtsyTaxonomyToInw(etsyTaxonomyId) : null;
 
-  let domesticShippingCents: number | null = null;
-  if (
-    input.shippingPolicy === "IMPORT_PRICES" &&
-    snap.packageDimensions &&
-    snap.shippingProfileId &&
-    input.resolveDomesticShippingCents
-  ) {
-    domesticShippingCents = await input.resolveDomesticShippingCents(snap.shippingProfileId);
-  }
-  const applyShipping = input.shippingPolicy === "IMPORT_PRICES" || input.shippingPolicy === "FREE";
-  const shippingCostCents = applyShipping
-    ? importedInwShippingCents({
-        policy: input.shippingPolicy!,
-        packageDimensions: snap.packageDimensions,
-        domesticShippingCents,
-      })
-    : null;
-  const attachPackage =
-    input.shippingPolicy != null &&
-    shouldAttachImportedEtsyPackage({
-      policy: input.shippingPolicy,
-      packageDimensions: snap.packageDimensions,
-      domesticShippingCents,
-    });
+  const shippingCostCents =
+    typeof input.shippingCostCents === "number" && Number.isFinite(input.shippingCostCents)
+      ? Math.max(0, Math.round(input.shippingCostCents))
+      : null;
 
   try {
     const created = await prisma.$transaction(async (tx) => {
@@ -239,41 +250,6 @@ export async function importEtsyListing(input: {
         };
       }
 
-      let shippingOptionId: string | null = null;
-      if (attachPackage && snap.packageDimensions) {
-        const remoteProfileId = `listing:${listingId}`;
-        const option = await tx.shippingOption.upsert({
-          where: {
-            memberId_source_remoteProfileId: {
-              memberId: input.memberId,
-              source: "etsy",
-              remoteProfileId,
-            },
-          },
-          create: {
-            memberId: input.memberId,
-            source: "etsy",
-            remoteProfileId,
-            name: (title || "Etsy package").slice(0, 80),
-            lengthIn: snap.packageDimensions.lengthIn,
-            widthIn: snap.packageDimensions.widthIn,
-            heightIn: snap.packageDimensions.heightIn,
-            weightOz: snap.packageDimensions.weightOz,
-            shippingCostCents: shippingCostCents ?? 0,
-            lastImportedAt: new Date(),
-          },
-          update: {
-            lengthIn: snap.packageDimensions.lengthIn,
-            widthIn: snap.packageDimensions.widthIn,
-            heightIn: snap.packageDimensions.heightIn,
-            weightOz: snap.packageDimensions.weightOz,
-            shippingCostCents: shippingCostCents ?? 0,
-            lastImportedAt: new Date(),
-          },
-        });
-        shippingOptionId = option.id;
-      }
-
       const storeItem = await tx.storeItem.create({
         data: {
           memberId: input.memberId,
@@ -291,11 +267,13 @@ export async function importEtsyListing(input: {
           etsyWhenMade,
           etsyIsSupply,
           etsyTaxonomyId,
-          ...(applyShipping
+          ...(inwCategory
+            ? { category: inwCategory.category, subcategory: inwCategory.subcategory }
+            : {}),
+          ...(shippingCostCents != null
             ? {
-                shippingCostCents: shippingCostCents ?? 0,
+                shippingCostCents,
                 shippingDisabled: false,
-                ...(shippingOptionId ? { shippingOptionId } : {}),
               }
             : {}),
         },
@@ -338,7 +316,7 @@ export async function importEtsyListing(input: {
       }
 
       // Apply opening quantities onto foundation inventory for PHYSICAL imports.
-      if (input.stockMode === "PHYSICAL") {
+      if (stockMode === "PHYSICAL") {
         for (const pair of resolvedPairs) {
           await tx.inventoryState.updateMany({
             where: { variantId: pair.storeVariantId },
@@ -364,7 +342,7 @@ export async function importEtsyListing(input: {
           etsyOfferingId: pair.remote.etsyOfferingId,
           propertyValuesJson: pair.remote.propertyValuesJson as never,
           remoteSku: pair.remote.sku,
-          remoteAvailable: input.stockMode === "PHYSICAL" ? pair.remote.quantity : null,
+          remoteAvailable: stockMode === "PHYSICAL" ? pair.remote.quantity : null,
         })),
       });
 
@@ -381,7 +359,7 @@ export async function importEtsyListing(input: {
         storeItemId: storeItem.id,
         listingLinkId: mapping.listingLinkId,
       };
-    });
+    }, { timeout: ETSY_IMPORT_TX_TIMEOUT_MS });
 
     let personalizationWarning: string | null = null;
     if (!created.already) {

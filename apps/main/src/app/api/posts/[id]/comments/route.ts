@@ -267,18 +267,26 @@ export async function POST(
 
     let notifyMemberId: string | null = null;
     let pushTitle = "";
+    const commenterName =
+      [comment.member.firstName, comment.member.lastName].filter(Boolean).join(" ").trim() ||
+      "Someone";
+    const hasCommentText = contentTrimmed.trim().length > 0;
+    const commentPreview = `${contentTrimmed.trim().slice(0, 60)}${contentTrimmed.trim().length > 60 ? "…" : ""}`;
     if (parentId && parentCommentAuthorId && parentCommentAuthorId !== session.user.id) {
       notifyMemberId = parentCommentAuthorId;
-      pushTitle = "New reply to your comment!";
+      pushTitle = `${commenterName} replied to your comment!`;
     } else if (!parentId && post.authorId !== session.user.id) {
       notifyMemberId = post.authorId;
-      pushTitle = "New comment on your post!";
+      pushTitle = hasCommentText
+        ? `${commenterName} commented on your post!`
+        : "New comment on your post!";
     }
     if (notifyMemberId) {
-      const preview =
-        contentTrimmed.length > 0
-          ? `${comment.member.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
-          : `${comment.member.firstName} commented on your post — tap to view.`;
+      const preview = hasCommentText
+        ? parentId
+          ? `${comment.member.firstName}: ${commentPreview}`
+          : commentPreview
+        : `${comment.member.firstName} commented on your post — tap to view.`;
       const { sendPushNotification } = await import("@/lib/send-push-notification");
       sendPushNotification(notifyMemberId, {
         title: pushTitle,

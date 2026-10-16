@@ -9,6 +9,7 @@ import {
   setShopifyVariantContentConflict,
 } from "./content-desire";
 import {
+  normalizeShopifyDescription,
   shopifyProductContentFingerprint,
   shopifyVariantContentFingerprint,
 } from "./content-fingerprint";
@@ -182,9 +183,8 @@ export async function applyShopifyFieldLevelContentInbound(
       storeItemPatch.title = input.remote.title;
       appliedFields.push({ field: "TITLE", fingerprint: titleRemote });
     } else if (row.field === "DESCRIPTION") {
-      storeItemPatch.description = input.remote.descriptionHtml?.trim()
-        ? input.remote.descriptionHtml
-        : null;
+      const plainDescription = normalizeShopifyDescription(input.remote.descriptionHtml);
+      storeItemPatch.description = plainDescription.length > 0 ? plainDescription : null;
       appliedFields.push({ field: "DESCRIPTION", fingerprint: descRemote });
     } else if (row.field === "PRICE") {
       storeItemPatch.priceCents = input.remote.priceCents;
@@ -203,6 +203,14 @@ export async function applyShopifyFieldLevelContentInbound(
         storeVariantId: input.variantMap.storeVariantId,
         fingerprint: skuRemote,
       });
+    }
+  }
+
+  if (storeItemPatch.description === undefined) {
+    const stored = input.storeItem.description ?? "";
+    const plain = normalizeShopifyDescription(stored);
+    if (stored.trim() !== plain) {
+      storeItemPatch.description = plain.length > 0 ? plain : null;
     }
   }
 

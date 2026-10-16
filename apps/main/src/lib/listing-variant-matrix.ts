@@ -44,6 +44,8 @@ export type VariantMatrix = {
   pricesVary?: boolean;
   quantitiesVary?: boolean;
   skusVary?: boolean;
+  /** One quantity is shared by every combination. Sales draw from that pool. */
+  sharedQuantity?: boolean;
   /** Option type whose values own photos (Etsy/eBay allow one). */
   imageAxis?: string | null;
 };
@@ -182,8 +184,92 @@ export function inferMatrixVaryFlags(matrix: VariantMatrix): {
   const skusVary = matrix.skusVary ?? matrix.skus.some((s) => Boolean(s.sku?.trim()));
   const qtys = matrix.skus.map((s) => s.quantity);
   const quantitiesVary =
-    matrix.quantitiesVary ?? (qtys.length > 1 && new Set(qtys).size > 1);
+    matrix.sharedQuantity === true
+      ? false
+      : matrix.quantitiesVary ?? (qtys.length > 1 && new Set(qtys).size > 1);
   return { pricesVary, quantitiesVary, skusVary };
+}
+
+/** Seller turned quantities off: one pool, even if old rows still store a quantity each. */
+export function matrixUsesSharedPool(matrix: VariantMatrix): boolean {
+  return matrix.sharedQuantity === true || (matrix.quantitiesVary === false && matrix.skus.length > 1);
+}
+
+/** Shopify tracks each variant separately, so a shared INW/Etsy pool cannot be listed. */
+export function shopifyBlocksSharedQuantityPool(variants: unknown): boolean {
+  const matrix = normalizeVariantMatrix(variants);
+  if (!matrix || matrix.skus.length < 2) return false;
+  return matrix.sharedQuantity === true;
+}
+
+export const SHOPIFY_SHARED_QUANTITY_MESSAGE =
+  "Shared Quantity Pools are not compatible with Shopify. You will have to add quantities to each variant before INW will list on Shopify";
+
+export type FoundationMatrixTarget = {
+  fingerprint: string;
+  options: Record<string, string>;
+  targetOnHand: number;
+  priceCents: number;
+  sku: string | null;
+};
+
+/**
+ * Targets written on listing save. A shared pool copies one quantity onto every
+ * combination. A single listing price copies onto every combination.
+ */
+export function foundationMatrixWritePlan(
+  matrix: VariantMatrix,
+  input: { facadePriceCents: number; listingQuantity?: number | null }
+): { sharedPool: boolean; onePrice: boolean; targets: FoundationMatrixTarget[] } {
+  const sharedPool = matrixUsesSharedPool(matrix);
+  const onePrice = matrix.pricesVary === false;
+  const facade =
+    Number.isFinite(input.facadePriceCents) && input.facadePriceCents > 0
+      ? Math.round(input.facadePriceCents)
+      : 0;
+  const pool = sharedPool ? sharedPoolOnHand(matrix, input.listingQuantity) : null;
+  return {
+    sharedPool,
+    onePrice,
+    targets: matrix.skus.map((sku) => ({
+      fingerprint: `matrix:${skuSelectionKey(sku.options)}`,
+      options: sku.options,
+      targetOnHand: pool ?? Math.max(0, Math.trunc(sku.quantity) || 0),
+      priceCents:
+        onePrice && facade > 0
+          ? facade
+          : typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+            ? Math.round(sku.priceCents)
+            : facade,
+      sku: typeof sku.sku === "string" ? sku.sku.trim() || null : null,
+    })),
+  };
+}
+
+function sharedPoolOnHand(matrix: VariantMatrix, listingQuantity?: number | null): number {
+  if (typeof listingQuantity === "number" && Number.isFinite(listingQuantity)) {
+    return Math.max(0, Math.trunc(listingQuantity));
+  }
+  const positive = matrix.skus.map((sku) => sku.quantity).filter((qty) => qty > 0);
+  return positive.length > 0 ? Math.min(...positive) : 0;
+}
+
+/** Keep the seller's vary flags on the stored matrix before inventory projection rewrites it. */
+export function stampSharedListingFlags(existing: unknown, matrix: VariantMatrix): Record<string, unknown> {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  const sharedPool = matrixUsesSharedPool(matrix);
+  if (sharedPool) base.sharedQuantity = true;
+  else delete base.sharedQuantity;
+  if (matrix.pricesVary === false) base.pricesVary = false;
+  else if (matrix.pricesVary === true) base.pricesVary = true;
+  if (sharedPool || matrix.quantitiesVary === false) base.quantitiesVary = false;
+  else if (matrix.quantitiesVary === true) base.quantitiesVary = true;
+  if (matrix.skusVary === false) base.skusVary = false;
+  else if (matrix.skusVary === true) base.skusVary = true;
+  return base;
 }
 
 const VARIANT_PRICE_DRAFT_RE = /^\d*(\.\d{0,2})?$/;
@@ -686,6 +772,7 @@ function withMatrixMeta(matrix: VariantMatrix, obj: Record<string, unknown>): Va
     ...(readBoolFlag(obj.pricesVary) != null ? { pricesVary: readBoolFlag(obj.pricesVary) } : {}),
     ...(readBoolFlag(obj.quantitiesVary) != null ? { quantitiesVary: readBoolFlag(obj.quantitiesVary) } : {}),
     ...(readBoolFlag(obj.skusVary) != null ? { skusVary: readBoolFlag(obj.skusVary) } : {}),
+    ...(obj.sharedQuantity === true ? { sharedQuantity: true } : {}),
     ...(imageAxis != null ? { imageAxis } : {}),
   };
   const inferred = inferMatrixVaryFlags(next);
@@ -785,6 +872,7 @@ export function serializeVariantMatrix(matrix: VariantMatrix): VariantMatrix {
     pricesVary: flags.pricesVary,
     quantitiesVary: flags.quantitiesVary,
     skusVary: flags.skusVary,
+    ...(matrix.sharedQuantity === true ? { sharedQuantity: true } : {}),
     imageAxis,
   };
 }

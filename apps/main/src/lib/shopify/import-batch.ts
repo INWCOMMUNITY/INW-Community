@@ -5,17 +5,13 @@ import {
   nextShopifyImportBatchAvgItemMs,
   parseShopifyImportBatchQueue,
   prisma,
-  resolveShopifyImportStockMode,
   shopifyImportBatchDedupeKey,
   shopifyImportBatchProgressView,
   type ShopifyImportBatchProgressView,
   type ShopifyJobHandlerResult,
   type ShopifySyncJobClaim,
 } from "database";
-import {
-  discoverShopifyImportCandidates,
-  fetchShopifyImportProductDetail,
-} from "./import-discovery";
+import { discoverShopifyImportCandidates } from "./import-discovery";
 import { formatShopifyMetafieldNotice } from "./buyer-metafields";
 import { importShopifyListing } from "./import-listing";
 
@@ -51,15 +47,76 @@ async function enqueueImportBatchJob(input: {
   });
 }
 
+const MAX_PRICED_PRODUCTS = 5000;
+const MAX_SHIPPING_CENTS = 10_000_000;
+
+function isShopifyProductGid(id: string): boolean {
+  return /^gid:\/\/shopify\/Product\/\d+$/.test(id);
+}
+
+export function assignedShopifyImportShipping(input: {
+  productIds?: unknown;
+  shippingPrices?: unknown;
+}):
+  | { ok: true; productIds: string[]; shippingPrices: Record<string, number> }
+  | { ok: false; message: string }
+  | null {
+  if (input.productIds == null && input.shippingPrices == null) return null;
+  if (!Array.isArray(input.productIds) || input.productIds.length === 0) {
+    return { ok: false, message: "Choose the listings to import." };
+  }
+  if (input.productIds.length > MAX_PRICED_PRODUCTS) {
+    return { ok: false, message: "Too many listings to price at once. Ship for free instead." };
+  }
+  const prices =
+    input.shippingPrices && typeof input.shippingPrices === "object" && !Array.isArray(input.shippingPrices)
+      ? (input.shippingPrices as Record<string, unknown>)
+      : null;
+  if (!prices) return { ok: false, message: "Enter a shipping price for every listing." };
+
+  const productIds: string[] = [];
+  const seen = new Set<string>();
+  const shippingPrices: Record<string, number> = {};
+  for (const entry of input.productIds) {
+    const id = typeof entry === "string" ? entry.trim() : "";
+    if (!isShopifyProductGid(id) || seen.has(id)) continue;
+    seen.add(id);
+    const cents = prices[id];
+    if (typeof cents !== "number" || !Number.isInteger(cents) || cents < 0 || cents > MAX_SHIPPING_CENTS) {
+      return { ok: false, message: "Enter a shipping price for every listing." };
+    }
+    productIds.push(id);
+    shippingPrices[id] = cents;
+  }
+  if (productIds.length === 0) return { ok: false, message: "Choose the listings to import." };
+  return { ok: true, productIds, shippingPrices };
+}
+
+function shippingCentsFromBatch(raw: unknown, shopifyProductId: string): number {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
+  const value = (raw as Record<string, unknown>)[shopifyProductId];
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.round(value));
+}
+
 export async function startShopifyImportBatch(input: {
   memberId: string;
   stockModePolicy?: string;
+  productIds?: unknown;
+  shippingPrices?: unknown;
 }): Promise<StartShopifyImportBatchResult> {
   const policyRaw = (input.stockModePolicy ?? "RECOMMENDED").toString().trim().toUpperCase();
   const stockModePolicy: ShopifyImportStockModePolicy =
     policyRaw === "PHYSICAL" || policyRaw === "MADE_TO_ORDER" || policyRaw === "RECOMMENDED"
       ? (policyRaw as ShopifyImportStockModePolicy)
       : "RECOMMENDED";
+  const assigned = assignedShopifyImportShipping({
+    productIds: input.productIds,
+    shippingPrices: input.shippingPrices,
+  });
+  if (assigned && !assigned.ok) {
+    return { status: "ERROR", code: "INVALID_SHIPPING", message: assigned.message, httpStatus: 400 };
+  }
 
   const connection = await prisma.shopifyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
@@ -99,6 +156,14 @@ export async function startShopifyImportBatch(input: {
         memberId: input.memberId,
         state: "PENDING",
         stockModePolicy,
+        shippingPricesJson: assigned?.ok ? assigned.shippingPrices : {},
+        ...(assigned?.ok
+          ? {
+              queueJson: assigned.productIds,
+              total: assigned.productIds.length,
+              discoverComplete: true,
+            }
+          : {}),
         startedAt: new Date(),
         lastProgressAt: new Date(),
       },
@@ -380,23 +445,13 @@ export async function handleShopifyImportBatchJob(
 
     const shopifyProductId = queue.shift()!;
     const itemStarted = Date.now();
-    let recommended: "PHYSICAL" | "MADE_TO_ORDER" | null = "PHYSICAL";
-    if (batch.stockModePolicy === "RECOMMENDED") {
-      const detail = await fetchShopifyImportProductDetail({
-        memberId: batch.memberId,
-        shopifyProductId,
-      }).catch(() => null);
-      if (detail?.status === "OK") {
-        recommended = detail.candidate.recommendedStockMode;
-      }
-    }
-    const stockMode = resolveShopifyImportStockMode(batch.stockModePolicy, recommended);
 
     try {
       const result = await importShopifyListing({
         memberId: batch.memberId,
         shopifyProductId,
-        stockMode,
+        stockMode: batch.stockModePolicy,
+        shippingCostCents: shippingCentsFromBatch(batch.shippingPricesJson, shopifyProductId),
       });
       const itemMs = Date.now() - itemStarted;
       avgItemMs = nextShopifyImportBatchAvgItemMs(avgItemMs, processedBefore, itemMs);

@@ -373,23 +373,27 @@ export function toEtsyInventoryPutBody(input: {
     });
   }
 
-  // Multi-product variation listings must keep price/qty on every axis.
-  // Echoing empty *_on_property from a prior GET collapses Shop Manager to one
-  // listing-level price/qty while the live page still shows the option menus.
+  // Empty *_on_property is a real Shop Manager mode: the option menus stay,
+  // and price or quantity is one listing value. Fill the arrays only when the
+  // offerings actually differ, so a shared 25 is not split into 25 per color.
   const axisPropertyIds = [
     ...new Set(
       products.flatMap((product) => product.property_values.map((pv) => pv.property_id)).filter((id) => Number.isFinite(id))
     ),
   ];
   const keepPerCombination = products.length > 1 && axisPropertyIds.length > 0;
+  const pricesDiffer =
+    new Set(products.flatMap((product) => product.offerings.map((offering) => offering.price))).size > 1;
+  const quantitiesDiffer =
+    new Set(products.flatMap((product) => product.offerings.map((offering) => offering.quantity))).size > 1;
   return {
     products,
     price_on_property:
-      keepPerCombination && sanitized.price_on_property.length === 0
+      keepPerCombination && sanitized.price_on_property.length === 0 && pricesDiffer
         ? axisPropertyIds
         : sanitized.price_on_property,
     quantity_on_property:
-      keepPerCombination && sanitized.quantity_on_property.length === 0
+      keepPerCombination && sanitized.quantity_on_property.length === 0 && quantitiesDiffer
         ? axisPropertyIds
         : sanitized.quantity_on_property,
     sku_on_property: sanitized.sku_on_property,
@@ -608,22 +612,54 @@ export async function resolveEtsyVariationPropertyIds(input: {
 
 function inferVaryAxes(
   variants: Array<{ options: Record<string, string>; priceCents: number; sku: string | null; quantity: number }>,
-  axisNames: string[]
+  axisNames: string[],
+  flags?: { pricesVary?: boolean; quantitiesVary?: boolean; skusVary?: boolean }
 ): { priceAxes: string[]; quantityAxes: string[]; skuAxes: string[] } {
   const prices = new Set(variants.map((v) => v.priceCents));
+  const quantities = new Set(variants.map((v) => v.quantity));
   const skus = new Set(variants.map((v) => (v.sku ?? "").trim()));
-  // A multi-variant listing always keeps price and quantity on every axis.
-  // Empty *_on_property arrays make Etsy store one listing-level price and
-  // quantity and drop the per-combination grid, even when products still
-  // carry property values. 0 / 1 / all still holds: both fields are "all".
+  // Variation menus stay either way. Empty *_on_property means one listing
+  // price or quantity shared by every combination. A non-empty array means
+  // each combination has its own value. When the flags are omitted, a
+  // multi-variant listing keeps per-combination price and quantity.
   const perCombination = variants.length > 1 && axisNames.length > 0;
+  const pricesDiffer = prices.size > 1;
+  const quantitiesDiffer = quantities.size > 1;
   return {
-    priceAxes: perCombination || prices.size > 1 ? [...axisNames] : [],
-    quantityAxes: perCombination ? [...axisNames] : [],
+    priceAxes:
+      flags?.pricesVary === false && !pricesDiffer
+        ? []
+        : perCombination || pricesDiffer
+          ? [...axisNames]
+          : [],
+    quantityAxes:
+      flags?.quantitiesVary === false && !quantitiesDiffer ? [] : perCombination ? [...axisNames] : [],
     skuAxes:
-      [...skus].filter(Boolean).length > 1 || (skus.size > 1 && [...skus].some(Boolean))
-        ? [...axisNames]
-        : [],
+      flags?.skusVary === false
+        ? []
+        : [...skus].filter(Boolean).length > 1 || (skus.size > 1 && [...skus].some(Boolean))
+          ? [...axisNames]
+          : [],
+  };
+}
+
+/** Read the vary flags stored on a listing matrix. Missing flags are left unset. */
+export function etsyVaryFlagsFromMatrix(raw: unknown): {
+  pricesVary?: boolean;
+  quantitiesVary?: boolean;
+  skusVary?: boolean;
+} {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const obj = raw as Record<string, unknown>;
+  const sharedQuantity = obj.sharedQuantity === true;
+  return {
+    ...(typeof obj.pricesVary === "boolean" ? { pricesVary: obj.pricesVary } : {}),
+    ...(sharedQuantity
+      ? { quantitiesVary: false }
+      : typeof obj.quantitiesVary === "boolean"
+        ? { quantitiesVary: obj.quantitiesVary }
+        : {}),
+    ...(typeof obj.skusVary === "boolean" ? { skusVary: obj.skusVary } : {}),
   };
 }
 
@@ -633,6 +669,9 @@ export function buildEtsyInventoryProductsPayload(input: {
   axisNames: string[];
   propertyMap: Map<string, { propertyId: number; scaleId: number | null }>;
   readinessStateId: number | string;
+  pricesVary?: boolean;
+  quantitiesVary?: boolean;
+  skusVary?: boolean;
 }): {
   products: EtsyInventoryProductInput[];
   price_on_property: number[];
@@ -650,7 +689,11 @@ export function buildEtsyInventoryProductsPayload(input: {
       quantity: sellableQtyForEtsyVariant(v, input.inventoryTracking),
     };
   });
-  const { priceAxes, quantityAxes, skuAxes } = inferVaryAxes(enriched, input.axisNames);
+  const { priceAxes, quantityAxes, skuAxes } = inferVaryAxes(enriched, input.axisNames, {
+    pricesVary: input.pricesVary,
+    quantitiesVary: input.quantitiesVary,
+    skusVary: input.skusVary,
+  });
   const propId = (axis: string) => input.propertyMap.get(axis)!.propertyId;
 
   const products: EtsyInventoryProductInput[] = enriched.map((v) => ({

@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, ShopifySyncJob } from "@prisma/client";
 import {
   normalizeShopifyPhotoUrls,
   shopifyProductContentFingerprint,
+  shopifyPushPriceCents,
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
 } from "./content-fingerprint";
@@ -426,7 +427,7 @@ export async function requeueShopifyContentForUnpushedMedia(
  */
 export async function recordShopifyDirtyMappedVariantContentDesires(
   db: ShopifyContentDb,
-  input: { memberId: string; storeItemId: string }
+  input: { memberId: string; storeItemId: string; force?: boolean }
 ): Promise<{ status: "SKIPPED" | "RECORDED"; dirtyCount: number }> {
   const connection = await db.shopifyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
@@ -450,6 +451,10 @@ export async function recordShopifyDirtyMappedVariantContentDesires(
   });
   if (variantMaps.length < 1) return { status: "SKIPPED", dirtyCount: 0 };
 
+  const storeItem = await db.storeItem.findUnique({
+    where: { id: input.storeItemId },
+    select: { priceCents: true, variants: true },
+  });
   const storeVariants = await db.storeVariant.findMany({
     where: { id: { in: variantMaps.map((m) => m.storeVariantId) } },
     select: { id: true, priceCents: true, sku: true, status: true },
@@ -462,7 +467,11 @@ export async function recordShopifyDirtyMappedVariantContentDesires(
     const sv = byId.get(map.storeVariantId);
     if (!sv || sv.status !== "ACTIVE") continue;
     const fingerprint = shopifyVariantContentFingerprint({
-      priceCents: sv.priceCents,
+      priceCents: shopifyPushPriceCents({
+        variants: storeItem?.variants,
+        listingPriceCents: storeItem?.priceCents ?? sv.priceCents,
+        variantPriceCents: sv.priceCents,
+      }),
       sku: sv.sku,
     });
     if (
@@ -480,6 +489,7 @@ export async function recordShopifyDirtyMappedVariantContentDesires(
       continue;
     }
     if (
+      !input.force &&
       fingerprint === map.appliedVariantFingerprint &&
       map.desiredVariantContentVersion <= map.appliedVariantContentVersion
     ) {

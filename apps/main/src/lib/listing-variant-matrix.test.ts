@@ -26,7 +26,10 @@ import {
   variantQtyDraftToNumber,
   variantQtyToEditable,
   combinationEnabledAfterAxisEdit,
+  foundationMatrixWritePlan,
   normalizeVariantMatrix,
+  stampSharedListingFlags,
+  shopifyBlocksSharedQuantityPool,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
   sumMatrixQuantities,
@@ -37,7 +40,10 @@ import {
   decrementOptionQuantity,
   getAvailableQuantity,
   getSkuPriceCents,
+  listingQuantityFromVariants,
+  listingUsesSharedQuantity,
   listingVariantDisplayAxes,
+  sharedPoolAvailable,
   sumOptionQuantities,
 } from "./store-item-variants";
 
@@ -852,5 +858,86 @@ describe("removed variant leftover options", () => {
       getAvailableQuantity(item, { "Primary color": "Red", Size: "Small" })
     ).toBe(4);
     expect(getSkuPriceCents(item, { "Primary color": "Brown", Size: "Medium" })).toBe(300);
+  });
+});
+
+describe("shared listing quantity", () => {
+  const variants = {
+    axes: [
+      { name: "Primary color", values: ["Brown", "Black"] },
+      { name: "Secondary color", values: ["Black", "Blue"] },
+    ],
+    skus: [
+      { options: { "Primary color": "Brown", "Secondary color": "Black" }, quantity: 10 },
+      { options: { "Primary color": "Brown", "Secondary color": "Blue" }, quantity: 10 },
+      { options: { "Primary color": "Black", "Secondary color": "Black" }, quantity: 10 },
+      { options: { "Primary color": "Black", "Secondary color": "Blue" }, quantity: 10 },
+    ],
+    quantitiesVary: false,
+    pricesVary: false,
+    sharedQuantity: true,
+  };
+
+  it("keeps one pool when every combination stores that number", () => {
+    const item = { variants, quantity: 40, priceCents: 500 };
+    expect(listingUsesSharedQuantity(variants)).toBe(true);
+    expect(shopifyBlocksSharedQuantityPool(variants)).toBe(true);
+    expect(
+      shopifyBlocksSharedQuantityPool({
+        ...variants,
+        quantitiesVary: false,
+        sharedQuantity: false,
+      })
+    ).toBe(false);
+    expect(listingQuantityFromVariants(variants)).toBe(10);
+    expect(sharedPoolAvailable(item)).toBe(10);
+    expect(getAvailableQuantity(item, { "Primary color": "Brown", "Secondary color": "Black" })).toBe(10);
+    expect(getAvailableQuantity(item, { "Primary color": "Black", "Secondary color": "Blue" })).toBe(10);
+  });
+
+  it("uses the listing quantity once projection has already collapsed the sum", () => {
+    expect(sharedPoolAvailable({ variants, quantity: 4 })).toBe(4);
+  });
+});
+
+describe("foundation matrix write plan", () => {
+  const matrix: VariantMatrix = {
+    axes: [{ name: "Color", values: ["Brown", "Blue"] }],
+    skus: [
+      { options: { Color: "Brown" }, quantity: 25, priceCents: 1800 },
+      { options: { Color: "Blue" }, quantity: 8, priceCents: 900 },
+    ],
+    quantitiesVary: false,
+    pricesVary: false,
+    sharedQuantity: true,
+  };
+
+  it("copies the listing quantity and price onto every combination", () => {
+    const plan = foundationMatrixWritePlan(matrix, { facadePriceCents: 500, listingQuantity: 10 });
+    expect(plan.sharedPool).toBe(true);
+    expect(plan.onePrice).toBe(true);
+    expect(plan.targets.map((target) => target.targetOnHand)).toEqual([10, 10]);
+    expect(plan.targets.map((target) => target.priceCents)).toEqual([500, 500]);
+  });
+
+  it("keeps each combination's quantity and price when they vary", () => {
+    const plan = foundationMatrixWritePlan(
+      { ...matrix, quantitiesVary: true, pricesVary: true, sharedQuantity: false },
+      { facadePriceCents: 500, listingQuantity: 10 }
+    );
+    expect(plan.sharedPool).toBe(false);
+    expect(plan.onePrice).toBe(false);
+    expect(plan.targets.map((target) => target.targetOnHand)).toEqual([25, 8]);
+    expect(plan.targets.map((target) => target.priceCents)).toEqual([1800, 900]);
+  });
+
+  it("stamps the shared pool onto the stored matrix before projection", () => {
+    const stamped = stampSharedListingFlags(
+      { axes: matrix.axes, skus: matrix.skus, pricesVary: true, quantitiesVary: true },
+      matrix
+    );
+    expect(stamped.sharedQuantity).toBe(true);
+    expect(stamped.pricesVary).toBe(false);
+    expect(stamped.quantitiesVary).toBe(false);
   });
 });

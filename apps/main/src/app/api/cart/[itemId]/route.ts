@@ -8,7 +8,7 @@ import {
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
 import { z } from "zod";
-import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { getAvailableQuantity, listingUsesSharedQuantity } from "@/lib/store-item-variants";
 import { findMatchingCartLine, maxQuantityForCartLine } from "@/lib/cart-line-identity";
 
 const deliveryAddressSchema = z.object({
@@ -157,11 +157,17 @@ export async function PATCH(
 
   if (body.quantity !== undefined) {
     const skuAvailable = getAvailableQuantity(storeItem, nextVariant ?? undefined);
-    const maxForThisLine = maxQuantityForCartLine(skuAvailable, siblingRows, {
-      id: item.id,
-      storeItemId: item.storeItemId,
-      variant: nextVariant,
-    });
+    const sharedQuantity = listingUsesSharedQuantity(storeItem.variants);
+    const maxForThisLine = maxQuantityForCartLine(
+      skuAvailable,
+      siblingRows,
+      {
+        id: item.id,
+        storeItemId: item.storeItemId,
+        variant: nextVariant,
+      },
+      { sharedQuantity }
+    );
     updateData.quantity = Math.min(body.quantity, maxForThisLine);
   }
   if (body.fulfillmentType !== undefined) {
@@ -224,11 +230,16 @@ export async function PATCH(
   if (duplicate) {
     const skuAvailable = getAvailableQuantity(storeItem, nextVariant ?? undefined);
     const withoutCurrent = siblingRows.filter((row) => row.id !== item.id);
-    const maxForDuplicate = maxQuantityForCartLine(skuAvailable, withoutCurrent, {
-      id: duplicate.id,
-      storeItemId: item.storeItemId,
-      variant: nextVariant,
-    });
+    const maxForDuplicate = maxQuantityForCartLine(
+      skuAvailable,
+      withoutCurrent,
+      {
+        id: duplicate.id,
+        storeItemId: item.storeItemId,
+        variant: nextVariant,
+      },
+      { sharedQuantity: listingUsesSharedQuantity(storeItem.variants) }
+    );
     const incomingQty = updateData.quantity ?? item.quantity;
     const mergedQty = Math.min(duplicate.quantity + incomingQty, maxForDuplicate);
     await prisma.cartItem.update({

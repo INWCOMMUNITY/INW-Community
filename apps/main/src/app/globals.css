@@ -133,6 +133,17 @@ a {
   color: var(--color-button-hover-text);
 }
 
+.btn:disabled,
+.btn-outline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background-color: var(--color-button);
+  color: var(--color-button-text);
+}
+
 /* Buttons/links with green (primary) hover background must use white text for contrast */
 [class*="hover:bg-[var(--color-primary)]"]:hover {
   color: white;
@@ -223,6 +234,7 @@ a {
 .btn-pill-primary:hover:not(:disabled) {
   background-color: #3E432F;
   border-color: #3E432F;
+  color: white;
 }
 
 .btn-pill-earth {
@@ -234,6 +246,7 @@ a {
 .btn-pill-earth:hover:not(:disabled) {
   background-color: #4a3f33;
   border-color: #4a3f33;
+  color: white;
 }
 
 .btn-pill-tan {
@@ -635,6 +648,19 @@ select option:checked {
 
 .animate-heart-pulse {
   animation: heartPulse 0.3s ease-out;
+}
+
+@keyframes listingChannelSyncSlide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.listing-channel-sync-slide {
+  animation: listingChannelSyncSlide 1.15s ease-in-out infinite;
 }
 
 /* Chip bounce animation for filter selection */

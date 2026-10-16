@@ -12,8 +12,8 @@ import { FulfillmentActionBar } from "@/components/fulfillment/FulfillmentAction
 import { FulfillmentTabBar } from "@/components/fulfillment/FulfillmentTabBar";
 import { HistoryOrderSection, ShippedOrderSection } from "@/components/fulfillment/HistoryOrderSection";
 import { OrderCard } from "@/components/fulfillment/OrderCard";
+import { EtsyPersonalizationNotes } from "@/components/EtsyPersonalizationNotes";
 import { OrderEmptyState } from "@/components/fulfillment/OrderEmptyState";
-import { PickupQueueSection, countPickupOrders } from "@/components/fulfillment/PickupQueueSection";
 import { ShippoConnectionBanner } from "@/components/fulfillment/ShippoConnectionBanner";
 import type { FulfillmentStoreOrder, SellerProfileForSlips } from "@/components/fulfillment/types";
 import {
@@ -39,7 +39,6 @@ const SELECTION_STORAGE_KEY = "fulfillment-hub-ship-selection";
 
 function parseTabParam(value: string | null): FulfillmentTabKey {
   if (
-    value === "pickups" ||
     value === "deliveries" ||
     value === "history" ||
     value === "ship" ||
@@ -101,7 +100,7 @@ export function FulfillmentHubContent(props: {
   const tabCounts = useMemo(
     () => ({
       ship: toShipOrders.length,
-      pickups: countPickupOrders(allOrders),
+      pickups: 0,
       deliveries: countPendingDeliveryOrders(allOrders),
       shipped: shippedOrders.length,
       canceled: canceledOrders.length,
@@ -118,7 +117,7 @@ export function FulfillmentHubContent(props: {
         if (data && typeof data === "object" && "toShip" in data) {
           setApiCounts({
             ship: Number((data as { toShip?: number }).toShip) || 0,
-            pickups: Number((data as { pickups?: number }).pickups) || 0,
+            pickups: 0,
             deliveries: Number((data as { deliveries?: number }).deliveries) || 0,
             shipped: Number((data as { shipped?: number }).shipped) || 0,
             canceled: Number((data as { canceled?: number }).canceled) || 0,
@@ -210,7 +209,7 @@ export function FulfillmentHubContent(props: {
       );
     }
 
-    if (tab === "pickups" || tab === "deliveries") {
+    if (tab === "deliveries") {
       fetches.push(
         fetchWithTimeout("/api/store-orders?mine=1")
           .then(async (r) => {
@@ -418,7 +417,8 @@ export function FulfillmentHubContent(props: {
           {props.backLabel}
         </Link>
         <h1 className="text-2xl font-bold mb-1">{props.title}</h1>
-        <p className="text-sm text-gray-600 mb-4">Manage ship, pickup, and local delivery in one place.</p>
+        <p className="text-sm text-gray-600 mb-4">Manage shipping and local delivery in one place.</p>
+        <EtsyPersonalizationNotes />
 
         <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={displayCounts} />
 
@@ -575,14 +575,6 @@ export function FulfillmentHubContent(props: {
               slipsDisabled={!sellerProfile}
             />
           </>
-        ) : tab === "pickups" ? (
-          <PickupQueueSection
-            orders={allOrders}
-            ordersBasePath={props.ordersBasePath}
-            onOrderUpdated={(updated) =>
-              setAllOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)))
-            }
-          />
         ) : tab === "deliveries" ? (
           <DeliveryQueueSection
             orders={allOrders}

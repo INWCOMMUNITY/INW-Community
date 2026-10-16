@@ -41,6 +41,7 @@ import {
   applyFoundationSellerMatrixStructure,
   applyFoundationSellerQuantitySets,
   assertFoundationMatrixStructureUnchanged,
+  endFoundationListing,
   markFoundationListingSold,
   provisionNativeFoundationListing,
   relistFoundationListing,
@@ -1646,6 +1647,29 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     const afterRelist = await prisma.inventoryState.findUnique({ where: { variantId: ctx.variantId } });
     expect(afterRelist?.onHand).toBe(9);
 
+    const ended = await trackedSimple(3);
+    await prisma.$transaction((tx) =>
+      endFoundationListing(tx, { storeItemId: ended.item.id, currentStatus: "active" })
+    );
+    const retired = await prisma.storeVariant.findUnique({ where: { id: ended.variantId } });
+    expect(retired?.status).toBe("RETIRED");
+    expect(retired?.isDefault).toBe(false);
+    await prisma.$transaction((tx) =>
+      relistFoundationListing(tx, {
+        storeItemId: ended.item.id,
+        memberId: ended.member.id,
+        commandId: `bulk-relist-ended-${ended.item.id}`,
+        simpleTarget: 2,
+      })
+    );
+    const restored = await prisma.storeVariant.findUnique({ where: { id: ended.variantId } });
+    expect(restored?.status).toBe("ACTIVE");
+    expect(restored?.isDefault).toBe(true);
+    const restoredState = await prisma.inventoryState.findUnique({ where: { variantId: ended.variantId } });
+    expect(restoredState?.onHand).toBe(2);
+    const restoredItem = await prisma.storeItem.findUnique({ where: { id: ended.item.id } });
+    expect(restoredItem?.status).toBe("active");
+
     const member = await createMember(prisma, "mx-bulk");
     const matrix = await createStoreItem(prisma, member.id, "MX", {
       quantity: 2,
@@ -1658,6 +1682,27 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
       },
     });
     await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, matrix.id));
+    await prisma.$transaction((tx) =>
+      endFoundationListing(tx, { storeItemId: matrix.id, currentStatus: "active" })
+    );
+    await prisma.$transaction((tx) =>
+      relistFoundationListing(tx, {
+        storeItemId: matrix.id,
+        memberId: member.id,
+        commandId: `bulk-relist-ended-mx-${matrix.id}`,
+        simpleTarget: 1,
+      })
+    );
+    const restoredMatrix = await prisma.storeVariant.findMany({
+      where: { storeItemId: matrix.id, status: "ACTIVE" },
+      select: { id: true },
+    });
+    expect(restoredMatrix).toHaveLength(2);
+    const restoredQty = await prisma.inventoryState.findMany({
+      where: { variantId: { in: restoredMatrix.map((row) => row.id) } },
+      select: { onHand: true },
+    });
+    expect(restoredQty.map((row) => row.onHand).sort()).toEqual([1, 1]);
     await expect(
       prisma.$transaction((tx) =>
         applyFoundationSellerQuantitySets(tx, {

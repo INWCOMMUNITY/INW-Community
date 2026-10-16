@@ -38,11 +38,17 @@ import {
   type EtsyHowItsMadeFormValue,
 } from "@/components/etsy/EtsyHowItsMadeFields";
 import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
+import { ShopifyMetafieldListingDialog } from "@/components/shopify/ShopifyMetafieldListingDialog";
+import { ShopifySharedQuantityDialog } from "@/components/shopify/ShopifySharedQuantityDialog";
+import {
+  ListingChannelSyncStatus,
+  type ChannelListingEnqueue,
+} from "@/components/store-item/ListingChannelSyncStatus";
+import { listingNeedsShopifyMetafields } from "@/lib/shopify/metafield-listing-warning";
 import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
 import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
 import { APPS_AIRPORT_SHOPIFY_SETTINGS_PATH } from "@/lib/shopify/apps-airport";
 import {
-  APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
   etsyListingIsPubliclyViewable,
@@ -159,7 +165,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [priceDollars, setPriceDollars] = useState(
     existing ? (existing.priceCents / 100).toFixed(2) : ""
   );
-  const [quantity, setQuantity] = useState(existing?.quantity ?? 1);
+  const [quantity, setQuantity] = useState(() => {
+    if (!existing) return 1;
+    const matrix = initEditorFromVariants(existing.variants, existing.storeVariants);
+    if (matrix.quantitiesVary === false && matrix.skus.length > 1) {
+      const positive = matrix.skus.map((sku) => sku.quantity).filter((qty) => qty > 0);
+      const pool = positive.length > 0 ? Math.min(...positive) : existing.quantity;
+      return existing.quantity <= pool ? existing.quantity : pool;
+    }
+    return existing.quantity;
+  });
   const [shippingCostDollars, setShippingCostDollars] = useState(
     existing?.shippingCostCents ? (existing.shippingCostCents / 100).toFixed(2) : ""
   );
@@ -204,21 +219,23 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
   const [shopifyBusy, setShopifyBusy] = useState(false);
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
+  const [shopifyMetafieldPrompt, setShopifyMetafieldPrompt] = useState<null | "list" | "save">(null);
+  const [sharedQuantityShopifyOpen, setSharedQuantityShopifyOpen] = useState(false);
+  const shopifyMetafieldAckRef = useRef(false);
   const initialMatrix = initEditorFromVariants(existing?.variants, existing?.storeVariants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const optionsEnabledRef = useRef(initialMatrix.optionsEnabled);
   const [optionsConfirmed, setOptionsConfirmed] = useState(() => !existing?.id || initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>(initialMatrix.skus);
-  const [pricesVary, setPricesVary] = useState(false);
+  const [pricesVary, setPricesVary] = useState(initialMatrix.pricesVary);
+  const [quantitiesVary, setQuantitiesVary] = useState(initialMatrix.quantitiesVary);
+  const [skusVary, setSkusVary] = useState(initialMatrix.skusVary);
   const [localDeliveryAvailable, setLocalDeliveryAvailable] = useState(
     existing?.localDeliveryAvailable ?? false
   );
   const [localDeliveryFeeDollars, setLocalDeliveryFeeDollars] = useState(
     existing?.localDeliveryFeeCents != null ? (existing.localDeliveryFeeCents / 100).toFixed(2) : ""
-  );
-  const [inStorePickupAvailable, setInStorePickupAvailable] = useState(
-    existing?.inStorePickupAvailable ?? false
   );
   const [shippingDisabled, setShippingDisabled] = useState(
     existing?.shippingDisabled ?? false
@@ -226,11 +243,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [localDeliveryTerms, setLocalDeliveryTerms] = useState(
     existing?.localDeliveryTerms ?? ""
   );
-  const [sellerProfilePickupPolicy, setSellerProfilePickupPolicy] = useState("");
-  const [useSellerProfilePickup, setUseSellerProfilePickup] = useState(
-    !existing?.pickupTerms || existing.pickupTerms === ""
-  );
-  const [pickupTerms, setPickupTerms] = useState(existing?.pickupTerms ?? "");
   const [acceptOffers, setAcceptOffers] = useState(
     existing?.acceptOffers ?? true
   );
@@ -241,7 +253,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   );
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
-  const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [offerFlagsLoaded, setOfferFlagsLoaded] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -257,6 +268,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const [successDetail, setSuccessDetail] = useState("");
+  const [channelSyncs, setChannelSyncs] = useState<ChannelListingEnqueue[]>([]);
 
   useEffect(() => {
     optionsEnabledRef.current = optionsEnabled;
@@ -304,6 +316,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               setOptionsEnabled(true);
               setVariantAxes(matrix.axes);
               setVariantSkus(matrix.skus);
+              setPricesVary(matrix.pricesVary);
+              setQuantitiesVary(matrix.quantitiesVary);
+              setSkusVary(matrix.skusVary);
             }
           }
           setBuyerFieldsReady(true);
@@ -325,14 +340,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .then((data: {
         sellerShippingPolicy?: string | null;
         sellerLocalDeliveryPolicy?: string | null;
-        sellerPickupPolicy?: string | null;
         offerShipping?: boolean;
         offerLocalDelivery?: boolean;
-        offerLocalPickup?: boolean;
       }) => {
         if (data?.offerShipping !== undefined) setOfferShipping(data.offerShipping);
         if (data?.offerLocalDelivery !== undefined) setOfferLocalDelivery(data.offerLocalDelivery);
-        if (data?.offerLocalPickup !== undefined) setOfferLocalPickup(data.offerLocalPickup);
         setOfferFlagsLoaded(true);
         if (data?.sellerShippingPolicy != null && !existing?.shippingPolicy) {
           setSellerProfileShippingPolicy(data.sellerShippingPolicy ?? "");
@@ -341,13 +353,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         if (data?.sellerLocalDeliveryPolicy != null && !existing?.localDeliveryTerms) {
           setLocalDeliveryTerms((prev) => prev || (data.sellerLocalDeliveryPolicy ?? ""));
         }
-        if (data?.sellerPickupPolicy != null && !existing?.pickupTerms) {
-          setSellerProfilePickupPolicy(data.sellerPickupPolicy ?? "");
-          if (useSellerProfilePickup) setPickupTerms(data.sellerPickupPolicy ?? "");
-        }
       })
       .catch(() => setOfferFlagsLoaded(true));
-  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms, useSellerProfileShipping, useSellerProfilePickup]);
+  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, useSellerProfileShipping]);
 
   useEffect(() => {
     fetch("/api/shipping-options", { credentials: "include" })
@@ -523,7 +531,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     };
   }, [existing?.id, shopifyConn?.status]);
 
-  const enqueueShopifyListing = useCallback(async (storeItemId: string): Promise<string | null> => {
+  const enqueueShopifyListing = useCallback(async (storeItemId: string): Promise<ChannelListingEnqueue> => {
     const res = await fetch("/api/shopify/listings/create", {
       method: "POST",
       credentials: "include",
@@ -533,19 +541,38 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const body = (await res.json().catch(() => ({}))) as {
       status?: string;
       shopifyProductId?: string;
+      jobId?: string;
       error?: string;
     };
     if (!res.ok) {
-      return body.error ?? "Could not list on Shopify";
+      return {
+        channel: "shopify",
+        storeItemId,
+        enqueueStatus: null,
+        jobId: null,
+        error: body.error ?? "Could not list on Shopify",
+      };
     }
     if (body.status === "already_mapped") {
       setShopifyMappedProductId(body.shopifyProductId ?? "mapped");
-      return "Already on Shopify";
+      return {
+        channel: "shopify",
+        storeItemId,
+        enqueueStatus: "already_mapped",
+        jobId: null,
+        error: null,
+      };
     }
-    return "Listing queued for Shopify — sync usually finishes within a minute";
+    return {
+      channel: "shopify",
+      storeItemId,
+      enqueueStatus: "queued",
+      jobId: body.jobId ?? null,
+      error: null,
+    };
   }, []);
 
-  const enqueueEtsyListing = useCallback(async (storeItemId: string): Promise<string | null> => {
+  const enqueueEtsyListing = useCallback(async (storeItemId: string): Promise<ChannelListingEnqueue> => {
     const res = await fetch("/api/etsy/listings/create", {
       method: "POST",
       credentials: "include",
@@ -556,31 +583,49 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       status?: string;
       error?: string;
       code?: string;
+      jobId?: string;
     };
     if (!res.ok) {
-      if (body.code === "SHIPPING_PROFILE_REQUIRED") {
-        return (
-          body.error ??
-          "Set a default Etsy shipping profile in Sync Airport → Etsy → Connection Settings, then try again."
-        );
-      }
-      return body.error ?? "Could not list on Etsy";
+      const error =
+        body.code === "SHIPPING_PROFILE_REQUIRED"
+          ? (body.error ??
+            "Set a default Etsy shipping profile in Sync Airport → Etsy → Connection Settings, then try again.")
+          : (body.error ?? "Could not list on Etsy");
+      return { channel: "etsy", storeItemId, enqueueStatus: null, jobId: null, error };
     }
-    if (body.status === "already_mapped") return "Already on Etsy";
-    if (body.status === "queued") {
-      return "Listing queued for Etsy — sync usually finishes within a minute";
+    if (body.status === "already_mapped") {
+      return { channel: "etsy", storeItemId, enqueueStatus: "already_mapped", jobId: null, error: null };
     }
-    return "Etsy listing request sent";
+    return {
+      channel: "etsy",
+      storeItemId,
+      enqueueStatus: "queued",
+      jobId: body.jobId ?? null,
+      error: null,
+    };
   }, []);
+
+  const editorUsesSharedQuantityPool =
+    optionsEnabled && !quantitiesVary && variantSkus.filter((sku) => sku.enabled).length > 1;
 
   const handleListOnShopifyClick = useCallback(async () => {
     const storeItemId = existing?.id;
     if (!storeItemId) return;
+    if (editorUsesSharedQuantityPool) {
+      setSharedQuantityShopifyOpen(true);
+      return;
+    }
+    if (listingNeedsShopifyMetafields(buyerFields) && !shopifyMetafieldAckRef.current) {
+      setShopifyMetafieldPrompt("list");
+      return;
+    }
     setShopifyBusy(true);
     setShopifyMessage(null);
     try {
-      const message = await enqueueShopifyListing(storeItemId);
-      if (message) setShopifyMessage(message);
+      const queued = await enqueueShopifyListing(storeItemId);
+      if (queued.error) setShopifyMessage(queued.error);
+      else if (queued.enqueueStatus === "already_mapped") setShopifyMessage("Already on Shopify");
+      else setShopifyMessage("Listing queued for Shopify — sync usually finishes within a minute");
       const readiness = await fetch(`/api/shopify/listings/${storeItemId}/export-readiness`, {
         credentials: "include",
       }).then((r) => (r.ok ? r.json() : null));
@@ -592,7 +637,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     } finally {
       setShopifyBusy(false);
     }
-  }, [existing?.id, enqueueShopifyListing]);
+  }, [existing?.id, enqueueShopifyListing, buyerFields, editorUsesSharedQuantityPool]);
 
   const handleViewOnShopifyClick = useCallback(async () => {
     const storeItemId = existing?.id;
@@ -670,8 +715,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     if (!offerFlagsLoaded) return;
     if (!offerShipping) setShippingDisabled(true);
     if (!offerLocalDelivery) setLocalDeliveryAvailable(false);
-    if (!offerLocalPickup) setInStorePickupAvailable(false);
-  }, [offerFlagsLoaded, offerShipping, offerLocalDelivery, offerLocalPickup]);
+  }, [offerFlagsLoaded, offerShipping, offerLocalDelivery]);
 
   async function handlePhotosUpload(files: File[]) {
     setPhotoError("");
@@ -730,9 +774,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         : NaN
       : Math.round(parseFloat(priceDollars) * 100);
     const priceCents = asDraft && (isNaN(parsedPrice) || parsedPrice < 0) ? 0 : parsedPrice;
-    const shippingCostCents = shippingCostDollars
+    const shippingCostCents = shippingCostDollars.trim()
       ? Math.round(parseFloat(shippingCostDollars) * 100)
-      : 0;
+      : null;
     if (!title.trim()) {
       setError(asDraft ? "Add a title to save this draft." : "Title is required");
       return null;
@@ -759,9 +803,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
     const effectiveLocalDelivery = offerLocalDelivery && localDeliveryAvailable;
-    const effectivePickup = offerLocalPickup && inStorePickupAvailable;
-    if (!asDraft && effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
-      setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
+    if (!asDraft && effectiveShippingDisabled && !effectiveLocalDelivery) {
+      setError("Enable at least one fulfillment method (shipping or local delivery) in Policies.");
       return null;
     }
     if (!asDraft && listOnEtsy) {
@@ -814,11 +857,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setError("Choose a shipping option, or create one in Shipping options.");
       return null;
     }
-    const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
-    if (!asDraft && effectivePickup && !effectivePickupPolicy.trim()) {
-      setError("Pickup terms are required when you offer local pickup. Set them in Policies or use Sync here.");
-      return null;
-    }
     const cleanedAspects = aspects
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
@@ -840,17 +878,34 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       quantity: madeToOrder
         ? quantity
         : enabledSkus
-          ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
+          ? quantitiesVary
+            ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
+            : Math.max(0, Math.trunc(quantity) || 0)
           : quantity,
       ...(isEdit && !optionsConfirmed
         ? {}
         : {
             variants:
               optionsEnabled && enabledSkus
-                ? serializeVariantMatrix({ axes: variantAxes, skus: enabledSkus })
+                ? serializeVariantMatrix({
+                    axes: variantAxes,
+                    skus: quantitiesVary
+                      ? enabledSkus
+                      : enabledSkus.map((sku) => ({
+                          ...sku,
+                          quantity: Math.max(0, Math.trunc(quantity) || 0),
+                        })),
+                    pricesVary,
+                    quantitiesVary,
+                    skusVary,
+                    sharedQuantity: !quantitiesVary && enabledSkus.length > 1,
+                  })
                 : null,
           }),
-      shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
+      shippingCostCents:
+        effectiveShippingDisabled || shippingCostCents == null || !Number.isFinite(shippingCostCents)
+          ? null
+          : Math.max(0, shippingCostCents),
       shippingOptionId: shippingOptionId || null,
       shippingPolicy:
         effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
@@ -858,11 +913,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       localDeliveryFeeCents: effectiveLocalDelivery && localDeliveryFeeDollars
         ? Math.round(parseFloat(localDeliveryFeeDollars) * 100)
         : null,
-      inStorePickupAvailable: effectivePickup,
+      inStorePickupAvailable: false,
       shippingDisabled: effectiveShippingDisabled,
       localDeliveryTerms: effectiveLocalDelivery ? (localDeliveryTerms.trim() || null) : null,
-      pickupTerms:
-        effectivePickup && !useSellerProfilePickup ? (pickupTerms.trim() || null) : null,
+      pickupTerms: null,
       ...(condition === "used"
         ? {
             acceptOffers,
@@ -882,6 +936,30 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setError("");
     const payload = buildPayload();
     if (!payload) return;
+
+    const willListOnShopify =
+      !isEdit &&
+      listOnShopifyAfterSave &&
+      shopifyConn?.status === "ACTIVE" &&
+      Boolean(shopifyConn.inventoryReady) &&
+      !editorUsesSharedQuantityPool;
+    if (
+      listOnShopifyAfterSave &&
+      shopifyConn?.status === "ACTIVE" &&
+      shopifyConn.inventoryReady &&
+      editorUsesSharedQuantityPool
+    ) {
+      setSharedQuantityShopifyOpen(true);
+      setListOnShopifyAfterSave(false);
+    }
+    if (
+      willListOnShopify &&
+      listingNeedsShopifyMetafields(buyerFields) &&
+      !shopifyMetafieldAckRef.current
+    ) {
+      setShopifyMetafieldPrompt("save");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -913,7 +991,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       }
 
       const savedId = data.id ?? existing?.id ?? null;
-      let etsyDetail: string | null = null;
+      const syncs: ChannelListingEnqueue[] = [];
       if (savedId && listOnEtsy) {
         const attrsRes = await fetch(`/api/store-items/${savedId}/etsy-attributes`, {
           method: "PATCH",
@@ -941,18 +1019,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           );
           return;
         }
-        etsyDetail = await enqueueEtsyListing(savedId);
+        syncs.push(await enqueueEtsyListing(savedId));
       }
 
-      let shopifyDetail: string | null = null;
-      if (
-        savedId &&
-        !isEdit &&
-        listOnShopifyAfterSave &&
-        shopifyConn?.status === "ACTIVE" &&
-        shopifyConn.inventoryReady
-      ) {
-        shopifyDetail = await enqueueShopifyListing(savedId);
+      if (savedId && willListOnShopify) {
+        syncs.push(await enqueueShopifyListing(savedId));
       }
 
       setEditSuccess(isEdit);
@@ -963,14 +1034,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       if (Array.isArray(data.photos) && data.photos.length > 0) {
         setPhotos(data.photos);
       }
+      setChannelSyncs(syncs);
       setSuccessDetail(
-        [
-          existing ? "Your changes have been saved on INW." : "Your listing is now live on INW.",
-          etsyDetail,
-          shopifyDetail,
-        ]
-          .filter(Boolean)
-          .join(" ")
+        existing ? "Your changes have been saved on INW." : "Your listing is now live on INW."
       );
       router.refresh();
       setShowSuccessModal(true);
@@ -1323,7 +1389,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           </ListingFormSection>
 
           <ListingFormSection
-            title="Custom options"
+            title="Custom Options"
             description="Text, choices, or files buyers fill in. These do not change stock."
           >
             <ListingBuyerFieldsEditor
@@ -1384,6 +1450,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 }}
                 galleryPhotos={photos}
                 onPricesVaryChange={setPricesVary}
+                initialPricesVary={pricesVary}
+                initialQuantitiesVary={quantitiesVary}
+                initialSkusVary={skusVary}
+                onQuantitiesVaryChange={setQuantitiesVary}
               />
             </div>
 
@@ -1474,10 +1544,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                         listing.
                       </p>
                       <Link
-                        href={APPS_AIRPORT_ETSY_LISTINGS_PATH}
+                        href="/seller-hub/store/items"
                         className="action-pill action-pill-sm btn-pill-outline inline-flex"
                       >
-                        View linked listings
+                        View my items
                       </Link>
                     </div>
                   ) : (
@@ -1639,7 +1709,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                       <input
                         type="checkbox"
                         checked={listOnShopifyAfterSave}
-                        onChange={(e) => setListOnShopifyAfterSave(e.target.checked)}
+                        onChange={(e) => {
+                          if (e.target.checked && editorUsesSharedQuantityPool) {
+                            setSharedQuantityShopifyOpen(true);
+                            return;
+                          }
+                          setListOnShopifyAfterSave(e.target.checked);
+                        }}
                         className="rounded"
                       />
                       <span className="font-medium text-sm">List on Shopify</span>
@@ -1651,7 +1727,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           ) : null}
 
           {/* Delivery Options */}
-          {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
+          {offerFlagsLoaded && (offerShipping || offerLocalDelivery) && (
             <ListingFormSection title="Delivery Options">
               {offerShipping && (
                 <>
@@ -1661,7 +1737,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                       checked={!shippingDisabled}
                       onChange={(e) => {
                         const nextDisabled = !e.target.checked;
-                        if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+                        if (nextDisabled && !localDeliveryAvailable && offerLocalDelivery) {
                           setLocalDeliveryAvailable(true);
                         }
                         setShippingDisabled(nextDisabled);
@@ -1819,76 +1895,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </div>
               )}
 
-              {offerLocalPickup && (
-                <>
-                  <label className="flex items-center gap-2 cursor-pointer mt-3">
-                    <input
-                      type="checkbox"
-                      checked={inStorePickupAvailable}
-                      onChange={(e) => setInStorePickupAvailable(e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="font-medium">Offer Local Pick Up</span>
-                  </label>
-                  {inStorePickupAvailable && (
-                    <div className="mt-2 pl-6">
-                      <label className="block text-sm font-medium mb-1">Pickup terms</label>
-                      <div className="flex gap-2 items-start">
-                        <textarea
-                          value={useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms}
-                          onChange={(e) => {
-                            if (!useSellerProfilePickup) setPickupTerms(e.target.value);
-                          }}
-                          readOnly={useSellerProfilePickup}
-                          className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfilePickup ? "bg-gray-50" : ""}`}
-                          rows={3}
-                          placeholder="e.g. Location, contact method, hours."
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            fetch("/api/me/policies")
-                              .then((r) => r.json())
-                              .then((data: { sellerPickupPolicy?: string | null }) => {
-                                const policy = data?.sellerPickupPolicy ?? "";
-                                setSellerProfilePickupPolicy(policy);
-                                setPickupTerms(policy);
-                              })
-                              .catch(() => {});
-                          }}
-                          className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
-                        >
-                          Sync
-                        </button>
-                      </div>
-                      <label className="flex items-center gap-2 cursor-pointer mt-2">
-                        <input
-                          type="checkbox"
-                          checked={useSellerProfilePickup}
-                          onChange={(e) => {
-                            setUseSellerProfilePickup(e.target.checked);
-                            if (e.target.checked) setPickupTerms("");
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm font-medium">Use policies from settings</span>
-                      </label>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {useSellerProfilePickup
-                          ? "Synced from your Policies screen. Uncheck to set item-specific terms."
-                          : "Item-specific pickup terms (overrides profile default)."}
-                      </p>
-                    </div>
-                  )}
-                </>
-              )}
             </ListingFormSection>
           )}
 
-          {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
+          {offerFlagsLoaded && !(offerShipping || offerLocalDelivery) && (
             <ListingFormSection>
               <p className="text-sm text-gray-600 mb-2">
-                Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
+                Set your fulfillment options in Policies (shipping or local delivery) to enable them here.
               </p>
               <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
             </ListingFormSection>
@@ -1915,7 +1928,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             <p className="text-lg font-bold text-gray-900 mb-2">
               {editSuccess ? "Item Updated" : "Item listed successfully"}
             </p>
-            <p className="text-gray-700 mb-6">{successDetail}</p>
+            <p className={`text-gray-700 ${channelSyncs.length > 0 ? "mb-4" : "mb-6"}`}>{successDetail}</p>
+            <ListingChannelSyncStatus channels={channelSyncs} />
             {!editSuccess && successItemId ? (
               <div className="mb-5 text-left rounded-xl border-2 p-4" style={{ borderColor: "var(--color-primary)" }}>
                 <p className="font-semibold mb-1" style={{ color: "var(--color-heading)" }}>
@@ -1976,6 +1990,21 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           </div>
         </div>
       )}
+      <ShopifySharedQuantityDialog
+        open={sharedQuantityShopifyOpen}
+        onClose={() => setSharedQuantityShopifyOpen(false)}
+      />
+      <ShopifyMetafieldListingDialog
+        open={shopifyMetafieldPrompt != null}
+        onCancel={() => setShopifyMetafieldPrompt(null)}
+        onConfirm={() => {
+          shopifyMetafieldAckRef.current = true;
+          const mode = shopifyMetafieldPrompt;
+          setShopifyMetafieldPrompt(null);
+          if (mode === "list") void handleListOnShopifyClick();
+          if (mode === "save") void handleSubmit({ preventDefault() {} } as React.FormEvent);
+        }}
+      />
     </>
   );
 }

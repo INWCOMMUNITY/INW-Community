@@ -12,7 +12,7 @@ import type { EtsyFetch } from "./client";
 import { etsyConnectionRequest } from "./connection-request";
 import { enqueueEtsyCreateListing, etsyCreateListingDedupeKey } from "./create-listing";
 
-export type EtsyListingAction = "retry" | "remove" | "reload";
+export type EtsyListingAction = "retry" | "remove" | "reload" | "end";
 
 export type EtsyListingActionResult =
   | { ok: true; message?: string }
@@ -69,6 +69,50 @@ async function loadMappedListing(input: {
  * Best-effort remote delete. Never blocks local unlink — Etsy often refuses DELETE
  * on active listings, and app config may be missing while the DB link still exists.
  */
+/** Deactivate on Etsy and keep the INW listing and the Etsy link. */
+async function endEtsyListingOnly(input: {
+  connectionId: string;
+  memberId: string;
+  shopId: string;
+  listingLinkId: string;
+  etsyListingId: string;
+  remoteListingState?: string | null;
+  fetchImpl?: EtsyFetch;
+}): Promise<EtsyListingActionResult> {
+  const listingId = String(input.etsyListingId ?? "").trim();
+  if (!/^\d+$/.test(listingId)) {
+    return { ok: false, status: 409, error: "Etsy listing id is missing", code: "ETSY_LISTING_ID" };
+  }
+
+  if (etsyListingIsPubliclyViewable(input.remoteListingState)) {
+    const deactivate = await etsyConnectionRequest({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "PATCH",
+      path: `/shops/${encodeURIComponent(input.shopId)}/listings/${encodeURIComponent(listingId)}`,
+      bodyEncoding: "form",
+      body: { state: "inactive" },
+      maxAttempts: 1,
+      timeoutMs: 12_000,
+      fetchImpl: input.fetchImpl,
+    });
+    if (!deactivate.ok) {
+      return {
+        ok: false,
+        status: 502,
+        error: deactivate.message?.trim() || "Could not end the Etsy listing",
+        code: "ETSY_END_FAILED",
+      };
+    }
+  }
+
+  await prisma.etsyListingLink.update({
+    where: { id: input.listingLinkId },
+    data: { remoteListingState: "inactive" },
+  });
+  return { ok: true, message: "Ended on Etsy. The INW listing is unchanged." };
+}
+
 async function deleteRemoteEtsyListing(input: {
   connectionId: string;
   memberId: string;
@@ -272,6 +316,18 @@ export async function runEtsyListingAction(input: {
         listingLinkId: listing.id,
         storeItemId: listing.storeItemId,
         variantMaps: listing.variantMaps,
+      });
+    }
+
+    if (input.action === "end") {
+      return endEtsyListingOnly({
+        connectionId: connection.id,
+        memberId: input.memberId,
+        shopId: connection.shopId,
+        listingLinkId: listing.id,
+        etsyListingId: listing.etsyListingId,
+        remoteListingState: listing.remoteListingState,
+        fetchImpl: input.fetchImpl,
       });
     }
 

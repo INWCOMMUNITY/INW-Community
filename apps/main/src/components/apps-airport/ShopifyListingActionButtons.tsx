@@ -40,6 +40,36 @@ export function ShopifyListingActionButtons({
     from: "shopify-sync",
   });
 
+  async function removeFromInw() {
+    if (
+      !window.confirm(
+        "Remove this listing from INW?\n\nIt stays on your Online Store. INW drops the link so you can import it again as a new listing."
+      )
+    ) {
+      return;
+    }
+    setBusy("remove-inw");
+    setError(null);
+    try {
+      const response = await fetch(`/api/store-items/${encodeURIComponent(storeItemId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "inactive" }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setError(body.error?.trim() || "Could not remove from INW");
+        return;
+      }
+      onActionComplete?.("Removed from INW. It stays on your Online Store, and the INW link is gone.");
+    } catch {
+      setError("Could not remove from INW");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function callAction(
     action: "retry" | "reconnect" | "unpublish" | "remove",
     extra?: { confirmDelete?: boolean },
@@ -128,6 +158,12 @@ export function ShopifyListingActionButtons({
       label: "Delete Listing",
       danger: true,
       onSelect: onDeleteListing,
+    },
+    {
+      kind: "action",
+      id: "remove-inw",
+      label: "Remove from INW",
+      onSelect: () => void removeFromInw(),
     },
     {
       kind: "link",

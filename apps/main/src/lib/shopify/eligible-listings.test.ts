@@ -7,6 +7,7 @@ vi.mock("database", async () => {
     prisma: {
       shopifyListingLink: { findMany: vi.fn() },
       storeItem: { findMany: vi.fn() },
+      listingBuyerField: { findMany: vi.fn() },
     },
   };
 });
@@ -18,6 +19,8 @@ describe("listEligibleShopifyExportListings", () => {
   beforeEach(() => {
     vi.mocked(prisma.shopifyListingLink.findMany).mockReset();
     vi.mocked(prisma.storeItem.findMany).mockReset();
+    vi.mocked(prisma.listingBuyerField.findMany).mockReset();
+    vi.mocked(prisma.listingBuyerField.findMany).mockResolvedValue([] as never);
   });
 
   it("excludes already-mapped listings and includes single + multi-variant items", async () => {
@@ -86,6 +89,7 @@ describe("listEligibleShopifyExportListings", () => {
       storeItemId: "simple-1",
       title: "Simple",
       variantCount: 1,
+      needsShopifyMetafields: false,
     });
     expect(rows[1]).toMatchObject({
       storeItemId: "multi-1",

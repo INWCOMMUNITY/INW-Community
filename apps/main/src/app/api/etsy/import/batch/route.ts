@@ -31,6 +31,13 @@ export async function GET(req: NextRequest) {
   }
 
   const batch = await getEtsyImportBatchStatus({ memberId });
+  if (
+    batch &&
+    (batch.state === "PENDING" || batch.state === "RUNNING") &&
+    !batch.cancelRequested
+  ) {
+    void kickImportBatchWorker(1).catch(() => undefined);
+  }
   return NextResponse.json({ batch });
 }
 
@@ -43,23 +50,29 @@ export async function POST(req: NextRequest) {
   }
 
   let stockModePolicy = "RECOMMENDED";
-  let shippingPolicy = "FREE";
+  let listingIds: unknown;
+  let shippingPrices: unknown;
   try {
     const body = (await req.json().catch(() => ({}))) as {
       stockModePolicy?: unknown;
-      shippingPolicy?: unknown;
+      listingIds?: unknown;
+      shippingPrices?: unknown;
     };
     if (typeof body.stockModePolicy === "string" && body.stockModePolicy.trim()) {
       stockModePolicy = body.stockModePolicy.trim();
     }
-    if (typeof body.shippingPolicy === "string" && body.shippingPolicy.trim()) {
-      shippingPolicy = body.shippingPolicy.trim();
-    }
+    listingIds = body.listingIds;
+    shippingPrices = body.shippingPrices;
   } catch {
     // empty body ok
   }
 
-  const result = await startEtsyImportBatch({ memberId, stockModePolicy, shippingPolicy });
+  const result = await startEtsyImportBatch({
+    memberId,
+    stockModePolicy,
+    listingIds,
+    shippingPrices,
+  });
   if (result.status === "ERROR") {
     return NextResponse.json(
       { error: result.message, code: result.code },

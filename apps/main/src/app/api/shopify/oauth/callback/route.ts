@@ -6,16 +6,24 @@ import {
 import { completeShopifyOAuth, ShopifyConnectError } from "@/lib/shopify/connect";
 import { readShopifyAppConfig } from "@/lib/shopify/config";
 import { SHOPIFY_SELLER_RETURN_PATH } from "@/lib/shopify/constants";
+import {
+  clearSellerOnboardingReturnCookie,
+  readSellerOnboardingReturn,
+  sellerOnboardingReturnPath,
+} from "@/lib/seller-onboarding-return";
 
 export const dynamic = "force-dynamic";
 
-function redirectToSeller(appUrl: string, errorCode?: string) {
-  const path = errorCode
-    ? `${SHOPIFY_SELLER_RETURN_PATH}?shopify_error=${encodeURIComponent(errorCode)}`
-    : `${SHOPIFY_SELLER_RETURN_PATH}?shopify=connected`;
+function redirectToSeller(appUrl: string, errorCode?: string, onboarding = false) {
+  const path = onboarding
+    ? sellerOnboardingReturnPath("import", errorCode ? { shopify_error: errorCode } : { shopify: "connected" })
+    : errorCode
+      ? `${SHOPIFY_SELLER_RETURN_PATH}?shopify_error=${encodeURIComponent(errorCode)}`
+      : `${SHOPIFY_SELLER_RETURN_PATH}?shopify=connected`;
   const response = NextResponse.redirect(new URL(path, appUrl));
   const cookie = clearedShopifyBrowserBindingCookie();
   response.cookies.set(cookie.name, cookie.value, cookie.options);
+  if (onboarding) clearSellerOnboardingReturnCookie(response);
   return response;
 }
 
@@ -27,6 +35,7 @@ export async function GET(req: NextRequest) {
     response.cookies.set(cookie.name, cookie.value, cookie.options);
     return response;
   }
+  const onboarding = readSellerOnboardingReturn(req) === "import";
   try {
     const bindingCookiePresent = Boolean(req.cookies.get(SHOPIFY_OAUTH_BROWSER_COOKIE)?.value);
     console.info("SHOPIFY_OAUTH_CALLBACK_BINDING_PRESENT", {
@@ -37,7 +46,7 @@ export async function GET(req: NextRequest) {
     await completeShopifyOAuth(req.nextUrl.searchParams, {
       browserBindingSecret: req.cookies.get(SHOPIFY_OAUTH_BROWSER_COOKIE)?.value ?? null,
     });
-    return redirectToSeller(config.appUrl);
+    return redirectToSeller(config.appUrl, undefined, onboarding);
   } catch (error) {
     const code = error instanceof ShopifyConnectError ? error.code : "invalid_callback";
     if (error instanceof ShopifyConnectError && error.code === "invalid_state" && error.reason) {
@@ -54,6 +63,6 @@ export async function GET(req: NextRequest) {
         attemptId: error.diagnostic?.attemptId,
       });
     }
-    return redirectToSeller(config.appUrl, code);
+    return redirectToSeller(config.appUrl, code, onboarding);
   }
 }

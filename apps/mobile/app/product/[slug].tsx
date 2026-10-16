@@ -20,7 +20,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
+import { uploadBuyerFileFromUri } from "@/lib/upload-buyer-file";
 import * as ImagePicker from "expo-image-picker";
 import type { PublicBuyerField } from "@/lib/listing-buyer-fields";
 import { useAuth } from "@/contexts/AuthContext";
@@ -89,7 +90,9 @@ interface StoreItem {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    freeShippingMinimumCents?: number | null;
   };
+  freeShippingBanner?: "storewide" | "threshold" | null;
   business?: {
     id: string;
     name: string;
@@ -255,14 +258,8 @@ export default function ProductScreen() {
       setItem(data);
       if (data.unavailable) {
         setItemUnavailable(true);
-      } else {
-        if (data.shippingDisabled) {
-          if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
-        } else {
-          setFulfillmentType("ship");
-        }
       }
+      setFulfillmentType("ship");
       setLoading(false);
       return;
     }
@@ -273,12 +270,7 @@ export default function ProductScreen() {
       if (data2 && typeof data2.id === "string" && data2.unavailable) {
         setItem(data2);
         setItemUnavailable(true);
-        if (data2.shippingDisabled) {
-          if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
-          else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
-        } else {
-          setFulfillmentType("ship");
-        }
+        setFulfillmentType("ship");
       } else {
         setItem(null);
         setError("Product not found");
@@ -508,12 +500,26 @@ export default function ProductScreen() {
       quantity,
       variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
       fulfillmentType,
-      buyerResponses: (item.buyerFields ?? []).map((field) => ({
-        fieldId: field.id,
-        text: buyerAnswers[field.id]?.text ?? "",
-        optionLabel: buyerAnswers[field.id]?.optionLabel ?? "",
-        files: buyerAnswers[field.id]?.files ?? [],
-      })),
+      buyerResponses: (item.buyerFields ?? []).map((field) => {
+        const draft = buyerAnswers[field.id];
+        const labeled = field.kind === "FILE" && field.labelEachFile && field.options.length > 0;
+        const labeledFiles = labeled
+          ? field.options.slice(0, 10).flatMap((option, index) => {
+              const file = draft?.files?.[index];
+              return file?.url ? [{ url: file.url, label: option.label }] : [];
+            })
+          : [];
+        return {
+          fieldId: field.id,
+          text: draft?.text ?? "",
+          optionLabel: draft?.optionLabel ?? "",
+          files: labeled
+            ? labeledFiles.length === Math.min(10, field.options.length)
+              ? labeledFiles
+              : []
+            : (draft?.files ?? []).filter((file) => file?.url),
+        };
+      }),
     };
     if (fulfillmentType === "local_delivery" && localDeliveryForm) {
       payload.localDeliveryDetails = localDeliveryForm;
@@ -578,9 +584,6 @@ export default function ProductScreen() {
 
   const photos = getSkuPhotos(item, selectedVariant);
   const photoUrl = resolvePhotoUrl(photos[photoIndex]);
-  const canShip = !item.shippingDisabled;
-  const canLocalDelivery = !!item.localDeliveryAvailable;
-  const canPickup = !!item.inStorePickupAvailable;
 
   const effectiveShippingPolicy =
     item.shippingPolicy ?? item.member?.sellerShippingPolicy ?? null;
@@ -844,12 +847,6 @@ export default function ProductScreen() {
                 </Text>
               </View>
             )}
-            {item.inStorePickupAvailable && (
-              <View style={styles.shippingPreviewItem}>
-                <Ionicons name="storefront-outline" size={16} color={theme.colors.earth} />
-                <Text style={styles.shippingPreviewText}>Local Pickup Available</Text>
-              </View>
-            )}
           </View>
 
           {(item.saveCount != null && item.saveCount > 0) || !itemUnavailable ? (
@@ -913,33 +910,71 @@ export default function ProductScreen() {
                         );
                       })
                     : null}
-                  {field.kind === "FILE" ? (
-                    <Pressable
-                      onPress={async () => {
-                        const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
-                        if (picked.canceled || !picked.assets[0]) return;
-                        const asset = picked.assets[0];
-                        const form = new FormData();
-                        form.append("file", {
-                          uri: asset.uri,
-                          name: asset.fileName ?? "upload.jpg",
-                          type: asset.mimeType ?? "image/jpeg",
-                        } as unknown as Blob);
-                        const uploaded = await apiUploadFile("/api/upload/buyer-file", form);
-                        setBuyerAnswers((prev) => ({
-                          ...prev,
-                          [field.id]: {
-                            ...prev[field.id],
-                            files: [...(prev[field.id]?.files ?? []), { url: uploaded.url }],
-                          },
-                        }));
-                      }}
-                    >
-                      <Text style={{ color: theme.colors.earth }}>
-                        Upload image ({(buyerAnswers[field.id]?.files ?? []).length}/{field.maxFiles ?? 1})
-                      </Text>
-                    </Pressable>
-                  ) : null}
+                  {field.kind === "FILE"
+                    ? (field.labelEachFile && field.options.length > 0
+                        ? field.options.slice(0, 10)
+                        : Array.from({ length: Math.min(10, Math.max(1, field.maxFiles ?? 1)) }, (_, index) => ({
+                            id: `${field.id}-file-${index}`,
+                            label: "Add a file",
+                          }))
+                      ).map((slot, index) => {
+                        const saved = buyerAnswers[field.id]?.files?.[index];
+                        return (
+                          <Pressable
+                            key={`${field.id}-slot-${index}`}
+                            onPress={async () => {
+                              const picked = await ImagePicker.launchImageLibraryAsync({
+                                mediaTypes: ["images"],
+                                quality: 0.8,
+                              });
+                              if (picked.canceled || !picked.assets[0]) return;
+                              const asset = picked.assets[0];
+                              try {
+                                const uploaded = await uploadBuyerFileFromUri({
+                                  localUri: asset.uri,
+                                  mimeType: asset.mimeType ?? "image/jpeg",
+                                  fileName: asset.fileName ?? "upload.jpg",
+                                  fileSize: asset.fileSize,
+                                });
+                                setBuyerAnswers((prev) => {
+                                  const nextFiles = [...(prev[field.id]?.files ?? [])];
+                                  nextFiles[index] = {
+                                    url: uploaded.url,
+                                    label: field.labelEachFile ? slot.label : null,
+                                  };
+                                  return {
+                                    ...prev,
+                                    [field.id]: { ...prev[field.id], files: nextFiles },
+                                  };
+                                });
+                              } catch (error) {
+                                const message =
+                                  error && typeof error === "object" && "error" in error
+                                    ? String((error as { error?: string }).error)
+                                    : "Upload failed";
+                                Alert.alert("Upload failed", message);
+                              }
+                            }}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 10,
+                              borderWidth: 1,
+                              borderStyle: "dashed",
+                              borderColor: "#d4d4d4",
+                              backgroundColor: "#f5f5f4",
+                              borderRadius: 8,
+                              paddingHorizontal: 12,
+                              paddingVertical: 12,
+                              marginTop: 8,
+                            }}
+                          >
+                            <Text style={{ fontSize: 18, color: "#444" }}>{saved?.url ? "✓" : "+"}</Text>
+                            <Text style={{ flex: 1 }}>{slot.label}</Text>
+                          </Pressable>
+                        );
+                      })
+                    : null}
                 </View>
               ))}
             </View>
@@ -982,9 +1017,7 @@ export default function ProductScreen() {
                             ]}
                           >
                             {opt.value}
-                            {soldOut ? " (Out)" : opt.quantity > 0 && opt.quantity < 10
-                              ? ` (${opt.quantity})`
-                              : ""}
+                            {soldOut ? " (Out)" : ""}
                           </Text>
                         </Pressable>
                       );
@@ -1032,92 +1065,24 @@ export default function ProductScreen() {
             </View>
           )}
 
-          {(canShip || canLocalDelivery || canPickup) && (
-            <View style={[styles.section, styles.contentBox]}>
-              <Text style={styles.sectionTitle}>Receive item</Text>
-              <View style={styles.fulfillmentRow}>
-                {canShip && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "ship" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => setFulfillmentType("ship")}
-                  >
-                    <Ionicons
-                      name="cube-outline"
-                      size={18}
-                      color={fulfillmentType === "ship" ? "#fff" : theme.colors.primary}
-                      style={styles.fulfillmentBtnIcon}
-                    />
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "ship" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Shipping
-                    </Text>
-                  </Pressable>
-                )}
-                {canPickup && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "pickup" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => setFulfillmentType("pickup")}
-                  >
-                    <Ionicons
-                      name="storefront-outline"
-                      size={18}
-                      color={fulfillmentType === "pickup" ? "#fff" : theme.colors.primary}
-                      style={styles.fulfillmentBtnIcon}
-                    />
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "pickup" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Pickup
-                    </Text>
-                  </Pressable>
-                )}
-                {canLocalDelivery && (
-                  <Pressable
-                    style={[
-                      styles.fulfillmentBtn,
-                      fulfillmentType === "local_delivery" && styles.fulfillmentBtnActive,
-                    ]}
-                    onPress={() => setFulfillmentType("local_delivery")}
-                  >
-                    <Ionicons
-                      name="car-outline"
-                      size={18}
-                      color={
-                        fulfillmentType === "local_delivery" ? "#fff" : theme.colors.primary
-                      }
-                      style={styles.fulfillmentBtnIcon}
-                    />
-                    <Text
-                      style={[
-                        styles.fulfillmentBtnText,
-                        fulfillmentType === "local_delivery" && styles.fulfillmentBtnTextActive,
-                      ]}
-                    >
-                      Delivery
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          )}
-
           {item.description ? (
             <View style={[styles.section, styles.contentBox]}>
               <Text style={styles.sectionTitle}>Description</Text>
               <ListingRichDescription html={item.description} style={styles.description} />
+            </View>
+          ) : null}
+
+          {item.freeShippingBanner ? (
+            <View style={[styles.section, styles.freeShipPolicyBanner]}>
+              <Ionicons name="gift-outline" size={16} color="#fff" style={styles.freeShipPolicyBannerIcon} />
+              <Text style={styles.freeShipPolicyBannerText}>
+                {item.freeShippingBanner === "threshold" &&
+                item.member?.freeShippingMinimumCents != null &&
+                item.member.freeShippingMinimumCents > 0
+                  ? `${item.business?.name ?? "This seller"} offers free shipping if you purchase $${(item.member.freeShippingMinimumCents / 100).toFixed(2)} worth from their store!`
+                  : `${item.business?.name ?? "This seller"} offers free shipping from their store!`}
+              </Text>
+              <Ionicons name="gift-outline" size={16} color="#fff" style={styles.freeShipPolicyBannerIconRight} />
             </View>
           ) : null}
 
@@ -1225,7 +1190,7 @@ export default function ProductScreen() {
                 {effectiveLocalDeliveryPolicy ? (
                   <View style={styles.policyBlock}>
                     <Text style={styles.policyLabel}>
-                      Local Delivery / Pick Up Policy
+                      Local Delivery Policy
                     </Text>
                     <Text style={styles.policyText}>
                       {effectiveLocalDeliveryPolicy}
@@ -1902,41 +1867,6 @@ const styles = StyleSheet.create({
     color: "#999",
     marginTop: 4,
   },
-  fulfillmentRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  fulfillmentBtn: {
-    flexGrow: 1,
-    flexBasis: 0,
-    minWidth: 72,
-    paddingHorizontal: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    backgroundColor: "#fff",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  fulfillmentBtnActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  fulfillmentBtnIcon: {
-    flexShrink: 0,
-  },
-  fulfillmentBtnText: {
-    fontSize: 13,
-    color: theme.colors.primary,
-    textAlign: "center",
-    flexShrink: 1,
-  },
-  fulfillmentBtnTextActive: {
-    color: "#fff",
-  },
   description: {
     fontSize: 15,
     color: theme.colors.text,
@@ -2052,6 +1982,33 @@ const styles = StyleSheet.create({
   sellerCardBody: {
     padding: 16,
     backgroundColor: "#f9f9f9",
+  },
+  freeShipPolicyBanner: {
+    position: "relative",
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingHorizontal: 32,
+    paddingVertical: 7,
+  },
+  freeShipPolicyBannerIcon: {
+    position: "absolute",
+    left: 8,
+  },
+  freeShipPolicyBannerIconRight: {
+    position: "absolute",
+    right: 8,
+  },
+  freeShipPolicyBannerText: {
+    flexShrink: 1,
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    textAlign: "center",
   },
   storeLogo: {
     width: 72,

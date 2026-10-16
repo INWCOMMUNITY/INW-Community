@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("database", () => ({
   prisma: {
     etsyConnection: { findFirst: vi.fn() },
-    etsyListingLink: { findFirst: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
+    etsyListingLink: { findFirst: vi.fn(), findUnique: vi.fn(), delete: vi.fn(), update: vi.fn() },
     etsyVariantMap: { deleteMany: vi.fn() },
     etsySyncJob: { updateMany: vi.fn() },
     storeItem: { findFirst: vi.fn() },
@@ -166,6 +166,39 @@ describe("runEtsyListingAction", () => {
     });
     expect(result.ok).toBe(true);
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it("ends the Etsy listing without unlinking it", async () => {
+    vi.mocked(prisma.etsyListingLink.update).mockResolvedValue({} as never);
+    vi.mocked(etsyConnectionRequest).mockResolvedValue({
+      ok: true,
+      class: "SUCCESS",
+      httpStatus: 200,
+      data: {},
+      message: null,
+      retryAfterMs: null,
+      rateLimit: null,
+    });
+    const result = await runEtsyListingAction({
+      memberId: "m1",
+      storeItemId: "item-1",
+      action: "end",
+    });
+    expect(result).toEqual({
+      ok: true,
+      message: "Ended on Etsy. The INW listing is unchanged.",
+    });
+    expect(etsyConnectionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "PATCH",
+        body: { state: "inactive" },
+      })
+    );
+    expect(prisma.etsyListingLink.update).toHaveBeenCalledWith({
+      where: { id: "link-1" },
+      data: { remoteListingState: "inactive" },
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("retries create for non-live mappings", async () => {

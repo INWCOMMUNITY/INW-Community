@@ -4,7 +4,7 @@ import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutove
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
-import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { hasOptionQuantities, listingQuantityFromVariants } from "@/lib/store-item-variants";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   isMadeToOrderTracking,
@@ -13,6 +13,7 @@ import {
   serializeVariantMatrix,
   validateVariantMatrixForSave,
   parseInventoryTracking,
+  shopifyBlocksSharedQuantityPool,
 } from "@/lib/listing-variant-matrix";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
@@ -21,7 +22,7 @@ import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
 import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
-import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
+import { storeItemStatusWrite, visibleEndedStoreItemWhere } from "@/lib/store-item-ended-status";
 import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
 import {
   BROWSE_CACHE_HEADERS,
@@ -136,6 +137,27 @@ async function loadMineListingChannels(
   }
 
   return { channelsByItemId, viewsByItemId };
+}
+
+async function storeItemIdsNeedingShopifyMetafields(itemIds: string[]): Promise<Set<string>> {
+  if (itemIds.length === 0) return new Set();
+  const rows = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: { in: itemIds } },
+    select: { storeItemId: true },
+    distinct: ["storeItemId"],
+  });
+  return new Set(rows.map((row) => row.storeItemId));
+}
+
+async function storeItemIdsUsingSharedQuantityPool(itemIds: string[]): Promise<Set<string>> {
+  if (itemIds.length === 0) return new Set();
+  const rows = await prisma.storeItem.findMany({
+    where: { id: { in: itemIds } },
+    select: { id: true, variants: true },
+  });
+  return new Set(
+    rows.filter((row) => shopifyBlocksSharedQuantityPool(row.variants)).map((row) => row.id)
+  );
 }
 
 /** Sold tab rows = paid sales (INW orders + applied Etsy sale facts), not only sold_out listings. */
@@ -354,7 +376,16 @@ async function loadMineSoldSales(userId: string) {
   }
 
   rows.sort((a, b) => (a.soldAt < b.soldAt ? 1 : a.soldAt > b.soldAt ? -1 : 0));
-  return rows;
+  const soldItemIds = rows.map((row) => row.storeItemId);
+  const [metafieldIds, sharedPoolIds] = await Promise.all([
+    storeItemIdsNeedingShopifyMetafields(soldItemIds),
+    storeItemIdsUsingSharedQuantityPool(soldItemIds),
+  ]);
+  return rows.map((row) => ({
+    ...row,
+    needsShopifyMetafields: metafieldIds.has(row.storeItemId),
+    usesSharedQuantityPool: sharedPoolIds.has(row.storeItemId),
+  }));
 }
 
 async function countMineSoldSales(userId: string): Promise<number> {
@@ -456,7 +487,7 @@ export async function GET(req: NextRequest) {
     if (searchParams.get("counts") === "1") {
       const [active, ended, sold, drafts] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
-        prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
+        prisma.storeItem.count({ where: visibleEndedStoreItemWhere(userId) }),
         countMineSoldSales(userId),
         prisma.storeItem.count({ where: { memberId: userId, status: "draft" } }),
       ]);
@@ -469,14 +500,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const where: {
-      memberId: string;
-      condition?: string;
-      status?: string;
-      id?: { in: string[] };
-    } = { memberId: userId };
+    let where: Prisma.StoreItemWhereInput = { memberId: userId };
     if (condition) where.condition = condition;
-    // My Items tabs: active (incl. out of stock), ended (inactive), sold = paid sales.
+    // My Items tabs: active (incl. out of stock), ended (inactive within 14 days), sold = paid sales.
     const soldOnly = searchParams.get("sold") === "1";
     const filter = searchParams.get("filter");
     if (soldOnly || filter === "sold") {
@@ -484,7 +510,10 @@ export async function GET(req: NextRequest) {
     } else if (filter === "active") {
       where.status = "active";
     } else if (filter === "ended") {
-      where.status = "inactive";
+      where = {
+        ...visibleEndedStoreItemWhere(userId),
+        ...(condition ? { condition } : {}),
+      };
     } else if (filter === "drafts" || filter === "draft") {
       where.status = "draft";
     } else if (filter === "attention") {
@@ -508,13 +537,19 @@ export async function GET(req: NextRequest) {
     });
 
     const itemIds = items.map((i) => i.id);
-    const { channelsByItemId, viewsByItemId } = await loadMineListingChannels(userId, itemIds);
+    const [{ channelsByItemId, viewsByItemId }, metafieldIds, sharedPoolIds] = await Promise.all([
+      loadMineListingChannels(userId, itemIds),
+      storeItemIdsNeedingShopifyMetafields(itemIds),
+      storeItemIdsUsingSharedQuantityPool(itemIds),
+    ]);
 
     const mapMineItem = (i: (typeof items)[number]) => ({
       ...i,
       photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
       channels: channelsByItemId.get(i.id) ?? ["inw"],
       views30d: viewsByItemId.get(i.id) ?? 0,
+      needsShopifyMetafields: metafieldIds.has(i.id),
+      usesSharedQuantityPool: sharedPoolIds.has(i.id),
     });
 
     return NextResponse.json(items.map(mapMineItem));
@@ -774,7 +809,7 @@ export async function POST(req: NextRequest) {
         ? 0
         : MTO_CHANNEL_QUANTITY
       : useOptionQuantities
-        ? sumOptionQuantities(storedVariants ?? data.variants)
+        ? listingQuantityFromVariants(storedVariants ?? data.variants)
         : Number(data.quantity ?? 1);
     if (!Number.isInteger(priceCents) || priceCents < 0 || (!isDraft && priceCents < 1)) {
       return NextResponse.json(

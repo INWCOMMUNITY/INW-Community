@@ -8,7 +8,7 @@ export type BuyerFieldDraft = {
   maxCharacters: string;
   maxFiles: string;
   labelEachFile: boolean;
-  optionsText: string;
+  options: string[];
   etsyQuestionId?: string | null;
   optionMeta?: Array<{ label: string; etsyOptionId?: string | null }>;
 };
@@ -34,7 +34,7 @@ export function emptyBuyerField(kind: BuyerFieldKind): BuyerFieldDraft {
     maxCharacters: "256",
     maxFiles: "1",
     labelEachFile: false,
-    optionsText: "",
+    options: [],
   };
 }
 
@@ -59,7 +59,7 @@ export function buyerFieldsFromExisting(
     maxCharacters: row.maxCharacters != null ? String(row.maxCharacters) : "256",
     maxFiles: row.maxFiles != null ? String(row.maxFiles) : "1",
     labelEachFile: row.labelEachFile === true,
-    optionsText: (row.options ?? []).map((option) => option.label).join("\n"),
+    options: (row.options ?? []).map((option) => option.label).filter(Boolean),
     optionMeta: (row.options ?? []).map((option) => ({
       label: option.label,
       etsyOptionId: option.etsyOptionId ?? null,
@@ -71,9 +71,8 @@ export function buyerFieldsFromExisting(
 function optionsWithIds(field: BuyerFieldDraft) {
   const meta = field.optionMeta ?? [];
   const used = new Set<number>();
-  return field.optionsText
-    .split("\n")
-    .map((line) => line.trim())
+  return field.options
+    .map((label) => label.trim())
     .filter(Boolean)
     .map((label) => {
       const index = meta.findIndex((option, i) => !used.has(i) && option.label === label);

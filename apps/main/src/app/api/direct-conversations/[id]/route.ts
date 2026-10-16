@@ -328,13 +328,22 @@ export async function POST(
     conversation.status === "pending" &&
     conversation.requestedByMemberId != null &&
     conversation.requestedByMemberId === session.user.id;
+  const senderName =
+    [message.sender.firstName, message.sender.lastName].filter(Boolean).join(" ").trim() || "Someone";
+  const messagePreview = `${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`;
   const pushBody =
     contentTrimmed.length > 0
-      ? `${message.sender.firstName}: ${contentTrimmed.slice(0, 60)}${contentTrimmed.length > 60 ? "…" : ""}`
+      ? isRequestNotice
+        ? `${message.sender.firstName}: ${messagePreview}`
+        : messagePreview
       : isRequestNotice
         ? `${message.sender.firstName} sent a message request — tap to accept or decline.`
-        : `${message.sender.firstName} sent you a message — tap to open.`;
-  const pushTitle = isRequestNotice ? "Somebody wants to chat!" : "New Message!";
+        : "Check it out!";
+  const pushTitle = isRequestNotice
+    ? "Somebody wants to chat!"
+    : contentTrimmed.length > 0
+      ? `${senderName} sent you a message!`
+      : `${senderName} sent you a message.`;
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(otherMemberId, {
     title: pushTitle,

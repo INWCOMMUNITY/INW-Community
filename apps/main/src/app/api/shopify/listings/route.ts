@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, ensureShopifyReconcileListingJob } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { disconnectChannelsForEndedStoreItems } from "@/lib/disconnect-ended-listing-channels";
 import { listShopifySellerListingViews } from "@/lib/shopify/listing-public-view";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,12 @@ export async function GET(req: NextRequest) {
 
   const storeItemId = req.nextUrl.searchParams.get("storeItemId")?.trim() || null;
   const refresh = req.nextUrl.searchParams.get("refresh") === "1";
+
+  try {
+    await disconnectChannelsForEndedStoreItems(memberId);
+  } catch (error) {
+    console.error("[shopify-listings] could not drop ended channel links", error);
+  }
 
   let listings = await listShopifySellerListingViews({
     memberId,

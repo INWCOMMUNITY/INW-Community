@@ -22,6 +22,7 @@ vi.mock("database", async () => {
     prisma: {
       storeItem: {
         findFirst: vi.fn(async () => ({ inventoryTracking: "tracked" })),
+        findMany: vi.fn(async () => []),
         update: vi.fn(async () => ({})),
       },
       shopifyVariantMap: {

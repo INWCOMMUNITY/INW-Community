@@ -3,13 +3,13 @@ import type Stripe from "stripe";
 /**
  * Tax + shipping address collection params for storefront Checkout Sessions.
  *
- * Buy It Now (`shippingCollectedByStripe`): Stripe collects shipping on Checkout.
- * With `automatic_tax` + an existing `customer`, Stripe requires
- * `customer_update.shipping = "auto"` so Tax can use the collected address
- * (docs: https://docs.stripe.com/tax/checkout).
+ * Shipped checkout (`shippingCollectedByStripe`): Stripe collects shipping on Checkout.
+ * Buy It Now and the cart both use this. With `automatic_tax` + an existing
+ * `customer`, Stripe requires `customer_update.shipping = "auto"` so Tax can use
+ * the collected address (docs: https://docs.stripe.com/tax/checkout).
  *
- * Cart/checkout with app-collected shipping: Customer.shipping is synced before
- * Session create; no `shipping_address_collection` / `customer_update`.
+ * Pickup and local delivery do not set the flag. Customer.shipping is synced
+ * before Session create only when the app already has a ship-to address.
  */
 export function storefrontCheckoutTaxShippingParams(opts: {
   deferShippingToStripe: boolean;

@@ -158,15 +158,17 @@ export function classifyEtsyListingHealth(input: {
   const remote = String(input.listing.remoteListingState ?? "")
     .trim()
     .toLowerCase();
-  // READY_TO_PUBLISH means buyer-live on Etsy. Drafts must never look healthy/live in Sync Airport.
-  if (remote && remote !== "active") {
+  // Only known non-live states. sold_out stays healthy; unknown values must not look like drafts.
+  if (remote === "draft" || remote === "inactive" || remote === "expired" || remote === "removed") {
     return {
       readiness: "ACTION_REQUIRED",
       contentHealth: "DEGRADED",
       inventoryHealth: input.listing.inventoryHealth,
       issueCode: "DRAFT_NOT_ACTIVE",
       issueMessage:
-        "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish.",
+        remote === "draft"
+          ? "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish."
+          : `Etsy listing is ${remote} (not live). Re-list from Sync Airport to publish.`,
     };
   }
 

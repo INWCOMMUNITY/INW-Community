@@ -5,6 +5,9 @@ export const MAX_BUSINESS_GALLERY_PHOTOS = 12;
 /** Must match apps/main listing photo limit (/api/upload + /api/upload/listing). */
 export const MAX_LISTING_PHOTO_BYTES = 250 * 1024 * 1024;
 
+/** Buyer custom-option files. Must match /api/upload/buyer-file. */
+export const MAX_BUYER_FILE_BYTES = 250 * 1024 * 1024;
+
 export function formatMaxUploadSizeLabel(): string {
   return "120MB";
 }

@@ -6,12 +6,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
-import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
-import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { buildProductHref } from "@/lib/product-referrer";
+import { IonIcon } from "@/components/IonIcon";
+import { sellerOrderShippingCents, sellerOrderShippingQuote } from "@/lib/checkout-shipping-cost";
 
 interface CartItemStoreItem {
   id: string;
@@ -33,6 +33,9 @@ interface CartItemStoreItem {
   member?: {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
+    combineShipping?: boolean;
+    combinedShippingMaxCents?: number | null;
+    freeShippingMinimumCents?: number | null;
   } | null;
 }
 
@@ -44,7 +47,6 @@ interface CartItem {
   buyerResponses?: unknown;
   fulfillmentType?: string | null;
   localDeliveryDetails?: LocalDeliveryDetails | null;
-  pickupDetails?: PickupDetails & { termsAcceptedAt?: string } | null;
   storeItem: CartItemStoreItem;
   /** Server-resolved unit price (SKU or accepted resale offer); falls back to storeItem.priceCents when absent. */
   unitPriceCents?: number;
@@ -57,14 +59,57 @@ function cartLineUnitPriceCents(item: CartItem): number {
   return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
 }
 
+function cartShippingCents(list: CartItem[]): number {
+  const groups = new Map<string, CartItem[]>();
+  for (const item of list) {
+    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+    const group = groups.get(sellerId) ?? [];
+    group.push(item);
+    groups.set(sellerId, group);
+  }
+  let cents = 0;
+  for (const group of groups.values()) {
+    const member = group[0]?.storeItem.member;
+    cents += sellerOrderShippingCents({
+      lines: group.map((item) => ({
+        quantity: item.quantity,
+        fulfillmentType: item.fulfillmentType === "pickup" ? "ship" : item.fulfillmentType,
+        shippingCostCents: item.storeItem.shippingCostCents,
+      })),
+      merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
+      rules: {
+        combineShipping: Boolean(member?.combineShipping),
+        combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+        freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+      },
+    });
+  }
+  return cents;
+}
+
+function sellerShippingArgs(group: CartItem[]) {
+  const member = group[0]?.storeItem.member;
+  return {
+    lines: group.map((item) => ({
+      quantity: item.quantity,
+      fulfillmentType: item.fulfillmentType === "pickup" ? "ship" : item.fulfillmentType,
+      shippingCostCents: item.storeItem.shippingCostCents,
+    })),
+    merchandiseCents: group.reduce((sum, item) => sum + cartLineUnitPriceCents(item) * item.quantity, 0),
+    rules: {
+      combineShipping: Boolean(member?.combineShipping),
+      combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
+      freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+    },
+  };
+}
+
 function cartLineMaxQty(item: CartItem): number {
   if (typeof item.availableQuantity === "number") return Math.max(0, item.availableQuantity);
   return getAvailableQuantity(item.storeItem, item.variant ?? undefined);
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
-
-const emptyShippingAddress = { street: "", aptOrSuite: "", city: "", state: "", zip: "" };
 
 function getItemProductUrl(item: CartItem): string {
   return buildProductHref(item.storeItem.slug, { type: "cart" });
@@ -84,9 +129,6 @@ export default function CartPage() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
   const [localDeliveryModalItemId, setLocalDeliveryModalItemId] = useState<string | null>(null);
-  const [pickupTermsModalItemId, setPickupTermsModalItemId] = useState<string | null>(null);
-  const [shippingAddress, setShippingAddress] = useState<AddressValue>(emptyShippingAddress);
-  const [shippingAddressFromPlaces, setShippingAddressFromPlaces] = useState(false);
 
   function loadCart() {
     refetchCart().then((arr) => {
@@ -137,17 +179,13 @@ export default function CartPage() {
   async function updateFulfillment(
     itemId: string,
     fulfillmentType: FulfillmentType,
-    localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string },
-    pickupDetails?: PickupDetails & { termsAcceptedAt?: string }
+    localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string }
   ) {
-    const body: { fulfillmentType: FulfillmentType; localDeliveryDetails?: object; pickupDetails?: object } = {
+    const body: { fulfillmentType: FulfillmentType; localDeliveryDetails?: object } = {
       fulfillmentType,
     };
     if (fulfillmentType === "local_delivery" && localDeliveryDetails) {
       body.localDeliveryDetails = localDeliveryDetails;
-    }
-    if (fulfillmentType === "pickup" && pickupDetails) {
-      body.pickupDetails = pickupDetails;
     }
     const res = await fetch(`/api/cart/${itemId}`, {
       method: "PATCH",
@@ -159,23 +197,6 @@ export default function CartPage() {
     } else {
       const data = await res.json().catch(() => ({}));
       setError(getErrorMessage((data as { error?: string }).error, "Could not update fulfillment"));
-    }
-  }
-
-  async function updatePickupDetails(
-    itemId: string,
-    pickupDetails: PickupDetails & { termsAcceptedAt?: string }
-  ) {
-    const res = await fetch(`/api/cart/${itemId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pickupDetails, fulfillmentType: "pickup" }),
-    });
-    if (res.ok) {
-      loadCart();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(getErrorMessage((data as { error?: string }).error, "Could not save pickup details"));
     }
   }
 
@@ -198,39 +219,12 @@ export default function CartPage() {
         i.localDeliveryDetails?.deliveryAddress?.zip?.trim() &&
         i.localDeliveryDetails?.availableDropOffTimes?.trim()
     );
-  const pickupItems = items.filter((i) => i.fulfillmentType === "pickup");
-  const pickupItemsWithPolicy = pickupItems.filter(
-    (i) =>
-      (i.storeItem.pickupTerms ?? i.storeItem.member?.sellerPickupPolicy) &&
-      String(i.storeItem.pickupTerms ?? i.storeItem.member?.sellerPickupPolicy).trim()
-  );
-  const allPickupDetailsFilled =
-    pickupItems.length === 0 ||
-    pickupItems.every(
-      (i) =>
-        i.pickupDetails?.firstName?.trim() &&
-        i.pickupDetails?.lastName?.trim() &&
-        i.pickupDetails?.phone?.trim() &&
-        i.pickupDetails?.preferredPickupDate?.trim() &&
-        i.pickupDetails?.preferredPickupTime?.trim()
-    );
-  const allPickupTermsAgreed =
-    pickupItemsWithPolicy.length === 0 ||
-    pickupItemsWithPolicy.every((i) => i.pickupDetails?.termsAcceptedAt);
-  const hasShippedItem = items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-  const shippingValid =
-    !hasShippedItem ||
-    (shippingAddress.street.trim() &&
-      shippingAddress.city.trim() &&
-      shippingAddress.state.trim() &&
-      shippingAddress.zip.trim());
+  const hasShippedItem = items.some((i) => {
+    const type = i.fulfillmentType ?? "ship";
+    return type === "ship" || type === "pickup";
+  });
   const hasUnavailableItems = items.some((i) => i.unavailableReason);
-  const canCheckout =
-    !hasUnavailableItems &&
-    localDeliveryFormComplete &&
-    allPickupDetailsFilled &&
-    allPickupTermsAgreed &&
-    shippingValid;
+  const canCheckout = !hasUnavailableItems && localDeliveryFormComplete;
 
   /** All items are charged through Stripe at checkout. */
   const cardItems = items;
@@ -243,16 +237,6 @@ export default function CartPage() {
       );
       return;
     }
-    if (!allPickupDetailsFilled || !allPickupTermsAgreed) {
-      setError(
-        "Complete the Pick Up Form for pickup items (use “Add pickup details” or “Edit pickup details” on each item)."
-      );
-      return;
-    }
-    if (hasShippedItem && !shippingValid) {
-      setError("Please enter your full shipping address.");
-      return;
-    }
     setError("");
     setCheckingOut(true);
     try {
@@ -261,76 +245,23 @@ export default function CartPage() {
           storeItemId: i.storeItemId,
           quantity: i.quantity,
           variant: i.variant ?? undefined,
-          fulfillmentType: i.fulfillmentType ?? "ship",
+          fulfillmentType: i.fulfillmentType === "pickup" ? "ship" : (i.fulfillmentType ?? "ship"),
           buyerResponses: i.buyerResponses ?? undefined,
         })),
         localDeliveryDetails: localDeliveryDetailsForCheckout ?? undefined,
       });
 
-      const hasShippedCardItem = cardItems.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-      let resolvedShippingAddress = shippingAddress;
-      if (hasShippedCardItem) {
-        let validateRes = await fetch("/api/validate-address", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            street: shippingAddress.street,
-            city: shippingAddress.city,
-            state: shippingAddress.state,
-            zip: shippingAddress.zip,
-            requireCarrierVerification: true,
-          }),
-          credentials: "include",
-        });
-        let validateData = (await validateRes.json().catch(() => ({}))) as {
-          valid?: boolean;
-          formatted?: { street: string; city: string; state: string; zip: string };
-          suggestedFormatted?: { street: string; city: string; state: string; zip: string };
-          error?: string;
-        };
-        if (!validateData.valid && validateData.suggestedFormatted) {
-          validateRes = await fetch("/api/validate-address", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              street: validateData.suggestedFormatted.street,
-              city: validateData.suggestedFormatted.city,
-              state: validateData.suggestedFormatted.state,
-              zip: validateData.suggestedFormatted.zip,
-              requireCarrierVerification: true,
-            }),
-            credentials: "include",
-          });
-          validateData = (await validateRes.json().catch(() => ({}))) as typeof validateData;
-        }
-        if (!validateData.valid) {
-          setError(validateData.error ?? "This address cannot be used for shipping. Please check street, city, state, and ZIP.");
-          setCheckingOut(false);
-          return;
-        }
-        const fmt = validateData.formatted;
-        resolvedShippingAddress = {
-          street: fmt?.street ?? "",
-          city: fmt?.city ?? "",
-          state: fmt?.state ?? "",
-          zip: fmt?.zip ?? "",
-          aptOrSuite: shippingAddress.aptOrSuite?.trim() ?? "",
-        };
-        setShippingAddress(resolvedShippingAddress);
-      }
-
-      const shippingCostCents = cardItems.reduce((sum, i) => {
-        if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-          return sum + i.storeItem.shippingCostCents * i.quantity;
-        }
-        return sum;
-      }, 0);
+      const hasShippedCardItem = cardItems.some((i) => {
+        const type = i.fulfillmentType ?? "ship";
+        return type === "ship" || type === "pickup";
+      });
+      const shippingCostCents = cartShippingCents(cardItems);
       const stripeBody: Record<string, unknown> = {
         ...makePayload(cardItems),
         shippingCostCents,
       };
       if (hasShippedCardItem) {
-        stripeBody.shippingAddress = resolvedShippingAddress;
+        stripeBody.shippingCollectedByStripe = true;
       }
       if (typeof window !== "undefined") stripeBody.returnBaseUrl = window.location.origin;
 
@@ -359,12 +290,7 @@ export default function CartPage() {
   }
 
   const subtotalCents = items.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
-  const shippingCostCents = items.reduce((sum, i) => {
-    if (i.fulfillmentType === "ship" && i.storeItem?.shippingCostCents != null) {
-      return sum + i.storeItem.shippingCostCents * i.quantity;
-    }
-    return sum;
-  }, 0);
+  const shippingCostCents = cartShippingCents(items);
   const localDeliveryFeeCents = items.reduce((sum, i) => {
     if (
       i.fulfillmentType === "local_delivery" &&
@@ -379,9 +305,6 @@ export default function CartPage() {
 
   const itemForModal = localDeliveryModalItemId
     ? items.find((i) => i.id === localDeliveryModalItemId)
-    : null;
-  const itemForPickupModal = pickupTermsModalItemId
-    ? items.find((i) => i.id === pickupTermsModalItemId)
     : null;
 
   if (status === "loading" || loading) {
@@ -466,6 +389,21 @@ export default function CartPage() {
                 <div className="space-y-4">
                   {items.map((item) => {
                     const variantLabel = formatCartVariantLabel(item.variant);
+                    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+                    const sellerGroup = items.filter(
+                      (row) => (row.storeItem.memberId ?? row.storeItemId) === sellerId
+                    );
+                    const shippingArgs = sellerShippingArgs(sellerGroup);
+                    const shippingQuote = sellerOrderShippingQuote(shippingArgs);
+                    const isSellerLead = sellerGroup[0]?.id === item.id;
+                    const freeShippingMinimumCents = shippingArgs.rules.freeShippingMinimumCents ?? 0;
+                    const freeShippingReached =
+                      freeShippingMinimumCents > 0 &&
+                      shippingArgs.merchandiseCents >= freeShippingMinimumCents;
+                    const shippedLines = sellerGroup.filter((row) => {
+                      const type = row.fulfillmentType ?? "ship";
+                      return type === "ship" || type === "pickup";
+                    });
                     return (
                         <div
                           key={item.id}
@@ -522,13 +460,16 @@ export default function CartPage() {
                               Agreed offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
                             </span>
                           ) : null}
-                          {(item.fulfillmentType === "ship" &&
-                            item.storeItem.shippingCostCents != null &&
-                            item.storeItem.shippingCostCents > 0) && (
-                            <span className="text-sm font-normal ml-1" style={{ color: "var(--color-text)" }}>
-                              + ${((item.storeItem.shippingCostCents * item.quantity) / 100).toFixed(2)} shipping
-                            </span>
-                          )}
+                          {(item.fulfillmentType === "ship" || item.fulfillmentType === "pickup") &&
+                            shippingQuote.cents > 0 &&
+                            (shippedLines.length === 1
+                              ? shippedLines[0]?.id === item.id
+                              : isSellerLead && shippingQuote.combinedCapApplied) && (
+                              <span className="text-sm font-normal ml-1" style={{ color: "var(--color-text)" }}>
+                                + ${(shippingQuote.cents / 100).toFixed(2)}{" "}
+                                {shippingQuote.combinedCapApplied ? "combined shipping" : "shipping"}
+                              </span>
+                            )}
                           {item.fulfillmentType === "local_delivery" &&
                             item.storeItem.localDeliveryFeeCents != null &&
                             item.storeItem.localDeliveryFeeCents > 0 && (
@@ -563,130 +504,20 @@ export default function CartPage() {
                         </button>
                       </div>
                     </div>
-                    {/* Fulfillment options: only show options this item actually offers (product page can show all) */}
-                    {(() => {
-                      // Use truthy checks so we show options when API returns true, 1, etc.
-                      const offersShipping = item.storeItem.shippingDisabled !== true;
-                      const offersLocalDelivery = !!item.storeItem.localDeliveryAvailable;
-                      const offersPickup = !!item.storeItem.inStorePickupAvailable;
-                      const hasAnyOption = offersShipping || offersLocalDelivery || offersPickup;
-                      // If no option detected (e.g. missing data), show all so user can still select
-                      const showShipping = hasAnyOption ? offersShipping : true;
-                      const showLocalDelivery = hasAnyOption ? offersLocalDelivery : true;
-                      const showPickup = hasAnyOption ? offersPickup : true;
-                      return (
-                    <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--color-section-alt)", pointerEvents: "auto" }}>
-                      <p className="text-sm font-medium mb-2" style={{ color: "var(--color-text)" }}>
-                        How do you want to receive this item?
-                      </p>
-                      <div className="flex flex-wrap gap-2" role="group" aria-label="Fulfillment option">
-                        {showShipping && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              updateFulfillment(item.id, "ship");
-                            }}
-                            className="border rounded px-3 py-1.5 text-sm cursor-pointer"
-                            style={{
-                              opacity: 1,
-                              ...((item.fulfillmentType ?? "ship") === "ship"
-                                ? {
-                                    borderColor: "var(--color-primary)",
-                                    backgroundColor: "var(--color-section-alt)",
-                                    color: "var(--color-primary)",
-                                  }
-                                : { borderColor: "var(--color-primary)" }),
-                            }}
-                          >
-                            Ship
-                            {item.storeItem.shippingCostCents != null && item.storeItem.shippingCostCents > 0
-                              ? ` ($${(item.storeItem.shippingCostCents / 100).toFixed(2)})`
-                              : " (free)"}
-                          </button>
-                        )}
-                        {showLocalDelivery && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setLocalDeliveryModalItemId(item.id);
-                            }}
-                            className="border rounded px-3 py-1.5 text-sm cursor-pointer"
-                            style={{
-                              opacity: 1,
-                              ...(item.fulfillmentType === "local_delivery"
-                                ? {
-                                    borderColor: "var(--color-primary)",
-                                    backgroundColor: "var(--color-section-alt)",
-                                    color: "var(--color-primary)",
-                                  }
-                                : { borderColor: "var(--color-primary)" }),
-                            }}
-                          >
-                            Deliver locally
-                            {item.storeItem.localDeliveryFeeCents != null && item.storeItem.localDeliveryFeeCents > 0
-                              ? ` ($${(item.storeItem.localDeliveryFeeCents / 100).toFixed(2)})`
-                              : " (no fee)"}
-                          </button>
-                        )}
-                        {showPickup && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setPickupTermsModalItemId(item.id);
-                            }}
-                            className="border rounded px-3 py-1.5 text-sm cursor-pointer"
-                            style={{
-                              opacity: 1,
-                              ...(item.fulfillmentType === "pickup"
-                                ? {
-                                    borderColor: "var(--color-primary)",
-                                    backgroundColor: "var(--color-section-alt)",
-                                    color: "var(--color-primary)",
-                                  }
-                                : { borderColor: "var(--color-primary)" }),
-                            }}
-                          >
-                            Pickup
-                          </button>
-                        )}
+                    {isSellerLead && freeShippingMinimumCents > 0 && (
+                      <div
+                        className="mt-3 inline-flex w-fit max-w-[260px] items-center gap-1.5 rounded px-2 py-1 text-white"
+                        style={{ backgroundColor: "var(--color-earth)" }}
+                      >
+                        <IonIcon name="gift-outline" size={13} className="shrink-0 text-white" />
+                        <p className="text-[11px] font-medium leading-tight">
+                          {freeShippingReached
+                            ? "Free Shipping Enabled!"
+                            : `If you order $${(freeShippingMinimumCents / 100).toFixed(2)} from this store, you will receive free shipping.`}
+                        </p>
+                        <IonIcon name="gift-outline" size={13} className="shrink-0 text-white" />
                       </div>
-                      {item.fulfillmentType === "local_delivery" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setLocalDeliveryModalItemId(item.id);
-                          }}
-                          className="text-sm mt-1 hover:underline block cursor-pointer"
-                          style={{ color: "var(--color-link)", opacity: 1 }}
-                        >
-                          {item.localDeliveryDetails ? "Edit delivery details" : "Add delivery details"}
-                        </button>
-                      )}
-                      {item.fulfillmentType === "pickup" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setPickupTermsModalItemId(item.id);
-                          }}
-                          className="text-sm mt-1 hover:underline block cursor-pointer"
-                          style={{ color: "var(--color-link)", opacity: 1 }}
-                        >
-                          {item.pickupDetails?.firstName ? "Edit pickup details" : "Add pickup details"}
-                        </button>
-                      )}
-                    </div>
-                      );
-                    })()}
+                    )}
                   </div>
                   );
                   })}
@@ -707,7 +538,7 @@ export default function CartPage() {
                   className="text-xl font-semibold mb-4"
                   style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
                 >
-                  Order summary
+                  Order Summary
                 </h2>
                 <div className="space-y-2 mb-4" style={{ color: "var(--color-text)" }}>
                   <div className="flex justify-between text-sm">
@@ -730,33 +561,14 @@ export default function CartPage() {
                     <span>Total</span>
                     <span>${(totalCents / 100).toFixed(2)}</span>
                   </div>
+                  <p className="text-xs" style={{ color: "var(--color-text)" }}>
+                    Tax is calculated at checkout.
+                  </p>
                 </div>
-
-                {hasShippedItem && (
-                  <div className="mb-4">
-                    <h3
-                      className="text-sm font-semibold mb-2"
-                      style={{ color: "var(--color-heading)" }}
-                    >
-                      Shipping address
-                    </h3>
-                    <p className="text-xs mb-2" style={{ color: "var(--color-text)" }}>
-                      This address is sent to the seller for shipping.
-                    </p>
-                    <AddressSearchInput
-                      value={shippingAddress}
-                      onChange={(addr, meta) => {
-                        setShippingAddress(addr);
-                        if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
-                      }}
-                      placeholder="Search for your address"
-                      showManualFallback
-                    />
-                  </div>
-                )}
 
                 <p className="text-xs mb-4" style={{ color: "var(--color-text)" }}>
                   Pay with Card, Google Pay, or Apple Pay on the next screen.
+                  {hasShippedItem ? " You’ll enter your shipping address there." : ""}
                 </p>
 
                 {error && (
@@ -794,7 +606,7 @@ export default function CartPage() {
                     className="btn disabled:cursor-not-allowed"
                     style={{ opacity: 1 }}
                   >
-                    {checkingOut ? "Redirecting…" : "Proceed to checkout"}
+                    {checkingOut ? "Redirecting…" : "Proceed to Checkout"}
                   </button>
                   <Link
                     href="/storefront"
@@ -841,30 +653,6 @@ export default function CartPage() {
           if (!localDeliveryModalItemId) return;
           updateFulfillment(localDeliveryModalItemId, "local_delivery", form);
           setLocalDeliveryModalItemId(null);
-        }}
-      />
-      <PickupTermsModal
-        open={!!pickupTermsModalItemId && !!itemForPickupModal}
-        onClose={() => setPickupTermsModalItemId(null)}
-        policyText={itemForPickupModal?.storeItem.pickupTerms ?? itemForPickupModal?.storeItem.member?.sellerPickupPolicy ?? undefined}
-        initialForm={
-          itemForPickupModal?.pickupDetails
-            ? {
-                firstName: itemForPickupModal.pickupDetails.firstName ?? "",
-                lastName: itemForPickupModal.pickupDetails.lastName ?? "",
-                phone: itemForPickupModal.pickupDetails.phone ?? "",
-                email: itemForPickupModal.pickupDetails.email ?? "",
-                preferredPickupDate: itemForPickupModal.pickupDetails.preferredPickupDate ?? "",
-                preferredPickupTime: itemForPickupModal.pickupDetails.preferredPickupTime ?? "",
-                note: itemForPickupModal.pickupDetails.note ?? "",
-                termsAcceptedAt: itemForPickupModal.pickupDetails.termsAcceptedAt,
-              }
-            : undefined
-        }
-        onSave={(form) => {
-          if (!pickupTermsModalItemId) return;
-          updatePickupDetails(pickupTermsModalItemId, form);
-          setPickupTermsModalItemId(null);
         }}
       />
     </section>

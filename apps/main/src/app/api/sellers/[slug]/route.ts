@@ -5,6 +5,7 @@ import { photosExcludingLogo } from "@/lib/business-photos";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { withPublicStockWhere } from "@/lib/store-item-public-access";
+import { freeShippingBannerForStore } from "@/lib/free-shipping-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,7 @@ export async function GET(
             offerShipping: true,
             offerLocalDelivery: true,
             offerLocalPickup: true,
+            freeShippingMinimumCents: true,
             acceptMessagesForListings: true,
           },
         },
@@ -68,24 +70,31 @@ export async function GET(
     }
 
     // Fetch store items by memberId (seller) - items may or may not have businessId set
-    const storeItems = await prisma.storeItem.findMany({
-      where: withPublicStockWhere({
-        memberId: business.memberId,
-        status: "active",
-      }),
-      select: {
-        id: true,
-        title: true,
-        slug: true,
-        description: true,
-        photos: true,
-        category: true,
-        priceCents: true,
-        variants: true,
-        quantity: true,
-      },
-      orderBy: { createdAt: "desc" },
+    const itemWhere = withPublicStockWhere({
+      memberId: business.memberId,
+      status: "active",
     });
+    const [storeItems, shippingRows] = await Promise.all([
+      prisma.storeItem.findMany({
+        where: itemWhere,
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          description: true,
+          photos: true,
+          category: true,
+          priceCents: true,
+          variants: true,
+          quantity: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.storeItem.findMany({
+        where: itemWhere,
+        select: { shippingCostCents: true, shippingDisabled: true },
+      }),
+    ]);
 
     return NextResponse.json({
       id: business.id,
@@ -124,6 +133,11 @@ export async function GET(
       offerShipping: business.member.offerShipping,
       offerLocalDelivery: business.member.offerLocalDelivery,
       offerLocalPickup: business.member.offerLocalPickup,
+      freeShippingMinimumCents: business.member.freeShippingMinimumCents,
+      freeShippingBanner: freeShippingBannerForStore({
+        freeShippingMinimumCents: business.member.freeShippingMinimumCents,
+        items: shippingRows,
+      }),
       acceptMessagesForListings: business.member.acceptMessagesForListings,
     }, noStoreJson);
   } catch (e) {

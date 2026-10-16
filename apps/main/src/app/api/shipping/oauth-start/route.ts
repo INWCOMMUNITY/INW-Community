@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { signShippoOAuthState } from "@/lib/shippo-oauth-state";
+import { setSellerOnboardingReturnCookie } from "@/lib/seller-onboarding-return";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
@@ -18,22 +19,26 @@ function getBaseUrl(req: NextRequest): string {
  * Redirects to Shippo with signed JWT `state` (no cookie).
  */
 export async function GET(req: NextRequest) {
+  const returnOnboarding = req.nextUrl.searchParams.get("return") === "onboarding";
+  const setupPath = returnOnboarding ? "/signup/seller?step=shipping" : "/seller-hub/shipping-setup";
   const session = await getSessionForApi(req);
   const userId = session?.user?.id;
   if (!userId) {
-    return NextResponse.redirect(new URL("/login?callbackUrl=/seller-hub/shipping-setup", getBaseUrl(req)));
+    return NextResponse.redirect(new URL(`/login?callbackUrl=${encodeURIComponent(setupPath)}`, getBaseUrl(req)));
   }
 
   const canList = await memberHasStorefrontListingAccess(userId);
   if (!canList) {
-    return NextResponse.redirect(new URL("/seller-hub/shipping-setup", getBaseUrl(req)));
+    return NextResponse.redirect(new URL(setupPath, getBaseUrl(req)));
   }
 
   const clientId = process.env.SHIPPO_OAUTH_CLIENT_ID?.trim();
   if (!clientId) {
     return NextResponse.redirect(
       new URL(
-        "/seller-hub/shipping-setup?oauth_error=" +
+        setupPath +
+          (setupPath.includes("?") ? "&" : "?") +
+          "oauth_error=" +
           encodeURIComponent("Connect with Shippo is not configured yet. Contact support."),
         getBaseUrl(req)
       )
@@ -46,7 +51,10 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.redirect(
       new URL(
-        "/seller-hub/shipping-setup?oauth_error=" + encodeURIComponent("Could not start OAuth. Try again."),
+        setupPath +
+          (setupPath.includes("?") ? "&" : "?") +
+          "oauth_error=" +
+          encodeURIComponent("Could not start OAuth. Try again."),
         getBaseUrl(req)
       )
     );
@@ -66,5 +74,7 @@ export async function GET(req: NextRequest) {
   );
   authUrl.searchParams.set("redirect_uri", redirectUri);
 
-  return NextResponse.redirect(authUrl.toString());
+  const response = NextResponse.redirect(authUrl.toString());
+  if (returnOnboarding) setSellerOnboardingReturnCookie(response, "shipping");
+  return response;
 }

@@ -21,7 +21,7 @@ import {
   formatBuyerPrice,
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
-import { orderHasLocalDeliveryLine, orderHasPickupLine } from "@/lib/store-order-fulfillment";
+import { orderHasLocalDeliveryLine } from "@/lib/store-order-fulfillment";
 import type { BuyerOrderModal } from "@/components/orders/BuyerOrderModals";
 
 const outlineBtn =
@@ -56,8 +56,6 @@ export function BuyerOrderCard({
   const headline = buyerFulfillmentHeadline(order);
   const trackingHref = buyerTrackingHref(order.shipment);
   const items = order.items ?? [];
-  const pickupItem = items.find((i) => (i.fulfillmentType ?? "") === "pickup");
-  const showPickup = orderHasPickupLine(items) && pickupItem && (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
   const showDelivery =
     orderHasLocalDeliveryLine(items) &&
     (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
@@ -172,11 +170,6 @@ export function BuyerOrderCard({
               >
                 Print return label now
               </a>
-            ) : null}
-            {showPickup && pickupItem ? (
-              <button type="button" className={outlineBtn} onClick={() => onAction({ kind: "pickup", order, item: pickupItem })}>
-                Pick up ticket
-              </button>
             ) : null}
             {showDelivery ? (
               <button type="button" className={outlineBtn} onClick={() => onAction({ kind: "delivery", order })}>

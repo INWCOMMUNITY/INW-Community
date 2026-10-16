@@ -3,6 +3,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { shopifyBrowserBindingCookie } from "@/lib/shopify/browser-binding";
 import { beginShopifyConnect, ShopifyConnectError } from "@/lib/shopify/connect";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { setSellerOnboardingReturnCookie } from "@/lib/seller-onboarding-return";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Seller access required" }, { status: 403 });
   }
   let shop = "";
+  let onboarding = false;
   try {
-    const body = (await req.json()) as { shop?: unknown };
+    const body = (await req.json()) as { shop?: unknown; onboarding?: unknown };
     shop = typeof body.shop === "string" ? body.shop : "";
+    onboarding = body.onboarding === true;
   } catch {
     return NextResponse.json({ error: SHOP_DOMAIN_HELP }, { status: 400 });
   }
@@ -28,6 +31,7 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({ authorizeUrl });
     const cookie = shopifyBrowserBindingCookie(browserBindingSecret);
     response.cookies.set(cookie.name, cookie.value, cookie.options);
+    if (onboarding) setSellerOnboardingReturnCookie(response, "import");
     // Non-secret observability only — never log cookie value / OAuth state / secrets.
     console.info("SHOPIFY_OAUTH_CONNECT_BINDING_ISSUED", {
       host: req.nextUrl.host,

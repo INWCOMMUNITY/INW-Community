@@ -37,6 +37,12 @@ describe("Shopify metafields to INW custom options", () => {
   it("skips the INW export id and flags types Etsy cannot store", () => {
     const result = classifyShopifyProductMetafields([
       { namespace: "$app", key: "listing_export_id", type: "id", definition: { name: "Listing export" } },
+      {
+        namespace: "app--12345",
+        key: "listing_export_id",
+        type: "id",
+        definition: { name: "INW listing export ID" },
+      },
       { namespace: "custom", key: "count", type: "number_integer", definition: { name: "Pack count" } },
       { namespace: "custom", key: "care", type: "metaobject_reference", definition: { name: "Care guide" } },
       {

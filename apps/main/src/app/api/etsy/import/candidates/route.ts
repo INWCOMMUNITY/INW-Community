@@ -18,6 +18,8 @@ export async function GET(req: NextRequest) {
 
   const offsetRaw = req.nextUrl.searchParams.get("offset");
   const offset = offsetRaw ? Number(offsetRaw) : 0;
+  const limitRaw = req.nextUrl.searchParams.get("limit");
+  const limit = limitRaw ? Number(limitRaw) : undefined;
   const etsyListingId = req.nextUrl.searchParams.get("etsyListingId");
 
   if (etsyListingId) {
@@ -40,6 +42,7 @@ export async function GET(req: NextRequest) {
   const result = await discoverEtsyImportCandidates({
     memberId,
     offset: Number.isFinite(offset) ? offset : 0,
+    limit: limit != null && Number.isFinite(limit) ? limit : undefined,
   });
 
   if (result.status !== "OK") {

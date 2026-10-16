@@ -743,32 +743,74 @@ export async function relistFoundationListing(
 ): Promise<void> {
   await lockCutoverShare(tx);
   await lockStoreItemForUpdate(tx, args.storeItemId);
+  const ended = await tx.storeItem.findUnique({
+    where: { id: args.storeItemId },
+    select: { endedAt: true },
+  });
+  const endedAtMs = ended?.endedAt?.getTime() ?? null;
   await tx.storeItem.update({
     where: { id: args.storeItemId },
     data: { status: "active", endedAt: null },
   });
   // Only reactivate variants that are part of this relist SET. Do not resurrect
   // topology-retired orphans (Shopify GID replaced) that are absent from targets.
+  // End clears isDefault, so a simple listing has no default left to find.
   const allVariants = await tx.storeVariant.findMany({
     where: { storeItemId: args.storeItemId },
-    select: { id: true, options: true, isDefault: true, status: true },
+    select: { id: true, options: true, isDefault: true, status: true, retiredAt: true },
   });
-  const reactivateIds = new Set<string>();
-  if (args.matrixTargets) {
-    const byFp = new Map(allVariants.map((v) => [optionFingerprintOf(v.options), v]));
-    for (const target of args.matrixTargets) {
-      const variant = byFp.get(target.fingerprint);
-      if (variant) reactivateIds.add(variant.id);
-    }
-  } else {
-    const defaults = allVariants.filter((v) => v.isDefault);
-    if (defaults.length === 1) reactivateIds.add(defaults[0]!.id);
-  }
-  if (reactivateIds.size > 0) {
+  const chosen = args.matrixTargets
+    ? allVariants.filter((variant) => {
+        const fingerprint = optionFingerprintOf(variant.options);
+        return args.matrixTargets!.some((target) => target.fingerprint === fingerprint);
+      })
+    : variantsToRelist(allVariants, endedAtMs);
+  if (chosen.length > 0) {
     await tx.storeVariant.updateMany({
-      where: { id: { in: [...reactivateIds] } },
-      data: { status: "ACTIVE", retiredAt: null },
+      where: { id: { in: chosen.map((variant) => variant.id) } },
+      data: {
+        status: "ACTIVE",
+        retiredAt: null,
+        ...(!args.matrixTargets && chosen.length === 1 ? { isDefault: true } : {}),
+      },
     });
   }
+  if (!args.matrixTargets && args.simpleTarget != null && chosen.length > 1) {
+    await applyFoundationSellerQuantitySets(tx, {
+      ...args,
+      simpleTarget: undefined,
+      matrixTargets: chosen.map((variant) => ({
+        fingerprint: optionFingerprintOf(variant.options),
+        targetOnHand: args.simpleTarget!,
+      })),
+    });
+    return;
+  }
   await applyFoundationSellerQuantitySets(tx, args);
+}
+
+function variantsToRelist<T extends { status: string; isDefault: boolean; retiredAt: Date | null }>(
+  allVariants: T[],
+  endedAtMs: number | null
+): T[] {
+  const active = allVariants.filter((variant) => variant.status === "ACTIVE");
+  if (active.length > 0) return active;
+  if (allVariants.length === 1) return allVariants;
+  if (endedAtMs != null) {
+    const cohort = allVariants.filter(
+      (variant) =>
+        variant.retiredAt != null && Math.abs(variant.retiredAt.getTime() - endedAtMs) < 5000
+    );
+    if (cohort.length > 0) return cohort;
+  }
+  const retired = allVariants.filter((variant) => variant.retiredAt != null);
+  const newest = retired.reduce<number | null>((max, variant) => {
+    const at = variant.retiredAt!.getTime();
+    return max == null || at > max ? at : max;
+  }, null);
+  if (newest != null) {
+    const cohort = retired.filter((variant) => Math.abs(variant.retiredAt!.getTime() - newest) < 1000);
+    if (cohort.length > 0) return cohort;
+  }
+  return allVariants;
 }

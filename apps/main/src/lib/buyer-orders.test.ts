@@ -152,7 +152,7 @@ describe("buyerFulfillmentHeadline", () => {
     ).toBe("In transit");
   });
 
-  it("prompts the buyer to confirm pickup", () => {
+  it("does not ask the buyer to confirm pickup", () => {
     expect(
       buyerFulfillmentHeadline(
         order({
@@ -162,7 +162,7 @@ describe("buyerFulfillmentHeadline", () => {
           items: [{ id: "i", quantity: 1, priceCentsAtPurchase: 100, fulfillmentType: "pickup" }],
         })
       )
-    ).toBe("Mark pickup received");
+    ).toBe("Paid");
   });
 });
 

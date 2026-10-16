@@ -125,10 +125,11 @@ function textLimit(field: ShopifyMetafieldObservation): number {
 }
 
 function isExportIdentity(field: ShopifyMetafieldObservation): boolean {
-  return (
-    field.namespace === SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE &&
-    field.key === SHOPIFY_LISTING_EXPORT_METAFIELD_KEY
-  );
+  const key = (field.key ?? "").trim();
+  if (key === SHOPIFY_LISTING_EXPORT_METAFIELD_KEY) return true;
+  // Shopify returns app-owned `$app` metafields under `app--{id}`, not `$app`.
+  const name = field.definition?.name?.trim();
+  return name === "INW listing export ID" && (field.type ?? "").trim() === "id";
 }
 
 export function classifyShopifyProductMetafields(fields: ShopifyMetafieldObservation[]): {

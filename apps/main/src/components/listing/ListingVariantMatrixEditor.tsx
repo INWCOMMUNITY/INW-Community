@@ -110,13 +110,39 @@ export function initEditorFromVariants(
   optionsEnabled: boolean;
   axes: VariantAxisDef[];
   skus: EditorSkuRow[];
+  pricesVary: boolean;
+  quantitiesVary: boolean;
+  skusVary: boolean;
+  sharedQuantity: boolean;
 } {
+  const stored = normalizeVariantMatrix(raw);
   // Prefer foundation ACTIVE optioned rows when present — they are inventory truth
   // (Etsy may use "Primary color" while StoreItem.variants still says "Color").
-  const matrix =
-    matrixFromFoundationVariants(foundationVariants) ?? normalizeVariantMatrix(raw);
+  const foundation = matrixFromFoundationVariants(foundationVariants);
+  const matrix = foundation
+    ? {
+        ...foundation,
+        ...(stored
+          ? {
+              pricesVary: stored.pricesVary,
+              quantitiesVary: stored.sharedQuantity ? false : stored.quantitiesVary,
+              skusVary: stored.skusVary,
+              sharedQuantity: stored.sharedQuantity,
+              imageAxis: stored.imageAxis ?? foundation.imageAxis,
+            }
+          : {}),
+      }
+    : stored;
   if (!matrix || matrix.axes.length === 0) {
-    return { optionsEnabled: false, axes: [], skus: [] };
+    return {
+      optionsEnabled: false,
+      axes: [],
+      skus: [],
+      pricesVary: false,
+      quantitiesVary: true,
+      skusVary: false,
+      sharedQuantity: false,
+    };
   }
   const full = rebuildMatrixFromAxes(matrix.axes, matrix.skus, {
     pricesVary: matrix.pricesVary,
@@ -125,6 +151,8 @@ export function initEditorFromVariants(
     imageAxis: matrix.imageAxis,
   });
   const enabledKeys = new Set(matrix.skus.map((s) => skuSelectionKey(s.options)));
+  const flags = inferMatrixVaryFlags({ ...full, sharedQuantity: matrix.sharedQuantity });
+  const sharedQuantity = matrix.sharedQuantity === true;
   return {
     optionsEnabled: true,
     axes: full.axes,
@@ -132,6 +160,12 @@ export function initEditorFromVariants(
       ...s,
       enabled: enabledKeys.has(skuSelectionKey(s.options)),
     })),
+    pricesVary: flags.pricesVary,
+    // Equal quantities used to be inferred as "does not vary" even when each
+    // combination had its own stock. Only an explicit shared pool hides the column.
+    quantitiesVary: sharedQuantity ? false : true,
+    skusVary: flags.skusVary,
+    sharedQuantity,
   };
 }
 
@@ -163,6 +197,11 @@ type Props = {
   channelNotes?: string[];
   /** Notify parent when per-combination prices are enabled (hides listing-level price). */
   onPricesVaryChange?: (pricesVary: boolean) => void;
+  /** Stored vary flags. Omitted quantity flag keeps the per-combination column. */
+  initialPricesVary?: boolean;
+  initialQuantitiesVary?: boolean;
+  initialSkusVary?: boolean;
+  onQuantitiesVaryChange?: (quantitiesVary: boolean) => void;
 };
 
 function ChannelNotes({ notes }: { notes?: string[] }) {
@@ -404,12 +443,18 @@ export function ListingVariantMatrixEditor({
   galleryPhotos,
   channelNotes,
   onPricesVaryChange,
+  initialPricesVary,
+  initialQuantitiesVary,
+  initialSkusVary,
+  onQuantitiesVaryChange,
 }: Props) {
   const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
   const inferred = inferMatrixVaryFlags({ axes, skus });
-  const [pricesVary, setPricesVary] = useState(inferred.pricesVary);
-  const [quantitiesVary, setQuantitiesVary] = useState(true);
-  const [skusVary, setSkusVary] = useState(inferred.skusVary);
+  const [pricesVary, setPricesVary] = useState(initialPricesVary ?? inferred.pricesVary);
+  const [quantitiesVary, setQuantitiesVary] = useState(
+    initialQuantitiesVary === undefined ? true : initialQuantitiesVary
+  );
+  const [skusVary, setSkusVary] = useState(initialSkusVary ?? inferred.skusVary);
   const [manageOpen, setManageOpen] = useState(false);
   const [draftAxes, setDraftAxes] = useState<VariantAxisDef[]>([]);
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
@@ -417,8 +462,12 @@ export function ListingVariantMatrixEditor({
   const [bulkQty, setBulkQty] = useState("");
 
   useEffect(() => {
-    if (skus.some((s) => s.priceCents != null && s.priceCents > 0)) setPricesVary(true);
-    if (skus.some((s) => Boolean(s.sku?.trim()))) setSkusVary(true);
+    const distinctPrices = new Set(
+      skus.map((s) => s.priceCents).filter((price): price is number => price != null && price > 0)
+    );
+    if (distinctPrices.size > 1) setPricesVary(true);
+    const distinctSkus = new Set(skus.map((s) => s.sku?.trim()).filter((sku): sku is string => Boolean(sku)));
+    if (distinctSkus.size > 1) setSkusVary(true);
   }, [skus]);
 
   useEffect(() => {
@@ -503,13 +552,23 @@ export function ListingVariantMatrixEditor({
 
   const toggleQtyVary = (next: boolean) => {
     setQuantitiesVary(next);
+    onQuantitiesVaryChange?.(next);
     if (!next) {
-      const shared = skus.find((s) => s.enabled)?.quantity ?? 0;
+      const shared = skus.find((s) => s.enabled)?.quantity ?? simpleQuantity;
+      onSimpleQuantityChange(shared);
       onChange(
         axes,
         skus.map((s) => ({ ...s, quantity: shared }))
       );
     }
+  };
+
+  const commitSharedQuantity = (qty: number) => {
+    onSimpleQuantityChange(qty);
+    onChange(
+      axes,
+      skus.map((s) => ({ ...s, quantity: qty }))
+    );
   };
 
   const toggleSkuVary = (next: boolean) => {
@@ -587,7 +646,9 @@ export function ListingVariantMatrixEditor({
         <p className="text-xs text-gray-500 mt-1">
           {madeToOrder
             ? "Buyers can order without a stock count. Quantity is not decremented after sales."
-            : "Each combination has its own quantity. Sales reduce that combination."}
+            : quantitiesVary
+              ? "Each combination has its own quantity. Sales reduce that combination."
+              : "One quantity covers every combination. A sale reduces that shared quantity."}
         </p>
       </div>
 
@@ -607,21 +668,21 @@ export function ListingVariantMatrixEditor({
         <span className="text-sm text-gray-900 font-medium">Enable options (Size, Color, …)</span>
       </div>
 
-      {!optionsEnabled ? (
-        madeToOrder ? (
-          <p className="text-sm text-gray-500">Quantity is not required for made-to-order listings.</p>
-        ) : (
-          <>
-            <label className={listingLabelClass}>Quantity *</label>
-            <VariantQtyInput
-              qty={simpleQuantity}
-              onCommitQty={onSimpleQuantityChange}
-              className={`${listingInputClass} max-w-xs`}
-              placeholder="1"
-            />
-          </>
-        )
-      ) : (
+      {madeToOrder ? (
+        <p className="text-sm text-gray-500">Quantity is not required for made-to-order listings.</p>
+      ) : !optionsEnabled || !quantitiesVary ? (
+        <>
+          <label className={listingLabelClass}>Quantity *</label>
+          <VariantQtyInput
+            qty={simpleQuantity}
+            onCommitQty={optionsEnabled ? commitSharedQuantity : onSimpleQuantityChange}
+            className={`${listingInputClass} max-w-xs`}
+            placeholder="1"
+          />
+        </>
+      ) : null}
+
+      {optionsEnabled ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-gray-700">{summary}</p>
@@ -786,7 +847,7 @@ export function ListingVariantMatrixEditor({
             </p>
           )}
         </>
-      )}
+      ) : null}
 
       {manageOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

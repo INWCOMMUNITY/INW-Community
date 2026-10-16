@@ -65,6 +65,23 @@ describe("etsyConnectionRequest body encoding", () => {
     );
   });
 
+  it("repeats form fields for id arrays", async () => {
+    await etsyConnectionRequest({
+      connectionId: "conn-1",
+      memberId: "m1",
+      method: "POST",
+      path: "/shops/1/listings",
+      bodyEncoding: "form",
+      body: { who_made: "someone_else", production_partner_ids: [44, 55] },
+    });
+
+    expect(etsyApplicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "who_made=someone_else&production_partner_ids=44&production_partner_ids=55",
+      })
+    );
+  });
+
   it("defaults to JSON body", async () => {
     await etsyConnectionRequest({
       connectionId: "conn-1",

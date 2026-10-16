@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { disconnectChannelsForEndedStoreItems } from "@/lib/disconnect-ended-listing-channels";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
+import { sellerEtsyErrorMessage } from "@/lib/etsy/marketplace-rejection";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +36,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ connection: null, listings: [] });
   }
 
+  try {
+    await disconnectChannelsForEndedStoreItems(memberId);
+  } catch (error) {
+    console.error("[etsy-listings] could not drop ended channel links", error);
+  }
+
   const links = await prisma.etsyListingLink.findMany({
     where: { etsyConnectionId: connection.id, memberId },
     orderBy: { updatedAt: "desc" },
@@ -58,6 +66,9 @@ export async function GET(req: NextRequest) {
           priceCents: true,
           quantity: true,
           photos: true,
+          etsyWhoMade: true,
+          etsyWhenMade: true,
+          etsyIsSupply: true,
         },
       },
     },
@@ -103,6 +114,9 @@ export async function GET(req: NextRequest) {
             priceCents: true,
             quantity: true,
             photos: true,
+            etsyWhoMade: true,
+            etsyWhenMade: true,
+            etsyIsSupply: true,
           },
         })
       : [];
@@ -122,7 +136,11 @@ export async function GET(req: NextRequest) {
     contentHealth: row.contentHealth,
     inventoryHealth: row.inventoryHealth,
     issueCode: row.issueCode,
-    issueMessage: row.issueMessage,
+    issueMessage: sellerEtsyErrorMessage(row.issueMessage, {
+      whoMade: row.storeItem.etsyWhoMade,
+      whenMade: row.storeItem.etsyWhenMade,
+      isSupply: row.storeItem.etsyIsSupply,
+    }),
     importSource: row.importSource,
     remoteListingState: row.remoteListingState,
     updatedAt: row.updatedAt,
@@ -153,7 +171,11 @@ export async function GET(req: NextRequest) {
           ? job.lastErrorCode ?? "CREATE_LISTING_FAILED"
           : "CREATE_LISTING_PENDING",
         issueMessage: isDead
-          ? job.lastErrorMessage ?? "Could not create listing on Etsy"
+          ? sellerEtsyErrorMessage(job.lastErrorMessage, {
+              whoMade: item.etsyWhoMade,
+              whenMade: item.etsyWhenMade,
+              isSupply: item.etsyIsSupply,
+            }) ?? "Could not create listing on Etsy"
           : "List on Etsy is still syncing",
         importSource: "NATIVE" as const,
         remoteListingState: null as string | null,

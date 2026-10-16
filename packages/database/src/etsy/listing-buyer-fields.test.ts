@@ -170,7 +170,37 @@ describe("etsy personalization mapping", () => {
       "Pet Photo",
       "Quote",
     ]);
-    expect(mapped.fields[2]).toMatchObject({ kind: "FILE", maxFiles: 5 });
+    expect(mapped.fields[2]).toMatchObject({ kind: "FILE", maxFiles: 5, labelEachFile: false });
+  });
+
+  it("keeps every labeled file name, including a repeated label", () => {
+    const mapped = buyerFieldsFromEtsyQuestions([
+      {
+        question_id: 3,
+        question_type: "labeled_upload",
+        question_text: "Pet Photo",
+        instructions: "Make sure its good, at least 30 pixels",
+        required: true,
+        max_allowed_files: 5,
+        options: [
+          { option_id: 1, label: "Closeup of Face" },
+          { option_id: 2, label: "Dog Pooping" },
+          { option_id: 3, label: "Test" },
+          { option_id: 4, label: "Test" },
+          { option_id: 5, label: "Testies" },
+        ],
+      },
+    ]);
+    expect(mapped.ok).toBe(true);
+    if (!mapped.ok) return;
+    expect(mapped.fields[0]).toMatchObject({ kind: "FILE", labelEachFile: true, maxFiles: 5 });
+    expect(mapped.fields[0]?.options.map((option) => option.label)).toEqual([
+      "Closeup of Face",
+      "Dog Pooping",
+      "Test",
+      "Test",
+      "Testies",
+    ]);
   });
 });
 

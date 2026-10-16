@@ -3,6 +3,7 @@ import { prisma } from "database";
 import bcrypt from "bcryptjs";
 import { issueMobileSessionForMemberId } from "@/lib/issue-mobile-session";
 import { memberHasAppAccess } from "@/lib/member-public-visibility";
+import { getSellerOnboardingProgress } from "@/lib/seller-onboarding-progress";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
@@ -67,7 +68,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(body, { status: session.status });
     }
 
-    return NextResponse.json(session);
+    const progress =
+      member.signupIntent === "seller" ? await getSellerOnboardingProgress(member.id) : null;
+
+    return NextResponse.json({
+      ...session,
+      ...(progress?.onboardingStep ? { onboardingStep: progress.onboardingStep } : {}),
+    });
   } catch (e) {
     const err = e as Error;
     console.error("[POST /api/auth/mobile-signin]", err);

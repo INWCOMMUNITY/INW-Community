@@ -4,10 +4,9 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
-import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
-import { MAX_BUSINESS_GALLERY_PHOTOS } from "@/lib/upload-limits";
+import { createBusinessDraftInDb } from "@/lib/create-business-draft";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
-import { NWC_PAID_PLAN_ACCESS_STATUSES, prismaWhereMemberSponsorOrSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 import {
   describeStripeSubscriptionConfigError,
   getStripeSubscriptionPlanPriceIds,
@@ -63,72 +62,6 @@ async function createSubscriptionCheckoutSession(
 
 function isValidEmail(s: string): boolean {
   return typeof s === "string" && s.includes("@") && s.length > 3;
-}
-
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-async function createBusinessDraftInDb(
-  memberId: string,
-  data: Record<string, unknown>,
-  planId: "subscribe" | "sponsor" | "seller"
-): Promise<{ businessId: string } | undefined> {
-  const name = typeof data.name === "string" ? data.name.trim() : "";
-  const city = typeof data.city === "string" ? data.city.trim() : "";
-  const categories = Array.isArray(data.categories)
-    ? (data.categories as string[]).filter((c) => typeof c === "string" && c.trim()).slice(0, 2)
-    : [];
-  if (!name || !city || categories.length === 0) return undefined;
-
-  const activeSub = await prisma.subscription.findFirst({
-    where: prismaWhereMemberSponsorOrSellerPlanAccess(memberId),
-  });
-  if (!activeSub) {
-    await prisma.business.deleteMany({ where: { memberId } });
-  }
-
-  // Business → Seller: reuse Business Hub profile; do not create a second business from checkout form.
-  if (planId === "seller") {
-    const existingBusiness = await prisma.business.findFirst({
-      where: { memberId },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    });
-    if (existingBusiness) return { businessId: existingBusiness.id };
-  }
-
-  const existingCount = await prisma.business.count({ where: { memberId } });
-  if (existingCount >= 2) return undefined;
-
-  let slug = slugify(name);
-  let suffix = 0;
-  while (await prisma.business.findUnique({ where: { slug } })) {
-    slug = `${slugify(name)}-${++suffix}`;
-  }
-
-  const business = await prisma.business.create({
-    data: {
-      memberId,
-      name,
-      shortDescription: typeof data.shortDescription === "string" ? data.shortDescription.trim() || null : null,
-      fullDescription: typeof data.fullDescription === "string" ? data.fullDescription.trim() || null : null,
-      website: typeof data.website === "string" && data.website.trim() ? (data.website.startsWith("http") ? data.website : `https://${data.website}`) : null,
-      phone: typeof data.phone === "string" && data.phone.trim() ? data.phone.trim() : null,
-      email: typeof data.email === "string" && data.email.trim() ? data.email.trim() : null,
-      logoUrl: typeof data.logoUrl === "string" && data.logoUrl.trim() ? data.logoUrl.trim() : null,
-      address: typeof data.address === "string" && data.address.trim() ? data.address.trim() : null,
-      city,
-      categories,
-      subcategoriesByPrimary: normalizeSubcategoriesByPrimary(categories, data.subcategoriesByPrimary),
-      slug,
-      photos: Array.isArray(data.photos)
-        ? (data.photos as string[]).filter(Boolean).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
-        : [],
-      hoursOfOperation: data.hoursOfOperation && typeof data.hoursOfOperation === "object" ? (data.hoursOfOperation as Record<string, string>) : undefined,
-    },
-  });
-  return { businessId: business.id };
 }
 
 export async function POST(req: NextRequest) {
@@ -277,6 +210,14 @@ export async function POST(req: NextRequest) {
         console.error("[stripe/checkout] business draft create:", bErr);
       }
     }
+    if (planId === "seller" && !metadata.businessId) {
+      const existingBusiness = await prisma.business.findFirst({
+        where: { memberId: session.user.id },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      if (existingBusiness) metadata.businessId = existingBusiness.id;
+    }
     const existingStripeCustomerId = await resolveStripeCustomerIdForMember(session.user.id);
     const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
@@ -286,8 +227,14 @@ export async function POST(req: NextRequest) {
         : { customer_email: session.user.email }),
       client_reference_id: session.user.id,
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${baseUrl}/my-community?success=1`,
-      cancel_url: `${baseUrl}/support-nwc?canceled=1`,
+      success_url:
+        planId === "seller"
+          ? `${baseUrl}/signup/seller?step=shipping&success=1`
+          : `${baseUrl}/my-community?success=1`,
+      cancel_url:
+        planId === "seller"
+          ? `${baseUrl}/signup/seller?step=subscribe&canceled=1`
+          : `${baseUrl}/support-nwc?canceled=1`,
       automatic_tax: {
         enabled:
           process.env.STRIPE_CHECKOUT_AUTOMATIC_TAX !== "false" &&

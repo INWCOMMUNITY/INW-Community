@@ -21,6 +21,8 @@ import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { centsToShopifyMoney } from "./listing-export-id";
 import {
   bulkCreateVariantInventory,
+  listingSharesOnePrice,
+  listingSharesOneSku,
   loadShopifyCreateInventory,
   productSetShopifyMultiVariantDraftListing,
   productSetVariantInventory,
@@ -1100,7 +1102,7 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
 
   const item = await prisma.storeItem.findFirst({
     where: { id: input.storeItemId, memberId: input.memberId },
-    select: { title: true, description: true },
+    select: { title: true, description: true, priceCents: true, variants: true },
   });
   if (!item) {
     return {
@@ -1116,6 +1118,8 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
     connectionId: input.connectionId,
     storeVariantIds: rows.map((row) => row.storeVariantId),
   });
+  const onePrice = listingSharesOnePrice(item.variants);
+  const oneSku = listingSharesOneSku(item.variants);
   const remote = await productSetShopifyMultiVariantDraftListing({
     connectionId: input.connectionId,
     storeItemId: input.storeItemId,
@@ -1128,13 +1132,15 @@ async function pushInwOptionsOntoDefaultShopifyProduct(input: {
     })),
     variants: rows.map((row) => {
       const available = matrixInventory.availableByVariantId.get(row.storeVariantId);
+      const priceCents =
+        onePrice && item.priceCents > 0 ? item.priceCents : row.priceCents;
       return {
         optionValues: row.selectedOptions.map((opt) => ({
           optionName: opt.name,
           name: opt.value,
         })),
-        price: centsToShopifyMoney(row.priceCents),
-        ...(row.sku ? { sku: row.sku } : {}),
+        price: centsToShopifyMoney(priceCents),
+        ...(!oneSku && row.sku ? { sku: row.sku } : {}),
         ...(matrixInventory.locationId && available != null
           ? productSetVariantInventory(matrixInventory.locationId, available)
           : {}),
@@ -1783,6 +1789,12 @@ export async function syncShopifyListingTopology(input: {
       connectionId: input.connectionId,
       storeVariantIds: plan.createVariants.map((v) => v.storeVariantId),
     });
+    const listing = await prisma.storeItem.findFirst({
+      where: { id: input.storeItemId, memberId: input.memberId },
+      select: { priceCents: true, variants: true },
+    });
+    const onePrice = listingSharesOnePrice(listing?.variants);
+    const oneSku = listingSharesOneSku(listing?.variants);
     const created = await productVariantsBulkCreate({
       connectionId: input.connectionId,
       productId: input.productId,
@@ -1798,8 +1810,10 @@ export async function syncShopifyListingTopology(input: {
               (optionRank.get(a.optionName) ?? optionRank.size) -
               (optionRank.get(b.optionName) ?? optionRank.size)
           ),
-          price: centsToShopifyMoney(v.priceCents),
-          ...(v.sku ? { sku: v.sku } : {}),
+          price: centsToShopifyMoney(
+            onePrice && listing && listing.priceCents > 0 ? listing.priceCents : v.priceCents
+          ),
+          ...(!oneSku && v.sku ? { sku: v.sku } : {}),
           ...(inventory ?? {}),
         };
       }),

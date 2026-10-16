@@ -33,9 +33,25 @@ type ShippingOption = {
 type PageData = {
   options: ShippingOption[];
   offerFreeShippingOnInw: boolean;
+  combineShipping: boolean;
+  combinedShippingMaxCents: number | null;
+  freeShippingMinimumCents: number | null;
   etsyConnected: boolean;
   shopifyConnected: boolean;
 };
+
+function centsToDollarInput(cents: number | null | undefined): string {
+  if (cents == null) return "";
+  return (cents / 100).toFixed(2);
+}
+
+function parseDollarInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n) || n < 0) throw new Error("Enter a valid dollar amount");
+  return Math.round(n * 100);
+}
 
 const emptyForm = {
   name: "",
@@ -119,8 +135,16 @@ export default function ShippingScreen() {
   const [createOpen, setCreateOpen] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [importing, setImporting] = useState<"etsy" | "shopify" | null>(null);
   const [editing, setEditing] = useState<ShippingOption | null>(null);
+  const [combineShipping, setCombineShipping] = useState(false);
+  const [combineMaxInput, setCombineMaxInput] = useState("");
+  const [freeOverInput, setFreeOverInput] = useState("");
+
+  React.useEffect(() => {
+    setCombineShipping(Boolean(data?.combineShipping));
+    setCombineMaxInput(centsToDollarInput(data?.combinedShippingMaxCents));
+    setFreeOverInput(centsToDollarInput(data?.freeShippingMinimumCents));
+  }, [data?.combineShipping, data?.combinedShippingMaxCents, data?.freeShippingMinimumCents]);
 
   const refreshShippoStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -202,28 +226,6 @@ export default function ShippingScreen() {
       setData(json);
     } catch (e: unknown) {
       setError((e as { error?: string })?.error || "Could not save");
-    }
-  }
-
-  async function importFrom(provider: "etsy" | "shopify") {
-    setError(null);
-    setImporting(provider);
-    try {
-      const json = await apiPost<{
-        options?: ShippingOption[];
-        error?: string;
-      }>("/api/shipping-options/import", { provider });
-      if (Array.isArray(json.options)) {
-        setData((prev) => (prev ? { ...prev, options: json.options as ShippingOption[] } : prev));
-      } else {
-        await loadOptions();
-      }
-    } catch (e: unknown) {
-      setError(
-        (e as { error?: string })?.error || `Could not import from ${sourceLabel(provider)}`
-      );
-    } finally {
-      setImporting(null);
     }
   }
 
@@ -348,39 +350,81 @@ export default function ShippingScreen() {
       ) : null}
       {shippoError ? <Text style={styles.err}>{shippoError}</Text> : null}
 
+      <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Shipping Rules</Text>
+      <Text style={styles.hint}>
+        Each shipped item’s shipping price is added together. Cap a combined order, or offer free shipping over a store total.
+      </Text>
+      <CheckboxRow
+        label="Do you combine shipping?"
+        checked={combineShipping}
+        onToggle={(checked) => {
+          setCombineShipping(checked);
+          void patchPrefs({ combineShipping: checked });
+        }}
+      />
+      {combineShipping ? (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Combined orders have a maximum shipping price of</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 8.00"
+            value={combineMaxInput}
+            onChangeText={setCombineMaxInput}
+            onBlur={() => {
+              try {
+                const cents = parseDollarInput(combineMaxInput);
+                setCombineMaxInput(centsToDollarInput(cents));
+                void patchPrefs({ combinedShippingMaxCents: cents });
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
+              }
+            }}
+          />
+          <Text style={styles.hint}>
+            When a buyer ships more than one item from your store, shipping will not exceed this amount. A single item still uses its own shipping price.
+          </Text>
+        </View>
+      ) : null}
+      <Text style={styles.label}>Offer free shipping on purchases over</Text>
+      <TextInput
+        style={styles.input}
+        keyboardType="decimal-pad"
+        placeholder="e.g. 50.00"
+        value={freeOverInput}
+        onChangeText={setFreeOverInput}
+        onBlur={() => {
+          try {
+            const cents = parseDollarInput(freeOverInput);
+            if (cents === 0) {
+              setError("Enter an amount greater than 0, or leave this blank.");
+              return;
+            }
+            setFreeOverInput(centsToDollarInput(cents));
+            void patchPrefs({ freeShippingMinimumCents: cents });
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
+          }
+        }}
+      />
+      {(() => {
+        const amount = freeOverInput.trim();
+        const n = Number(amount.replace(/[^0-9.]/g, ""));
+        if (!amount || !Number.isFinite(n) || n <= 0) return null;
+        return (
+          <Text style={styles.hint}>
+            Buyers will be notified that if they order ${n.toFixed(2)} from your store, they will receive free shipping.
+          </Text>
+        );
+      })()}
+
       <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Shipping options</Text>
       <Text style={styles.hint}>
-        Create packages for listings, or import from connected marketplaces.
+        Create shipping packages on INW. Shipping is set up here and is not imported from Etsy or Shopify.
       </Text>
 
       {error ? <Text style={styles.err}>{error}</Text> : null}
 
-      <Pressable
-        style={[styles.primaryBtn, (!data?.etsyConnected || importing != null) && styles.primaryBtnDisabled]}
-        disabled={!data?.etsyConnected || importing != null}
-        onPress={() => void importFrom("etsy")}
-      >
-        {importing === "etsy" ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryBtnText}>Import from Etsy</Text>
-        )}
-      </Pressable>
-      <Pressable
-        style={[
-          styles.primaryBtn,
-          styles.importBtnSpacing,
-          (!data?.shopifyConnected || importing != null) && styles.primaryBtnDisabled,
-        ]}
-        disabled={!data?.shopifyConnected || importing != null}
-        onPress={() => void importFrom("shopify")}
-      >
-        {importing === "shopify" ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryBtnText}>Import from Shopify</Text>
-        )}
-      </Pressable>
       <CheckboxRow
         label="Offer free shipping on INW (Recommended)"
         checked={Boolean(data?.offerFreeShippingOnInw)}
@@ -623,7 +667,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 8,
   },
-  importBtnSpacing: { marginTop: 10 },
   primaryBtnDisabled: { opacity: 0.65 },
   primaryBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   optionRow: {

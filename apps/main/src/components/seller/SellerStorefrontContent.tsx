@@ -16,6 +16,7 @@ import {
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
 } from "@/lib/store-return";
+import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -54,6 +55,8 @@ export type SellerStorefrontData = {
   offerShipping: boolean;
   offerLocalDelivery: boolean;
   offerLocalPickup: boolean;
+  freeShippingMinimumCents?: number | null;
+  freeShippingBanner?: FreeShippingBanner | null;
   sellerShippingPolicy: string | null;
   sellerLocalDeliveryPolicy: string | null;
   sellerPickupPolicy: string | null;
@@ -299,6 +302,21 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
         </div>
       </div>
 
+      {seller.freeShippingBanner ? (
+        <div className="mx-auto w-full max-w-[var(--max-width)] px-4 pt-4">
+          <div
+            className="relative flex items-center justify-center rounded-lg px-12 py-3 text-white"
+            style={{ backgroundColor: "var(--color-earth)" }}
+          >
+            <IonIcon name="gift-outline" size={22} className="absolute left-4 shrink-0 text-white" />
+            <p className="text-center text-sm font-semibold leading-snug">
+              {freeShippingBannerText(seller.name, seller.freeShippingBanner, seller.freeShippingMinimumCents)}
+            </p>
+            <IonIcon name="gift-outline" size={22} className="absolute right-4 shrink-0 text-white" />
+          </div>
+        </div>
+      ) : null}
+
       <div className="mx-auto max-w-[var(--max-width)] px-4 py-4 pb-12">
         {activeTab === "products" ? (
           <>
@@ -376,12 +394,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                 <span className={FULFILLMENT_BADGE}>
                   <IonIcon name="airplane-outline" size={16} />
                   Ships items
-                </span>
-              ) : null}
-              {seller.offerLocalPickup ? (
-                <span className={FULFILLMENT_BADGE}>
-                  <IonIcon name="storefront-outline" size={16} />
-                  Local pickup
                 </span>
               ) : null}
               {seller.offerLocalDelivery ? (
@@ -601,9 +613,6 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               {seller.sellerLocalDeliveryPolicy ? (
                 <PolicyCard icon="car-outline" title="Local Delivery Policy" text={seller.sellerLocalDeliveryPolicy} />
               ) : null}
-              {seller.sellerPickupPolicy ? (
-                <PolicyCard icon="storefront-outline" title="Pickup Policy" text={seller.sellerPickupPolicy} />
-              ) : null}
               {seller.acceptReturns === false ||
               seller.sellerReturnPolicy ||
               seller.acceptReturnsDays != null ||
@@ -615,7 +624,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                     seller.acceptReturns === false
                       ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
                       : [
-                          `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
+                          `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery.`,
                           seller.chargeReturnShipping
                             ? "Return shipping may be deducted from your refund."
                             : null,

@@ -14,15 +14,38 @@ import {
   Easing,
   ScrollView,
   Modal,
+  Alert,
 } from "react-native";
 
 const ANIM_DURATION = 480;
+
+type NavWithParent = {
+  getParent?: () => NavWithParent | undefined;
+  getState?: () => { index?: number; routes?: { name?: string }[] } | undefined;
+};
+
+/** Route covering the tabs, such as a product page. Tab switches stay on `(tabs)`. */
+function focusedRootRouteName(navigation: NavWithParent): string | undefined {
+  let nav: NavWithParent | undefined = navigation;
+  let top: NavWithParent = navigation;
+  while (nav?.getParent) {
+    const parent = nav.getParent();
+    if (!parent) break;
+    top = parent;
+    nav = parent;
+  }
+  const state = top.getState?.();
+  if (!state?.routes || state.index == null) return undefined;
+  return state.routes[state.index]?.name;
+}
 import { useRouter, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 import { slugifyStoreCategory } from "@/lib/store-category-slug";
+import { buildProductPath } from "@/lib/product-referrer";
+import { normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 import { storefrontCloseMatchNote } from "@/lib/storefront-search";
 import {
   StoreFilterDrawer,
@@ -78,6 +101,12 @@ export default function StoreScreen() {
   const animatedHeight = useRef(new Animated.Value(330)).current;
   const listRef = useRef<FlatList>(null);
   const scrollYRef = useRef(0);
+  const headerExpandedRef = useRef(true);
+  const preservePlaceOnFocusRef = useRef(false);
+  const savedOffsetRef = useRef(0);
+  const savedHeaderExpandedRef = useRef(true);
+  const pendingRestoreOffsetRef = useRef<number | null>(null);
+  headerExpandedRef.current = headerExpanded;
 
   useEffect(() => {
     Animated.timing(animatedHeight, {
@@ -125,9 +154,12 @@ export default function StoreScreen() {
   }, [animatedHeight]);
 
   const load = useCallback(
-    async (refresh = false) => {
-      if (refresh) setRefreshing(true);
-      else setLoading(true);
+    async (refresh = false, options?: { silent?: boolean }) => {
+      const silent = options?.silent === true;
+      if (!silent) {
+        if (refresh) setRefreshing(true);
+        else setLoading(true);
+      }
       setConnectionError(null);
       try {
         const params = new URLSearchParams();
@@ -159,8 +191,10 @@ export default function StoreScreen() {
           : err?.error ?? "Failed to load.";
         setConnectionError(msg);
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (!silent) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [condition, search, category, subcategory, size, deliveryFilter, sortOption]
@@ -238,15 +272,52 @@ export default function StoreScreen() {
   const storeFocusSkipRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      const keepPlace = preservePlaceOnFocusRef.current;
+      preservePlaceOnFocusRef.current = false;
+
       if (storeFocusSkipRef.current) {
         storeFocusSkipRef.current = false;
-        return;
+      } else if (keepPlace) {
+        const y = savedOffsetRef.current;
+        scrollYRef.current = y;
+        if (headerExpandedRef.current !== savedHeaderExpandedRef.current) {
+          setHeaderExpanded(savedHeaderExpandedRef.current);
+        }
+        load(false, { silent: true });
+        loadMeta();
+        pendingRestoreOffsetRef.current = y > 1 ? y : null;
+        if (y > 1) {
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToOffset({ offset: y, animated: false });
+          });
+        }
+      } else {
+        load(true);
+        loadMeta();
+        resetLayoutAfterTabFocus();
       }
-      load(true);
-      loadMeta();
-      resetLayoutAfterTabFocus();
-    }, [load, loadMeta, resetLayoutAfterTabFocus])
+
+      return () => {
+        const coveringRoute = focusedRootRouteName(navigation);
+        if (coveringRoute && coveringRoute !== "(tabs)") {
+          preservePlaceOnFocusRef.current = true;
+          savedOffsetRef.current = scrollYRef.current;
+          savedHeaderExpandedRef.current = headerExpandedRef.current;
+        }
+      };
+    }, [load, loadMeta, navigation, resetLayoutAfterTabFocus])
   );
+
+  useEffect(() => {
+    const y = pendingRestoreOffsetRef.current;
+    if (y == null || y <= 1) return;
+    pendingRestoreOffsetRef.current = null;
+    const current = scrollYRef.current;
+    if (current > 1 && Math.abs(current - y) > 80) return;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: y, animated: false });
+    });
+  }, [items]);
 
   useEffect(() => {
     if (browseByCategories.length === 0) {
@@ -277,12 +348,41 @@ export default function StoreScreen() {
   };
 
   const handleQuickAdd = useCallback(async (item: StoreItemData) => {
+    const matrix = normalizeVariantMatrix(item.variants);
+    const sku = matrix?.skus.find((row) => row.quantity > 0) ?? matrix?.skus[0];
+    const variant = sku
+      ? Object.fromEntries(
+          Object.entries(sku.options).filter((entry): entry is [string, string] => !!entry[1]?.trim())
+        )
+      : undefined;
     try {
-      await apiPost("/api/cart", { storeItemId: item.id, quantity: 1 });
-    } catch {
-      // Silent fail - user can still tap the item to add with options
+      await apiPost("/api/cart", {
+        storeItemId: item.id,
+        quantity: 1,
+        fulfillmentType: "ship",
+        ...(variant && Object.keys(variant).length > 0 ? { variant } : {}),
+      });
+      Alert.alert("Added to cart", `${item.title} was added to your cart.`, [
+        { text: "Keep shopping", style: "cancel" },
+        { text: "View cart", onPress: () => router.push("/cart") },
+      ]);
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      if (err.status === 401) {
+        Alert.alert("Sign in required", "Please sign in to add items to your cart.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+        ]);
+        return;
+      }
+      const message = err.error ?? "";
+      if (/custom option|is required/i.test(message)) {
+        router.push(buildProductPath(item.slug, { type: "storefront" }) as never);
+        return;
+      }
+      Alert.alert("Could not add to cart", message || "Please try again.");
     }
-  }, []);
+  }, [router]);
 
   const resolvePhotoUrl = (path: string | undefined): string | undefined => {
     if (!path) return undefined;
@@ -323,6 +423,7 @@ export default function StoreScreen() {
         width={cardWidth}
         variant="grid"
         showBadges
+        outlined
         onQuickAdd={handleQuickAdd}
       />
     );
@@ -442,30 +543,6 @@ export default function StoreScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.quickFiltersContent}
               >
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.filterChip,
-                    deliveryFilter === "local" && styles.filterChipActive,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() =>
-                    setDeliveryFilter(deliveryFilter === "local" ? "" : "local")
-                  }
-                >
-                  <Ionicons
-                    name="location-outline"
-                    size={14}
-                    color={deliveryFilter === "local" ? "#fff" : theme.colors.primary}
-                  />
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      deliveryFilter === "local" && styles.filterChipTextActive,
-                    ]}
-                  >
-                    Local Pickup
-                  </Text>
-                </Pressable>
                 <Pressable
                   style={({ pressed }) => [
                     styles.filterChip,

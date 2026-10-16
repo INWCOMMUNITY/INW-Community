@@ -7,15 +7,12 @@ import {
   nextEtsyImportBatchAvgItemMs,
   parseEtsyImportBatchQueue,
   prisma,
-  resolveEtsyImportStockMode,
   type EtsyImportBatchProgressView,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
-import { discoverEtsyImportCandidates, fetchEtsyImportListingDetail } from "./import-discovery";
+import { discoverEtsyImportCandidates } from "./import-discovery";
 import { importEtsyListing } from "./import-listing";
-import { fetchEtsyRemoteShippingProfiles } from "./shipping-profiles-import";
-import type { EtsyImportShippingPolicy } from "./import-shipping";
 
 type EtsyImportStockModePolicy = "RECOMMENDED" | "PHYSICAL" | "MADE_TO_ORDER";
 
@@ -49,19 +46,72 @@ async function enqueueImportBatchJob(input: {
   });
 }
 
+const MAX_PRICED_LISTINGS = 5000;
+const MAX_SHIPPING_CENTS = 10_000_000;
+
+export function assignedImportShipping(input: {
+  listingIds?: unknown;
+  shippingPrices?: unknown;
+}):
+  | { ok: true; listingIds: string[]; shippingPrices: Record<string, number> }
+  | { ok: false; message: string }
+  | null {
+  if (input.listingIds == null && input.shippingPrices == null) return null;
+  if (!Array.isArray(input.listingIds) || input.listingIds.length === 0) {
+    return { ok: false, message: "Choose the listings to import." };
+  }
+  if (input.listingIds.length > MAX_PRICED_LISTINGS) {
+    return { ok: false, message: "Too many listings to price at once. Ship for free instead." };
+  }
+  const prices =
+    input.shippingPrices && typeof input.shippingPrices === "object" && !Array.isArray(input.shippingPrices)
+      ? (input.shippingPrices as Record<string, unknown>)
+      : null;
+  if (!prices) return { ok: false, message: "Enter a shipping price for every listing." };
+
+  const listingIds: string[] = [];
+  const seen = new Set<string>();
+  const shippingPrices: Record<string, number> = {};
+  for (const entry of input.listingIds) {
+    const id = typeof entry === "string" ? entry.trim() : "";
+    if (!/^\d+$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    const cents = prices[id];
+    if (typeof cents !== "number" || !Number.isInteger(cents) || cents < 0 || cents > MAX_SHIPPING_CENTS) {
+      return { ok: false, message: "Enter a shipping price for every listing." };
+    }
+    listingIds.push(id);
+    shippingPrices[id] = cents;
+  }
+  if (listingIds.length === 0) return { ok: false, message: "Choose the listings to import." };
+  return { ok: true, listingIds, shippingPrices };
+}
+
+function shippingCentsFromBatch(raw: unknown, etsyListingId: string): number {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
+  const value = (raw as Record<string, unknown>)[etsyListingId];
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.round(value));
+}
+
 export async function startEtsyImportBatch(input: {
   memberId: string;
   stockModePolicy?: string;
-  shippingPolicy?: string;
+  listingIds?: unknown;
+  shippingPrices?: unknown;
 }): Promise<StartEtsyImportBatchResult> {
   const policyRaw = (input.stockModePolicy ?? "RECOMMENDED").toString().trim().toUpperCase();
   const stockModePolicy: EtsyImportStockModePolicy =
     policyRaw === "PHYSICAL" || policyRaw === "MADE_TO_ORDER" || policyRaw === "RECOMMENDED"
       ? (policyRaw as EtsyImportStockModePolicy)
       : "RECOMMENDED";
-  const shippingRaw = (input.shippingPolicy ?? "FREE").toString().trim().toUpperCase();
-  const shippingPolicy: EtsyImportShippingPolicy =
-    shippingRaw === "IMPORT_PRICES" ? "IMPORT_PRICES" : "FREE";
+  const assigned = assignedImportShipping({
+    listingIds: input.listingIds,
+    shippingPrices: input.shippingPrices,
+  });
+  if (assigned && !assigned.ok) {
+    return { status: "ERROR", code: "INVALID_SHIPPING", message: assigned.message, httpStatus: 400 };
+  }
 
   const connection = await prisma.etsyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
@@ -93,7 +143,15 @@ export async function startEtsyImportBatch(input: {
         memberId: input.memberId,
         state: "PENDING",
         stockModePolicy,
-        shippingPolicy,
+        shippingPolicy: "FREE",
+        shippingPricesJson: assigned?.ok ? assigned.shippingPrices : {},
+        ...(assigned?.ok
+          ? {
+              queueJson: assigned.listingIds,
+              total: assigned.listingIds.length,
+              discoverComplete: true,
+            }
+          : {}),
         startedAt: new Date(),
         lastProgressAt: new Date(),
       },
@@ -340,26 +398,8 @@ export async function handleEtsyImportBatchJob(
     if (ids.length === 0) break;
   }
 
-  const shippingPolicy: EtsyImportShippingPolicy =
-    batch.shippingPolicy === "IMPORT_PRICES" ? "IMPORT_PRICES" : "FREE";
-  let domesticRates: Promise<Map<string, number | null>> | null = null;
-  const resolveDomesticShippingCents = async (profileId: string): Promise<number | null> => {
-    if (!domesticRates) {
-      domesticRates = fetchEtsyRemoteShippingProfiles(batch.memberId)
-        .then((loaded) => {
-          const rates = new Map<string, number | null>();
-          for (const profile of loaded.profiles) {
-            rates.set(profile.remoteProfileId, profile.shippingCostCents ?? null);
-          }
-          return rates;
-        })
-        .catch(() => new Map<string, number | null>());
-    }
-    const rates = await domesticRates;
-    return rates.get(profileId) ?? null;
-  };
-
   let itemsThisClaim = 0;
+  const deferredThisClaim = new Set<string>();
   while (
     queue.length > 0 &&
     itemsThisClaim < MAX_ITEMS_PER_CLAIM &&
@@ -376,26 +416,13 @@ export async function handleEtsyImportBatchJob(
 
     const etsyListingId = queue.shift()!;
     const itemStarted = Date.now();
-    let recommended: "PHYSICAL" | "MADE_TO_ORDER" | null = "PHYSICAL";
-    if (batch.stockModePolicy === "RECOMMENDED") {
-      const detail = await fetchEtsyImportListingDetail({
-        memberId: batch.memberId,
-        etsyListingId,
-      }).catch(() => null);
-      if (detail?.status === "OK") {
-        recommended = detail.candidate.recommendedStockMode;
-      }
-    }
-    const stockMode = resolveEtsyImportStockMode(batch.stockModePolicy, recommended);
 
     try {
       const result = await importEtsyListing({
         memberId: batch.memberId,
         etsyListingId,
-        stockMode,
-        shippingPolicy,
-        resolveDomesticShippingCents:
-          shippingPolicy === "IMPORT_PRICES" ? resolveDomesticShippingCents : undefined,
+        stockMode: batch.stockModePolicy,
+        shippingCostCents: shippingCentsFromBatch(batch.shippingPricesJson, etsyListingId),
       });
       const itemMs = Date.now() - itemStarted;
       avgItemMs = nextEtsyImportBatchAvgItemMs(avgItemMs, processedBefore, itemMs);
@@ -414,8 +441,28 @@ export async function handleEtsyImportBatchJob(
       } else if (result.status === "ALREADY_IMPORTED") {
         skipped += 1;
       } else if (result.status === "ERROR" && result.code === "IMPORT_IN_PROGRESS") {
-        // Put back and try later — do not burn as failed.
-        queue.unshift(etsyListingId);
+        // Another attempt still holds this listing. Try the rest of the queue first
+        // so one interrupted import does not freeze the whole batch.
+        if (deferredThisClaim.has(etsyListingId) || queue.every((id) => deferredThisClaim.has(id))) {
+          queue.unshift(etsyListingId);
+          await prisma.etsyImportBatch.update({
+            where: { id: batch.id },
+            data: {
+              queueJson: queue,
+              lastProgressAt: new Date(),
+              lastError: "Waiting for an in-progress listing import to finish…",
+            },
+          });
+          return {
+            outcome: "RETRY",
+            errorClass: "TRANSIENT",
+            errorCode: "IMPORT_IN_PROGRESS",
+            errorMessage: "Waiting for an in-progress listing import to finish",
+            retryAt: new Date(Date.now() + 8_000),
+          };
+        }
+        deferredThisClaim.add(etsyListingId);
+        queue.push(etsyListingId);
         await prisma.etsyImportBatch.update({
           where: { id: batch.id },
           data: {
@@ -424,13 +471,7 @@ export async function handleEtsyImportBatchJob(
             lastError: "Waiting for an in-progress listing import to finish…",
           },
         });
-        return {
-          outcome: "RETRY",
-          errorClass: "TRANSIENT",
-          errorCode: "IMPORT_IN_PROGRESS",
-          errorMessage: "Waiting for an in-progress listing import to finish",
-          retryAt: new Date(Date.now() + 8_000),
-        };
+        continue;
       } else if (result.status === "ERROR") {
         failed += 1;
         failures = appendEtsyImportBatchFailures(failures, [

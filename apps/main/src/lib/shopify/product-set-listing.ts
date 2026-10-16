@@ -3,6 +3,7 @@ import {
   assertShopifyProductGid,
   assertShopifyProductVariantGid,
   prisma,
+  sharedListingPoolAvailable,
   ShopifyGidValidationError,
   trackedAvailable,
 } from "database";
@@ -81,6 +82,49 @@ export type ShopifyMultiVariantProductSetSuccess = {
 
 export type ShopifyMultiVariantProductSetFailure = ShopifyProductSetListingFailure;
 
+export function listingSharesOnePrice(variants: unknown): boolean {
+  if (!variants || typeof variants !== "object" || Array.isArray(variants)) return false;
+  return (variants as { pricesVary?: unknown }).pricesVary === false;
+}
+
+export function listingSharesOneSku(variants: unknown): boolean {
+  if (!variants || typeof variants !== "object" || Array.isArray(variants)) return false;
+  return (variants as { skusVary?: unknown }).skusVary === false;
+}
+
+/** One Shopify price when the listing price does not vary by combination. */
+export function shopifyVariantPriceCents(input: {
+  variantPriceCents: number;
+  listingPriceCents: number;
+  pricesVary: boolean | undefined;
+}): number {
+  if (input.pricesVary === false && input.listingPriceCents > 0) return input.listingPriceCents;
+  return input.variantPriceCents;
+}
+
+/**
+ * Shared-quantity listings keep one pool. Shopify still has a quantity on each
+ * combination, so every combination receives that same pool instead of a sum.
+ */
+export function applySharedShopifyAvailability(
+  availableByVariantId: Map<string, number>,
+  rows: Array<{ variantId: string; storeItemId: string; shared: boolean }>
+): void {
+  const poolByItem = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.shared) continue;
+    const qty = availableByVariantId.get(row.variantId);
+    if (qty == null) continue;
+    const prev = poolByItem.get(row.storeItemId);
+    poolByItem.set(row.storeItemId, prev == null ? qty : Math.min(prev, qty));
+  }
+  for (const row of rows) {
+    const pool = poolByItem.get(row.storeItemId);
+    if (pool == null || !availableByVariantId.has(row.variantId)) continue;
+    availableByVariantId.set(row.variantId, pool);
+  }
+}
+
 /** Sellable quantity at the connection's primary location, for productSet and bulk create. */
 export async function loadShopifyCreateInventory(input: {
   connectionId: string;
@@ -97,7 +141,7 @@ export async function loadShopifyCreateInventory(input: {
   }
   const states = await prisma.inventoryState.findMany({
     where: { variantId: { in: input.storeVariantIds } },
-    select: { variantId: true, mode: true, onHand: true, reserved: true },
+    select: { variantId: true, storeItemId: true, mode: true, onHand: true, reserved: true },
   });
   for (const state of states) {
     if (state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) continue;
@@ -108,6 +152,21 @@ export async function loadShopifyCreateInventory(input: {
       );
     } catch {
       continue;
+    }
+  }
+  const itemIds = [...new Set(states.map((state) => state.storeItemId))];
+  if (itemIds.length > 0) {
+    const items = await prisma.storeItem.findMany({
+      where: { id: { in: itemIds } },
+      select: { id: true, variants: true, quantity: true },
+    });
+    for (const item of items) {
+      const pool = sharedListingPoolAvailable(item.variants, item.quantity);
+      if (pool == null) continue;
+      for (const state of states) {
+        if (state.storeItemId !== item.id || !availableByVariantId.has(state.variantId)) continue;
+        availableByVariantId.set(state.variantId, pool);
+      }
     }
   }
   return { locationId, availableByVariantId };

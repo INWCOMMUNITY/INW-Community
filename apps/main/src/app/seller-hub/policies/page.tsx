@@ -6,21 +6,19 @@ import Link from "next/link";
 interface PolicyData {
   sellerShippingPolicy?: string | null;
   sellerLocalDeliveryPolicy?: string | null;
-  sellerPickupPolicy?: string | null;
   sellerReturnPolicy?: string | null;
   acceptReturns?: boolean;
   acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
-  offerLocalPickup?: boolean;
 }
 
 const POLICY_FIELDS: {
   key: keyof PolicyData;
   label: string;
   placeholder: string;
-  offerKey?: "offerShipping" | "offerLocalDelivery" | "offerLocalPickup";
+  offerKey?: "offerShipping" | "offerLocalDelivery";
   offerLabel?: string;
 }[] = [
   {
@@ -37,13 +35,6 @@ const POLICY_FIELDS: {
     offerKey: "offerLocalDelivery",
     offerLabel: "Do you offer local delivery?",
   },
-  {
-    key: "sellerPickupPolicy",
-    label: "Pick-Up Policy",
-    placeholder: "e.g. Location, contact method, hours.",
-    offerKey: "offerLocalPickup",
-    offerLabel: "Do you offer local pickup?",
-  },
 ];
 
 export default function PoliciesPage() {
@@ -54,12 +45,10 @@ export default function PoliciesPage() {
   const [values, setValues] = useState<Record<string, string>>({
     sellerShippingPolicy: "",
     sellerLocalDeliveryPolicy: "",
-    sellerPickupPolicy: "",
     sellerReturnPolicy: "",
   });
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
-  const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [acceptReturns, setAcceptReturns] = useState(true);
   const [acceptReturnsDays, setAcceptReturnsDays] = useState(30);
   const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
@@ -71,12 +60,10 @@ export default function PoliciesPage() {
         setValues({
           sellerShippingPolicy: data?.sellerShippingPolicy ?? "",
           sellerLocalDeliveryPolicy: data?.sellerLocalDeliveryPolicy ?? "",
-          sellerPickupPolicy: data?.sellerPickupPolicy ?? "",
           sellerReturnPolicy: data?.sellerReturnPolicy ?? "",
         });
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
-        setOfferLocalPickup(data?.offerLocalPickup ?? true);
         setAcceptReturns(data?.acceptReturns !== false);
         setAcceptReturnsDays(data?.acceptReturnsDays ?? 30);
         setChargeReturnShipping(data?.chargeReturnShipping ?? false);
@@ -98,11 +85,11 @@ export default function PoliciesPage() {
         body: JSON.stringify({
           sellerShippingPolicy: values.sellerShippingPolicy.trim() || null,
           sellerLocalDeliveryPolicy: values.sellerLocalDeliveryPolicy.trim() || null,
-          sellerPickupPolicy: values.sellerPickupPolicy.trim() || null,
+          sellerPickupPolicy: null,
           sellerReturnPolicy: values.sellerReturnPolicy.trim() || null,
           offerShipping,
           offerLocalDelivery,
-          offerLocalPickup,
+          offerLocalPickup: false,
           acceptReturns,
           acceptReturnsDays,
           chargeReturnShipping,
@@ -134,7 +121,7 @@ export default function PoliciesPage() {
     <div className="w-full max-w-2xl mx-auto min-w-0">
       <h1 className="text-2xl font-bold mb-2">Policies</h1>
       <p className="text-gray-600 mb-6">
-        Set shipping, pickup, delivery, and refund policies here. Buyers see these on your storefront.
+        Set shipping, delivery, and refund policies here. Buyers see these on your storefront.
       </p>
 
       <form onSubmit={handleSave} className="space-y-6">
@@ -145,18 +132,11 @@ export default function PoliciesPage() {
                 <input
                   type="checkbox"
                   id={key + "-offer"}
-                  checked={
-                    offerKey === "offerShipping"
-                      ? offerShipping
-                      : offerKey === "offerLocalDelivery"
-                        ? offerLocalDelivery
-                        : offerLocalPickup
-                  }
+                  checked={offerKey === "offerShipping" ? offerShipping : offerLocalDelivery}
                   onChange={(e) => {
                     const v = e.target.checked;
                     if (offerKey === "offerShipping") setOfferShipping(v);
-                    else if (offerKey === "offerLocalDelivery") setOfferLocalDelivery(v);
-                    else setOfferLocalPickup(v);
+                    else setOfferLocalDelivery(v);
                   }}
                   className="rounded border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]"
                 />
@@ -212,7 +192,7 @@ export default function PoliciesPage() {
               className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
             />
             <span className={`text-sm ${acceptReturns ? "text-gray-700" : "text-gray-400"}`}>
-              days after delivery or pickup
+              days after delivery
             </span>
           </div>
           <label htmlFor="sellerReturnPolicy" className="block text-sm font-medium text-gray-700">

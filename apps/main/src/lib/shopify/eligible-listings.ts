@@ -1,5 +1,6 @@
 import { prisma, SHOPIFY_MAX_OPTION_DIMENSIONS, SHOPIFY_MAX_VARIANTS } from "database";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
+import { shopifyBlocksSharedQuantityPool } from "@/lib/listing-variant-matrix";
 
 export type ShopifyEligibleListing = {
   storeItemId: string;
@@ -12,6 +13,10 @@ export type ShopifyEligibleListing = {
   status: string;
   updatedAt: string;
   variantCount: number;
+  /** Custom options that Shopify shows only after metafields are on the product page. */
+  needsShopifyMetafields: boolean;
+  /** One quantity shared by every combination. Shopify cannot list this. */
+  usesSharedQuantityPool: boolean;
 };
 
 /**
@@ -47,6 +52,7 @@ export async function listEligibleShopifyExportListings(input: {
       quantity: true,
       status: true,
       updatedAt: true,
+      variants: true,
       storeVariants: {
         where: { status: "ACTIVE" },
         select: { id: true, options: true },
@@ -57,7 +63,7 @@ export async function listEligibleShopifyExportListings(input: {
     take: 200,
   });
 
-  return items
+  const eligible = items
     .filter((item) => {
       const count = item.storeVariants.length;
       if (count < 1 || count > SHOPIFY_MAX_VARIANTS) return false;
@@ -85,5 +91,19 @@ export async function listEligibleShopifyExportListings(input: {
       status: item.status,
       updatedAt: item.updatedAt.toISOString(),
       variantCount: item.storeVariants.length,
+      needsShopifyMetafields: false,
+      usesSharedQuantityPool: shopifyBlocksSharedQuantityPool(item.variants),
     }));
+
+  if (eligible.length === 0) return eligible;
+  const withFields = await prisma.listingBuyerField.findMany({
+    where: { storeItemId: { in: eligible.map((item) => item.storeItemId) } },
+    select: { storeItemId: true },
+    distinct: ["storeItemId"],
+  });
+  const metafieldIds = new Set(withFields.map((row) => row.storeItemId));
+  return eligible.map((item) => ({
+    ...item,
+    needsShopifyMetafields: metafieldIds.has(item.storeItemId),
+  }));
 }

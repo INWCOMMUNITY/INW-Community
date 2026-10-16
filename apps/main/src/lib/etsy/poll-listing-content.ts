@@ -2,6 +2,7 @@ import {
   applyEtsyListingContentInbound,
   applyEtsyListingInventoryInbound,
   buildEtsyInboundAspects,
+  etsyPackageDimensionLabels,
   enqueueEtsySyncJob,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
@@ -75,6 +76,9 @@ type RemoteListingProperties = {
 };
 
 type RemoteInventory = {
+  price_on_property?: number[];
+  quantity_on_property?: number[];
+  sku_on_property?: number[];
   products?: Array<{
     product_id?: number | string;
     sku?: string | null;
@@ -133,7 +137,7 @@ async function fetchRemoteObservation(input: {
   fetchImpl?: EtsyFetch;
   now?: Date;
 }): Promise<
-  | { ok: true; remote: EtsyRemoteListingObservation }
+  | { ok: true; remote: EtsyRemoteListingObservation; quantityOnProperty: number[] | null }
   | { ok: false; failure: Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }
 > {
   // Canonical getListing — shop-scoped GET 404s for some live listings while
@@ -185,6 +189,8 @@ async function fetchRemoteObservation(input: {
   const aspects = buildEtsyInboundAspects({
     properties: propertiesRes.ok ? propertiesRes.data?.results ?? [] : [],
     materials: Array.isArray(listingRes.data.materials) ? listingRes.data.materials : [],
+  });
+  const packageDimensions = etsyPackageDimensionLabels({
     itemWidth: listingRes.data.item_width,
     itemHeight: listingRes.data.item_height,
     itemLength: listingRes.data.item_length,
@@ -234,8 +240,13 @@ async function fetchRemoteObservation(input: {
     }
   }
 
+  const quantityOnProperty = Array.isArray(inventoryRes.data.quantity_on_property)
+    ? inventoryRes.data.quantity_on_property.filter((id) => Number.isInteger(id) && id > 0)
+    : null;
+
   return {
     ok: true,
+    quantityOnProperty,
     remote: {
       etsyListingId: input.etsyListingId,
       title: typeof listingRes.data.title === "string" ? listingRes.data.title : "",
@@ -250,6 +261,7 @@ async function fetchRemoteObservation(input: {
           : null,
       aspects,
       aspectsObserved,
+      packageDimensions,
       tags,
       tagsObserved,
       personalizationQuestions: personalization.ok ? personalization.questions : null,
@@ -337,6 +349,7 @@ export async function handleEtsyPollListingContentJob(
         remote: fetched.remote,
         now: deps.now,
       });
+      const quantityOnProperty = fetched.quantityOnProperty;
       return applyEtsyListingInventoryInbound(tx, {
         connectionId: connection.id,
         memberId: connection.memberId,
@@ -346,6 +359,9 @@ export async function handleEtsyPollListingContentJob(
           etsyOfferingId: v.etsyOfferingId,
           quantity: v.quantity ?? null,
         })),
+        ...(quantityOnProperty
+          ? { sharedQuantity: quantityOnProperty.length === 0 && fetched.remote.variants.length > 1 }
+          : {}),
         now: deps.now,
       });
     });

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { ChannelImportProgress } from "@/components/apps-airport/ChannelImportProgress";
 import { AppsAirportListingMobileCard } from "@/components/apps-airport/AppsAirportListingMobileCard";
 import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
@@ -258,6 +259,9 @@ export default function AppsAirportShopifyPage() {
         >
           {toast}
         </p>
+      ) : null}
+      {uiStatus !== "disconnected" ? (
+        <ChannelImportProgress channel="shopify" onProgress={() => void load()} />
       ) : null}
 
       {!loading && uiStatus === "disconnected" ? (

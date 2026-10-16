@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { encrypt } from "@/lib/encrypt";
 import { verifyShippoOAuthState } from "@/lib/shippo-oauth-state";
+import {
+  clearSellerOnboardingReturnCookie,
+  readSellerOnboardingReturn,
+  sellerOnboardingReturnPath,
+} from "@/lib/seller-onboarding-return";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +23,20 @@ function getBaseUrl(req: NextRequest): string {
 function redirectAfterOAuth(
   app: boolean,
   baseUrl: string,
-  query: Record<string, string>
+  query: Record<string, string>,
+  onboarding: boolean
 ): NextResponse {
   const qs = new URLSearchParams(query).toString();
   if (app) {
     const target = qs ? `${APP_DEEP_LINK_BASE}?${qs}` : APP_DEEP_LINK_BASE;
     return NextResponse.redirect(target);
   }
-  const path = `/seller-hub/shipping-setup${qs ? `?${qs}` : ""}`;
-  return NextResponse.redirect(`${baseUrl}${path}`);
+  const path = onboarding
+    ? sellerOnboardingReturnPath("shipping", query)
+    : `/seller-hub/shipping-setup${qs ? `?${qs}` : ""}`;
+  const response = NextResponse.redirect(`${baseUrl}${path}`);
+  if (onboarding) clearSellerOnboardingReturnCookie(response);
+  return response;
 }
 
 /**
@@ -42,25 +52,26 @@ export async function GET(req: NextRequest) {
 
   const statePayload = stateParam ? await verifyShippoOAuthState(stateParam) : null;
   const returnApp = statePayload?.app ?? false;
+  const returnOnboarding = !returnApp && readSellerOnboardingReturn(req) === "shipping";
 
   if (error) {
     const desc = searchParams.get("error_description");
     const msg = desc ? decodeURIComponent(desc.replace(/\+/g, " ")) : error;
-    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: msg });
+    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: msg }, returnOnboarding);
   }
 
   if (!code || !stateParam) {
-    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: "missing_code_or_state" });
+    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: "missing_code_or_state" }, returnOnboarding);
   }
 
   if (!statePayload) {
-    return redirectAfterOAuth(false, baseUrl, { oauth_error: "invalid_or_expired_state" });
+    return redirectAfterOAuth(false, baseUrl, { oauth_error: "invalid_or_expired_state" }, returnOnboarding);
   }
 
   const clientId = process.env.SHIPPO_OAUTH_CLIENT_ID?.trim();
   const clientSecret = process.env.SHIPPO_OAUTH_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
-    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: "server_not_configured" });
+    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: "server_not_configured" }, returnOnboarding);
   }
 
   const body = new URLSearchParams({
@@ -86,12 +97,12 @@ export async function GET(req: NextRequest) {
       tokenData && "error_description" in tokenData
         ? String((tokenData as { error_description?: string }).error_description)
         : "Token exchange failed";
-    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: msg });
+    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: msg }, returnOnboarding);
   }
 
   const accessToken = (tokenData as { access_token?: string }).access_token;
   if (!accessToken) {
-    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: "no_token_returned" });
+    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: "no_token_returned" }, returnOnboarding);
   }
 
   let encryptedToken: string;
@@ -99,7 +110,7 @@ export async function GET(req: NextRequest) {
     encryptedToken = encrypt(accessToken);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Encryption failed";
-    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: msg });
+    return redirectAfterOAuth(returnApp, baseUrl, { oauth_error: msg }, returnOnboarding);
   }
 
   await prisma.member.update({
@@ -107,5 +118,5 @@ export async function GET(req: NextRequest) {
     data: { shippoOAuthTokenEncrypted: encryptedToken },
   });
 
-  return redirectAfterOAuth(returnApp, baseUrl, { connected: "shippo" });
+  return redirectAfterOAuth(returnApp, baseUrl, { connected: "shippo" }, returnOnboarding);
 }

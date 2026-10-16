@@ -385,6 +385,13 @@ export async function handleEtsyUpdateListingContentJob(
 
     const localTitle = normalizeEtsyTitle(storeItem.title);
     const localDescription = normalizeEtsyDescription(storeItem.description);
+    const storedDescription = storeItem.description ?? "";
+    if (storedDescription.trim() !== localDescription) {
+      await prisma.storeItem.update({
+        where: { id: storeItem.id },
+        data: { description: localDescription.length > 0 ? localDescription : null },
+      });
+    }
 
     // Dual divergence: remotes differ from both applied and desired.
     if (
@@ -411,8 +418,12 @@ export async function handleEtsyUpdateListingContentJob(
       };
     }
 
+    const remoteDescriptionRaw =
+      typeof remoteRes.data.description === "string" ? remoteRes.data.description.trim() : "";
     const titleNeedsPatch = remoteTitle !== localTitle;
-    const descriptionNeedsPatch = remoteDescription !== localDescription;
+    // Plain text can match while Etsy still shows a `<p>` wrapper. Replace that too.
+    const descriptionNeedsPatch =
+      remoteDescription !== localDescription || remoteDescriptionRaw !== localDescription;
 
     // Title/description must apply independently of how-it's-made and photos so
     // INW↔Etsy content stays consistent after cron even when media upload flaps.

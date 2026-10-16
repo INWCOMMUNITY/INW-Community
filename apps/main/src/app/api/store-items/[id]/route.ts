@@ -27,15 +27,17 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import {
   hasOptionQuantities,
-  sumOptionQuantities,
+  listingQuantityFromVariants,
 } from "@/lib/store-item-variants";
 import {
   isMadeToOrderTracking,
   MTO_CHANNEL_QUANTITY,
   parseInventoryTracking,
+  foundationMatrixWritePlan,
   normalizeVariantMatrix,
   serializeVariantMatrix,
   skuSelectionKey,
+  stampSharedListingFlags,
   validateVariantMatrixForSave,
 } from "@/lib/listing-variant-matrix";
 import { z } from "zod";
@@ -44,8 +46,10 @@ import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
 import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
+import { listingShippingCostUpdate } from "@/lib/listing-shipping-price";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
+import { disconnectStoreItemChannels } from "@/lib/disconnect-ended-listing-channels";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
 import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 
@@ -464,7 +468,7 @@ export async function PATCH(
     if (isMadeToOrderTracking(nextTracking)) {
       update.quantity = MTO_CHANNEL_QUANTITY;
     } else if (hasOptionQuantities(data.variants)) {
-      update.quantity = sumOptionQuantities(data.variants);
+      update.quantity = listingQuantityFromVariants(data.variants);
     }
   }
   if (data.quantity !== undefined) {
@@ -481,7 +485,12 @@ export async function PATCH(
   if (data.status !== undefined) {
     Object.assign(update, storeItemStatusWrite(data.status, existing.status));
   }
-  if (data.shippingCostCents !== undefined) update.shippingCostCents = data.shippingCostCents;
+  if (data.shippingCostCents !== undefined) {
+    update.shippingCostCents = listingShippingCostUpdate(
+      existing.shippingCostCents,
+      data.shippingCostCents
+    );
+  }
   if (data.shippingOptionId !== undefined) {
     try {
       update.shippingOptionId = await assertMemberShippingOption(existing.memberId, data.shippingOptionId);
@@ -515,7 +524,7 @@ export async function PATCH(
     data.status !== undefined ? data.status : existing.status;
   let mergedQuantity = existing.quantity;
   if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
-    mergedQuantity = sumOptionQuantities(data.variants);
+    mergedQuantity = listingQuantityFromVariants(data.variants);
   } else if (data.quantity !== undefined) {
     const variantsForQuantity =
       data.variants !== undefined ? data.variants : existing.variants;
@@ -571,6 +580,7 @@ export async function PATCH(
   if (writer.route === "foundation") {
     try {
       const item = await prisma.$transaction(async (tx) => {
+        let forceShopifySharedPrice = false;
         if (mergedStatus === "sold_out") {
           await markFoundationListingSold(tx, {
             storeItemId: itemId,
@@ -637,19 +647,27 @@ export async function PATCH(
             typeof data.priceCents === "number" && data.priceCents > 0
               ? Math.round(data.priceCents)
               : existing.priceCents;
-          const matrixTargets =
-            matrix?.skus.map((sku) => ({
-              fingerprint: `matrix:${skuSelectionKey(sku.options)}`,
-              options: sku.options,
-              targetOnHand: sku.quantity,
-              priceCents:
-                typeof sku.priceCents === "number" &&
-                Number.isFinite(sku.priceCents) &&
-                sku.priceCents > 0
-                  ? Math.round(sku.priceCents)
-                  : facadePrice,
-              sku: typeof sku.sku === "string" ? sku.sku.trim() || null : null,
-            })) ?? [];
+          const listingQuantity =
+            typeof data.quantity === "number" && Number.isFinite(data.quantity)
+              ? Math.max(0, Math.trunc(data.quantity))
+              : null;
+          const plan = matrix
+            ? foundationMatrixWritePlan(matrix, { facadePriceCents: facadePrice, listingQuantity })
+            : null;
+          forceShopifySharedPrice = plan?.onePrice === true;
+          if (matrix) {
+            const current = await tx.storeItem.findUnique({
+              where: { id: itemId },
+              select: { variants: true },
+            });
+            await tx.storeItem.update({
+              where: { id: itemId },
+              data: {
+                variants: stampSharedListingFlags(current?.variants, matrix) as Prisma.InputJsonValue,
+              },
+            });
+          }
+          const matrixTargets = plan?.targets ?? [];
           const structure = await applyFoundationSellerMatrixStructure(tx, {
             storeItemId: itemId,
             memberId: ownerId,
@@ -674,6 +692,21 @@ export async function PATCH(
           // Price/SKU-only matrix payloads still align StoreVariant rows.
           const matrix = normalizeVariantMatrix(data.variants);
           if (matrix) {
+            const facadePrice =
+              typeof data.priceCents === "number" && data.priceCents > 0
+                ? Math.round(data.priceCents)
+                : existing.priceCents;
+            forceShopifySharedPrice = matrix.pricesVary === false;
+            const current = await tx.storeItem.findUnique({
+              where: { id: itemId },
+              select: { variants: true },
+            });
+            await tx.storeItem.update({
+              where: { id: itemId },
+              data: {
+                variants: stampSharedListingFlags(current?.variants, matrix) as Prisma.InputJsonValue,
+              },
+            });
             const storeVariants = await tx.storeVariant.findMany({
               where: { storeItemId: itemId, memberId: ownerId, status: "ACTIVE" },
               select: { id: true, options: true, priceCents: true, sku: true },
@@ -692,9 +725,11 @@ export async function PATCH(
               const row = byFp.get(fp);
               if (!row) continue;
               const nextPrice =
-                typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
-                  ? Math.round(sku.priceCents)
-                  : row.priceCents;
+                matrix.pricesVary === false && facadePrice > 0
+                  ? facadePrice
+                  : typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+                    ? Math.round(sku.priceCents)
+                    : row.priceCents;
               const nextSku =
                 typeof sku.sku === "string" ? sku.sku.trim() || null : row.sku;
               if (nextPrice !== row.priceCents || nextSku !== row.sku) {
@@ -742,6 +777,7 @@ export async function PATCH(
         await recordShopifyDirtyMappedVariantContentDesires(tx, {
           memberId: ownerId,
           storeItemId: itemId,
+          force: forceShopifySharedPrice,
         });
         await recordEtsyListingContentDesire(tx, {
           memberId: ownerId,
@@ -760,13 +796,18 @@ export async function PATCH(
       if (item.status === "sold_out") {
         deleteFeedPostsForSoldItem(itemId).catch(() => {});
       }
+      if (item.status === "inactive") {
+        await disconnectStoreItemChannels(itemId);
+      }
       const { logSellerActivity } = await import("@/lib/seller-activity-log");
       logSellerActivity(ownerId, "item_updated", "store_item", itemId, {
         changedFields: Object.keys(update),
         title: item.title,
       });
-      kickEtsySyncJobsAfterEdit();
-      kickShopifySyncJobsAfterEdit();
+      if (item.status !== "inactive") {
+        kickEtsySyncJobsAfterEdit();
+        kickShopifySyncJobsAfterEdit();
+      }
       return NextResponse.json({ ...item });
     } catch (e) {
       const cutover = jsonIfCutoverBlocked(e);
@@ -798,9 +839,15 @@ export async function PATCH(
   }
 
   const item = await prisma.$transaction(async (tx) => {
+    let forceShopifySharedPrice = false;
     if (data.variants !== undefined) {
       const matrix = normalizeVariantMatrix(data.variants);
       if (matrix) {
+        const facadePrice =
+          typeof data.priceCents === "number" && data.priceCents > 0
+            ? Math.round(data.priceCents)
+            : existing.priceCents;
+        forceShopifySharedPrice = matrix.pricesVary === false;
         const storeVariants = await tx.storeVariant.findMany({
           where: { storeItemId: itemId, memberId: ownerId, status: "ACTIVE" },
           select: { id: true, options: true, priceCents: true, sku: true },
@@ -819,9 +866,11 @@ export async function PATCH(
           const row = byFp.get(fp);
           if (!row) continue;
           const nextPrice =
-            typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
-              ? Math.round(sku.priceCents)
-              : row.priceCents;
+            matrix.pricesVary === false && facadePrice > 0
+              ? facadePrice
+              : typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+                ? Math.round(sku.priceCents)
+                : row.priceCents;
           const nextSku = typeof sku.sku === "string" ? sku.sku.trim() || null : row.sku;
           if (nextPrice !== row.priceCents || nextSku !== row.sku) {
             await tx.storeVariant.update({
@@ -856,6 +905,7 @@ export async function PATCH(
     await recordShopifyDirtyMappedVariantContentDesires(tx, {
       memberId: ownerId,
       storeItemId: itemId,
+      force: forceShopifySharedPrice,
     });
     await recordEtsyListingContentDesire(tx, {
       memberId: ownerId,
@@ -875,6 +925,9 @@ export async function PATCH(
   if (item.status === "sold_out") {
     deleteFeedPostsForSoldItem(itemId).catch(() => {});
   }
+  if (item.status === "inactive") {
+    await disconnectStoreItemChannels(itemId);
+  }
   // Log activity
   const { logSellerActivity } = await import("@/lib/seller-activity-log");
   const changedFields = Object.keys(update);
@@ -883,8 +936,10 @@ export async function PATCH(
     title: item.title,
   });
 
-  kickEtsySyncJobsAfterEdit();
-  kickShopifySyncJobsAfterEdit();
+  if (item.status !== "inactive") {
+    kickEtsySyncJobsAfterEdit();
+    kickShopifySyncJobsAfterEdit();
+  }
   return NextResponse.json({ ...item });
 }
 

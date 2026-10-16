@@ -5,6 +5,7 @@ import {
   correlateVariantsByOptionCombination,
   createShopifyImportedListingMapping,
   failShopifyListingImportAttempt,
+  normalizeShopifyDescription,
   prisma,
   provisionNativeFoundationListing,
   reconcileShopifyImportBootstrapSales,
@@ -25,7 +26,23 @@ import {
   type IncompatibleShopifyMetafield,
 } from "./buyer-metafields";
 
-export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
+export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER" | "RECOMMENDED";
+
+function resolvedImportStockMode(
+  requested: ImportShopifyListingStockMode,
+  recommended: "PHYSICAL" | "MADE_TO_ORDER" | null | undefined
+): "PHYSICAL" | "MADE_TO_ORDER" {
+  if (requested === "PHYSICAL" || requested === "MADE_TO_ORDER") return requested;
+  return recommended === "MADE_TO_ORDER" ? "MADE_TO_ORDER" : "PHYSICAL";
+}
+
+/** Variant provisioning plus mapping runs past Prisma's 20s interactive-transaction limit on Neon. */
+const SHOPIFY_IMPORT_TX_TIMEOUT_MS = 60_000;
+
+function shippingWrite(cents: number | undefined): { shippingCostCents: number; shippingDisabled: false } | Record<string, never> {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) return {};
+  return { shippingCostCents: Math.max(0, Math.round(cents)), shippingDisabled: false };
+}
 
 export type ImportShopifyListingResult =
   | {
@@ -87,9 +104,15 @@ export async function importShopifyListing(input: {
   memberId: string;
   shopifyProductId: string;
   stockMode: ImportShopifyListingStockMode;
+  /** Seller-chosen INW shipping charge. Omitted leaves the listing's shipping unset. */
+  shippingCostCents?: number;
   fetchImpl?: ShopifyFetch;
 }): Promise<ImportShopifyListingResult> {
-  if (input.stockMode !== "PHYSICAL" && input.stockMode !== "MADE_TO_ORDER") {
+  if (
+    input.stockMode !== "PHYSICAL" &&
+    input.stockMode !== "MADE_TO_ORDER" &&
+    input.stockMode !== "RECOMMENDED"
+  ) {
     return {
       status: "ERROR",
       code: "STOCK_MODE_REQUIRED",
@@ -129,11 +152,12 @@ export async function importShopifyListing(input: {
   }
 
   // 1) Durable attempt + cutoff BEFORE any Shopify inventory snapshot.
+  const beginStockMode = input.stockMode === "RECOMMENDED" ? "PHYSICAL" : input.stockMode;
   const begin = await beginShopifyListingImportAttempt(prisma, {
     memberId: input.memberId,
     connectionId: connection.id,
     shopifyProductId: productId,
-    stockMode: input.stockMode,
+    stockMode: beginStockMode,
   });
 
   if (begin.status === "ALREADY_COMPLETED") {
@@ -187,7 +211,7 @@ export async function importShopifyListing(input: {
         memberId: input.memberId,
         connectionId: connection.id,
         shopifyProductId: productId,
-        stockMode: input.stockMode,
+        stockMode: beginStockMode,
       });
       if (
         healed.status === "ALREADY_COMPLETED" &&
@@ -260,6 +284,14 @@ export async function importShopifyListing(input: {
     };
   }
 
+  const stockMode = resolvedImportStockMode(input.stockMode, snap.recommendedStockMode);
+  if (stockMode !== beginStockMode) {
+    await prisma.shopifyListingImportAttempt.update({
+      where: { id: attempt.id },
+      data: { stockMode },
+    });
+  }
+
   const multi = isMultiVariant(snap);
 
   const connectionWithLocation = {
@@ -274,8 +306,9 @@ export async function importShopifyListing(input: {
         connection: connectionWithLocation,
         productId,
         bootstrapStartedAt,
-        stockMode: input.stockMode,
+        stockMode,
         memberId: input.memberId,
+        shippingCostCents: input.shippingCostCents,
       })
     : await importSingleVariant({
         snap,
@@ -283,8 +316,9 @@ export async function importShopifyListing(input: {
         connection: connectionWithLocation,
         productId,
         bootstrapStartedAt,
-        stockMode: input.stockMode,
+        stockMode,
         memberId: input.memberId,
+        shippingCostCents: input.shippingCostCents,
       });
 
   if (imported.status !== "IMPORTED") {
@@ -317,10 +351,11 @@ async function importSingleVariant(ctx: {
   connection: { id: string; primaryLocationId: string };
   productId: string;
   bootstrapStartedAt: Date;
-  stockMode: ImportShopifyListingStockMode;
+  stockMode: "PHYSICAL" | "MADE_TO_ORDER";
   memberId: string;
+  shippingCostCents?: number;
 }): Promise<ImportShopifyListingResult> {
-  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId } = ctx;
+  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId, shippingCostCents } = ctx;
 
   if (
     !snap.shopifyVariantId ||
@@ -358,7 +393,8 @@ async function importSingleVariant(ctx: {
   const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
   const inventoryMode = stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
   const title = snap.title.slice(0, 200);
-  const description = snap.descriptionHtml.trim().length > 0 ? snap.descriptionHtml : null;
+  const importedDescription = normalizeShopifyDescription(snap.descriptionHtml);
+  const description = importedDescription.length > 0 ? importedDescription : null;
   const photos = snap.imageUrl ? [snap.imageUrl] : [];
   const sku = snap.sku ? snap.sku.trim().slice(0, 50) || null : null;
 
@@ -397,6 +433,7 @@ async function importSingleVariant(ctx: {
           status: "active",
           slug: uniqueSlug(slugify(title)),
           condition: "new",
+          ...shippingWrite(shippingCostCents),
         },
         select: { id: true },
       });
@@ -433,7 +470,7 @@ async function importSingleVariant(ctx: {
       });
 
       return { already: false as const, storeItemId: storeItem.id, listingLinkId: mapping.listingLink.id };
-    });
+    }, { timeout: SHOPIFY_IMPORT_TX_TIMEOUT_MS });
   } catch (error) {
     const code =
       error instanceof ShopifyMappingConflictError
@@ -478,10 +515,11 @@ async function importMultiVariant(ctx: {
   connection: { id: string; primaryLocationId: string };
   productId: string;
   bootstrapStartedAt: Date;
-  stockMode: ImportShopifyListingStockMode;
+  stockMode: "PHYSICAL" | "MADE_TO_ORDER";
   memberId: string;
+  shippingCostCents?: number;
 }): Promise<ImportShopifyListingResult> {
-  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId } = ctx;
+  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId, shippingCostCents } = ctx;
 
   if (snap.axes.length === 0 || snap.variants.length === 0 || !snap.matrix) {
     await failShopifyListingImportAttempt(prisma, {
@@ -534,7 +572,8 @@ async function importMultiVariant(ctx: {
   const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
   const inventoryMode = stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
   const title = snap.title.slice(0, 200);
-  const description = snap.descriptionHtml.trim().length > 0 ? snap.descriptionHtml : null;
+  const importedDescription = normalizeShopifyDescription(snap.descriptionHtml);
+  const description = importedDescription.length > 0 ? importedDescription : null;
   const photos = snap.imageUrl ? [snap.imageUrl] : [];
 
   const matrix = shopifyTopologyToInwMatrix({
@@ -587,6 +626,7 @@ async function importMultiVariant(ctx: {
           slug: uniqueSlug(slugify(title)),
           condition: "new",
           variants: matrix as object,
+          ...shippingWrite(shippingCostCents),
         },
         select: { id: true },
       });
@@ -746,7 +786,7 @@ async function importMultiVariant(ctx: {
           shopifyVariantId: p.shopifyVariantId,
         })),
       };
-    });
+    }, { timeout: SHOPIFY_IMPORT_TX_TIMEOUT_MS });
   } catch (error) {
     const code =
       error instanceof ShopifyMappingConflictError

@@ -29,6 +29,42 @@ function inventoryDesireLockKey(variantMapId: string): string {
   return `shopify-inventory-desire:${variantMapId}`;
 }
 
+export function listingIsSharedPool(variants: unknown): boolean {
+  if (!variants || typeof variants !== "object" || Array.isArray(variants)) return false;
+  const matrix = variants as { sharedQuantity?: unknown; skus?: unknown };
+  return matrix.sharedQuantity === true && Array.isArray(matrix.skus) && matrix.skus.length > 1;
+}
+
+/**
+ * The one quantity every combination sells from.
+ * When the listing quantity is still the old sum of the rows, the row pool wins.
+ */
+export function sharedListingPoolAvailable(variants: unknown, listingQuantity: number): number | null {
+  if (!listingIsSharedPool(variants)) return null;
+  const skus = (variants as { skus: Array<{ quantity?: unknown }> }).skus;
+  const positive = skus
+    .map((sku) =>
+      typeof sku.quantity === "number" && Number.isFinite(sku.quantity) ? Math.trunc(sku.quantity) : 0
+    )
+    .filter((qty) => qty > 0);
+  const pool = positive.length > 0 ? Math.min(...positive) : 0;
+  const facade = Math.max(0, Math.trunc(listingQuantity) || 0);
+  return facade <= pool ? facade : pool;
+}
+
+async function sellableForShopifyPush(
+  db: ShopifyInventoryDesireDb,
+  state: { storeItemId: string; onHand: number; reserved: number }
+): Promise<number> {
+  const variantSellable = trackedAvailable(state.onHand, state.reserved);
+  const item = await db.storeItem.findUnique({
+    where: { id: state.storeItemId },
+    select: { quantity: true, variants: true },
+  });
+  if (!item) return variantSellable;
+  return sharedListingPoolAvailable(item.variants, item.quantity) ?? variantSellable;
+}
+
 /** Idempotent enqueue for an existing desired inventory version (no version bump). */
 export async function ensureShopifyProjectInventoryJob(
   db: ShopifyInventoryDesireDb,
@@ -110,7 +146,11 @@ export async function seedShopifyInventoryProjectionOnMapping(
 
   let sellable: number;
   try {
-    sellable = trackedAvailable(state.onHand, state.reserved);
+    sellable = await sellableForShopifyPush(db, {
+      storeItemId: state.storeItemId,
+      onHand: state.onHand,
+      reserved: state.reserved,
+    });
   } catch {
     return { status: "SKIPPED", reason: "INVALID_STATE" };
   }
@@ -228,7 +268,11 @@ export async function captureShopifyInventoryProjectionDesire(
 
   let sellable: number;
   try {
-    sellable = trackedAvailable(state.onHand, state.reserved);
+    sellable = await sellableForShopifyPush(db, {
+      storeItemId: state.storeItemId,
+      onHand: state.onHand,
+      reserved: state.reserved,
+    });
   } catch {
     return { status: "SKIPPED", reason: "INVALID_STATE" };
   }

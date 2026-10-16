@@ -15,7 +15,7 @@ import {
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { resolveShopifyOnlineStorePublicationId } from "./publish-listing";
 
-export type ShopifyListingAction = "retry" | "reconnect" | "unpublish" | "remove";
+export type ShopifyListingAction = "retry" | "reconnect" | "unpublish" | "remove" | "end";
 
 export type ShopifyListingActionResult =
   | { ok: true; message?: string }
@@ -225,6 +225,26 @@ export async function runShopifyListingAction(input: {
     return { ok: true, message: "Reload queued" };
   }
 
+  if (input.action === "end") {
+    const deleted = await deleteShopifyProduct({
+      connectionId: connection.id,
+      shopifyProductId: listing.shopifyProductId,
+      fetchImpl: input.fetchImpl,
+    });
+    if (!deleted.ok && !/does not exist|not found|could not find/i.test(deleted.error)) {
+      return { ok: false, status: 502, error: deleted.error, code: "PRODUCT_DELETE_FAILED" };
+    }
+    await deleteListingMapping({
+      listingLinkId: listing.id,
+      connectionId: connection.id,
+      storeItemId: listing.storeItemId,
+    });
+    return {
+      ok: true,
+      message: "Deleted on Shopify. The INW listing is unchanged.",
+    };
+  }
+
   if (input.action === "unpublish") {
     const unpublished = await unpublishFromOnlineStore({
       connectionId: connection.id,
@@ -244,7 +264,10 @@ export async function runShopifyListingAction(input: {
         readiness: "ACTION_REQUIRED",
       },
     });
-    return { ok: true, message: "Removed from Online Store" };
+    return {
+      ok: true,
+      message: "Removed from Online Store",
+    };
   }
 
   // remove

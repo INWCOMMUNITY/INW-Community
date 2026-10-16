@@ -84,6 +84,7 @@ export function FeaturedItemsCarousel({ onQuickAdd, refreshKey }: FeaturedItemsC
             width={CARD_WIDTH}
             variant="carousel"
             showBadges
+            outlined
             onQuickAdd={onQuickAdd}
           />
         ))}
