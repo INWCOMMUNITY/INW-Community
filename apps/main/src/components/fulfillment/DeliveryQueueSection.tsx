@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { getErrorMessage } from "@/lib/api-error";
 import { filterOrdersForDeliveryTab } from "@/lib/store-order-fulfillment";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  formatSellerRefundFeeAbsorptionLine,
+  SELLER_REFUND_POLICY_POPUP_BODY,
+  SELLER_REFUND_POLICY_POPUP_TITLE,
+} from "@/lib/store-return";
 import { OrderCard } from "./OrderCard";
 import { OrderEmptyState } from "./OrderEmptyState";
 import type { FulfillmentStoreOrder, LocalDeliveryDetails } from "./types";
@@ -44,6 +51,7 @@ export function DeliveryQueueSection({
   const [showCompleted, setShowCompleted] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [cancelPolicyOrder, setCancelPolicyOrder] = useState<FulfillmentStoreOrder | null>(null);
 
   const pending = deliveryOrders.filter((o) => !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt));
   const completed = deliveryOrders.filter((o) => o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt);
@@ -75,23 +83,25 @@ export function DeliveryQueueSection({
     }
   }
 
-  async function cancelLocalDelivery(orderId: string) {
-    const o = deliveryOrders.find((x) => x.id === orderId);
-    const ok = window.confirm(
-      "Cancel this delivery? The buyer will be refunded to their card and inventory will be restored."
-    );
-    if (!ok) return;
+  function requestCancelLocalDelivery(order: FulfillmentStoreOrder) {
     setMenuOpenId(null);
-    setCancelingId(orderId);
+    setCancelPolicyOrder(order);
+  }
+
+  async function confirmCancelLocalDelivery(order: FulfillmentStoreOrder) {
+    setCancelPolicyOrder(null);
+    setCancelingId(order.id);
     setError("");
     try {
-      const res = await fetch(`/api/store-orders/${orderId}/seller-cancel-local-delivery`, { method: "POST" });
+      const res = await fetch(`/api/store-orders/${order.id}/seller-cancel-local-delivery`, {
+        method: "POST",
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(getErrorMessage(data.error, "Could not cancel"));
         return;
       }
-      onOrderRemoved(orderId);
+      onOrderRemoved(order.id);
     } finally {
       setCancelingId(null);
     }
@@ -172,7 +182,7 @@ export function DeliveryQueueSection({
                                 <button
                                   type="button"
                                   className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 font-medium"
-                                  onClick={() => void cancelLocalDelivery(order.id)}
+                                  onClick={() => requestCancelLocalDelivery(order)}
                                 >
                                   Cancel delivery
                                 </button>
@@ -211,6 +221,65 @@ export function DeliveryQueueSection({
             </ul>
           ) : null}
         </section>
+      ) : null}
+
+      {cancelPolicyOrder ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close"
+            onClick={() => setCancelPolicyOrder(null)}
+            disabled={cancelingId != null}
+          />
+          <div
+            className="relative w-full max-w-md rounded-lg border-2 p-6 max-h-[90vh] overflow-y-auto"
+            style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
+            role="dialog"
+            aria-modal
+            aria-labelledby="seller-delivery-refund-policy-title"
+          >
+            <h3
+              id="seller-delivery-refund-policy-title"
+              className="text-lg font-bold mb-3"
+              style={{ color: "var(--color-heading)" }}
+            >
+              {SELLER_REFUND_POLICY_POPUP_TITLE}
+            </h3>
+            <p className="text-sm mb-4 leading-relaxed opacity-90">{SELLER_REFUND_POLICY_POPUP_BODY}</p>
+            <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-primary)" }}>
+              {formatSellerRefundFeeAbsorptionLine({
+                totalCents: cancelPolicyOrder.totalCents,
+                taxCents: cancelPolicyOrder.taxCents,
+              })}
+            </p>
+            <p className="text-xs mb-6 opacity-70">
+              Listing quantities will be restored. This cannot be undone.
+            </p>
+            <div className="flex flex-row gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => void confirmCancelLocalDelivery(cancelPolicyOrder)}
+                className="btn text-white hover:text-white"
+                style={{ backgroundColor: "var(--color-primary)" }}
+                disabled={cancelingId != null}
+              >
+                {cancelingId === cancelPolicyOrder.id
+                  ? "Canceling…"
+                  : BUYER_REFUND_POLICY_CONTINUE_LABEL}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCancelPolicyOrder(null)}
+                className="px-4 py-2 rounded border-2"
+                style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+                disabled={cancelingId != null}
+              >
+                {BUYER_REFUND_POLICY_NEVERMIND_LABEL}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

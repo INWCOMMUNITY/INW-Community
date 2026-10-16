@@ -33,6 +33,10 @@ import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { parseStoredAspects } from "@/lib/listing-limits";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+import {
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
+} from "@/lib/store-return";
 import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 import { answersPayload, ListingBuyerAnswers, type BuyerAnswerDraft } from "@/components/store/ListingBuyerAnswers";
 import { uploadBuyerFile } from "@/lib/upload-buyer-file-browser";
@@ -157,6 +161,7 @@ export function StorefrontListingContent({
     note: "",
   });
   const [localDeliveryDetailsSaved, setLocalDeliveryDetailsSaved] = useState(false);
+  const [nwcRefundPolicyOpen, setNwcRefundPolicyOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -1132,82 +1137,116 @@ export function StorefrontListingContent({
           </div>
         )}
 
-        {/* Seller Policy - same design as Store Information */}
-        {(effectiveLocalDeliveryPolicy || effectiveShippingPolicy || item.member?.sellerReturnPolicy) && (
-          <div className="border rounded-lg overflow-hidden mb-8">
-            <div
-              className="px-6 py-3 text-white font-semibold"
-              style={{ backgroundColor: "var(--color-primary)" }}
-            >
-              Seller Policy
-            </div>
-            <div className="p-6 bg-gray-50">
-              {item.freeShippingBanner ? (
-                <div
-                  className="relative mb-6 flex items-center justify-center rounded-lg px-12 py-3 text-white"
-                  style={{ backgroundColor: "var(--color-earth)" }}
-                >
-                  <IonIcon name="gift-outline" size={22} className="absolute left-4 shrink-0 text-white" />
-                  <p className="text-center text-sm font-semibold leading-snug">
-                    {freeShippingBannerText(
-                      item.business?.name ?? "This seller",
-                      item.freeShippingBanner,
-                      item.member?.freeShippingMinimumCents
-                    )}
-                  </p>
-                  <IonIcon name="gift-outline" size={22} className="absolute right-4 shrink-0 text-white" />
-                </div>
-              ) : null}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-                {effectiveLocalDeliveryPolicy && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Local Delivery Policy
-                      </label>
-                      <div
-className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+        {/* Seller Policy - always includes NWC marketplace refund rules */}
+        <div className="border rounded-lg overflow-hidden mb-8">
+          <div
+            className="px-6 py-3 text-white font-semibold"
+            style={{ backgroundColor: "var(--color-primary)" }}
+          >
+            Seller Policy
+          </div>
+          <div className="p-6 bg-gray-50">
+            {item.freeShippingBanner ? (
+              <div
+                className="relative mb-6 flex items-center justify-center rounded-lg px-12 py-3 text-white"
+                style={{ backgroundColor: "var(--color-earth)" }}
+              >
+                <IonIcon name="gift-outline" size={22} className="absolute left-4 shrink-0 text-white" />
+                <p className="text-center text-sm font-semibold leading-snug">
+                  {freeShippingBannerText(
+                    item.business?.name ?? "This seller",
+                    item.freeShippingBanner,
+                    item.member?.freeShippingMinimumCents
+                  )}
+                </p>
+                <IonIcon name="gift-outline" size={22} className="absolute right-4 shrink-0 text-white" />
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+              {effectiveLocalDeliveryPolicy && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Local Delivery Policy
+                    </label>
+                    <div
+                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
                       style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
                     >
                       {effectiveLocalDeliveryPolicy}
-                      </div>
                     </div>
                   </div>
-                )}
-                {effectiveShippingPolicy && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Shipping Policy
-                      </label>
-                      <div
-className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+                </div>
+              )}
+              {effectiveShippingPolicy && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Shipping Policy
+                    </label>
+                    <div
+                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
                       style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
                     >
                       {effectiveShippingPolicy}
-                      </div>
                     </div>
                   </div>
-                )}
-                {item.member?.sellerReturnPolicy && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Return Policy
-                      </label>
-                      <div
-className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+                </div>
+              )}
+              {item.member?.sellerReturnPolicy && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Return Policy
+                    </label>
+                    <div
+                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
                       style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
                     >
                       {item.member.sellerReturnPolicy}
-                      </div>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
+              <div className="space-y-4">
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setNwcRefundPolicyOpen((v) => !v)}
+                    className="mb-1 flex w-full items-center justify-between gap-2 text-left"
+                    aria-expanded={nwcRefundPolicyOpen}
+                  >
+                    <span className="block text-sm font-medium text-gray-700">
+                      {NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE}
+                    </span>
+                    <IonIcon
+                      name={nwcRefundPolicyOpen ? "chevron-up" : "chevron-down"}
+                      size={18}
+                      className="shrink-0 text-gray-600"
+                    />
+                  </button>
+                  {nwcRefundPolicyOpen ? (
+                    <div
+                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto whitespace-pre-wrap"
+                      style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
+                    >
+                      {NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setNwcRefundPolicyOpen(true)}
+                      className="w-full rounded-lg border-2 bg-white p-3 text-left text-sm text-gray-500"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      Tap to view marketplace refund rules
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         {/* More from [Business Name] - only if seller has more than one product */}
         {item && sellerItems.length > 0 && (

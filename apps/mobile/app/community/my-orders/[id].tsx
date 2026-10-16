@@ -22,10 +22,15 @@ import { formatShippingAddress } from "@/lib/format-address";
 import {
   BUYER_CANCEL_CARD_HINT,
   BUYER_PENDING_REFUND_COPY,
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  BUYER_REFUND_POLICY_POPUP_BODY,
+  BUYER_REFUND_POLICY_POPUP_TITLE,
   buyerHasPendingRefund,
   buyerRefundStatusNote,
   BUYER_RETURN_SHIPPING_WARNING,
   canRequestMobileBuyerRefund,
+  formatBuyerRefundFeeDeductionLine,
   getBuyerOrderStatusLabel,
 } from "@/lib/order-status";
 import { buildProductPath } from "@/lib/product-referrer";
@@ -141,6 +146,7 @@ export default function MyOrderDetailScreen() {
   const [requestingRefund, setRequestingRefund] = useState(false);
   const [ackReturnShipping, setAckReturnShipping] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [refundPolicyIntent, setRefundPolicyIntent] = useState<"cancel" | "refund" | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelOther, setCancelOther] = useState("");
   const [cancelNote, setCancelNote] = useState("");
@@ -511,7 +517,7 @@ export default function MyOrderDetailScreen() {
         {order.status === "paid" && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
-            onPress={() => setCancelConfirm(true)}
+            onPress={() => setRefundPolicyIntent("cancel")}
             disabled={canceling}
           >
             <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel Order"}</Text>
@@ -520,7 +526,7 @@ export default function MyOrderDetailScreen() {
         {canRequestMobileBuyerRefund(order) && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
-            onPress={() => setRefundModal(true)}
+            onPress={() => setRefundPolicyIntent("refund")}
             disabled={requestingRefund}
           >
             <Text style={styles.actionBtnOutlineText}>{requestingRefund ? "Submitting…" : "Request Refund"}</Text>
@@ -543,6 +549,45 @@ export default function MyOrderDetailScreen() {
           </Pressable>
         )}
       </View>
+
+      <Modal visible={refundPolicyIntent != null} transparent animationType="fade">
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setRefundPolicyIntent(null)}
+        >
+          <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>{BUYER_REFUND_POLICY_POPUP_TITLE}</Text>
+            <Text style={styles.cancelHint}>{BUYER_REFUND_POLICY_POPUP_BODY}</Text>
+            <Text style={[styles.cancelHint, { fontWeight: "700", color: theme.colors.primary, marginTop: 8 }]}>
+              {order
+                ? formatBuyerRefundFeeDeductionLine({
+                    totalCents: order.totalCents,
+                    taxCents: order.taxCents,
+                  })
+                : ""}
+            </Text>
+            <View style={[styles.modalButtons, { justifyContent: "center" }]}>
+              <Pressable
+                style={styles.modalBtnSubmit}
+                onPress={() => {
+                  const intent = refundPolicyIntent;
+                  setRefundPolicyIntent(null);
+                  if (intent === "cancel") setCancelConfirm(true);
+                  else if (intent === "refund") setRefundModal(true);
+                }}
+              >
+                <Text style={styles.modalBtnSubmitText}>{BUYER_REFUND_POLICY_CONTINUE_LABEL}</Text>
+              </Pressable>
+              <Pressable
+                style={styles.modalBtnCancel}
+                onPress={() => setRefundPolicyIntent(null)}
+              >
+                <Text style={styles.modalBtnCancelText}>{BUYER_REFUND_POLICY_NEVERMIND_LABEL}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
 
       <Modal visible={refundModal} transparent animationType="fade">
         <Pressable style={styles.modalBackdrop} onPress={() => !requestingRefund && setRefundModal(false)}>

@@ -12,7 +12,14 @@ import {
   type BuyerOrderItem,
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
-import { BUYER_RETURN_SHIPPING_WARNING } from "@/lib/store-return";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  BUYER_REFUND_POLICY_POPUP_BODY,
+  BUYER_REFUND_POLICY_POPUP_TITLE,
+  BUYER_RETURN_SHIPPING_WARNING,
+  formatBuyerRefundFeeDeductionLine,
+} from "@/lib/store-return";
 
 export type BuyerOrderModal =
   | { kind: "cancel"; order: BuyerStoreOrder }
@@ -40,6 +47,7 @@ export function BuyerOrderModals({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [ackReturnShipping, setAckReturnShipping] = useState(false);
+  const [policyAccepted, setPolicyAccepted] = useState(false);
 
   const order = modal?.order ?? null;
   const modalKey = modal ? `${modal.kind}:${modal.order.id}` : "";
@@ -51,6 +59,7 @@ export function BuyerOrderModals({
     setError(null);
     setSuccessMessage(null);
     setAckReturnShipping(false);
+    setPolicyAccepted(false);
   }, [modalKey]);
 
   function resetAndClose() {
@@ -61,11 +70,16 @@ export function BuyerOrderModals({
     setError(null);
     setSuccessMessage(null);
     setAckReturnShipping(false);
+    setPolicyAccepted(false);
     onClose();
   }
 
   async function submitCancel() {
     if (!order) return;
+    if (!policyAccepted) {
+      setError("Please review the refund policy to continue.");
+      return;
+    }
     if (!reason) {
       setError("Please select a reason for cancellation.");
       return;
@@ -112,6 +126,10 @@ export function BuyerOrderModals({
 
   async function submitRefund() {
     if (!order) return;
+    if (!policyAccepted) {
+      setError("Please review the refund policy to continue.");
+      return;
+    }
     if (!reason) {
       setError("Please select a reason for your refund request.");
       return;
@@ -271,6 +289,50 @@ export function BuyerOrderModals({
   }
 
   const isCancel = modal.kind === "cancel";
+  const feeLine = formatBuyerRefundFeeDeductionLine({
+    totalCents: order.totalCents,
+    taxCents: order.taxCents,
+  });
+
+  // Step 1: refund policy confirmation
+  if (!policyAccepted && !successMessage) {
+    return (
+      <div className={overlayClass(true)}>
+        <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={resetAndClose} />
+        <div
+          className="relative w-full max-w-md rounded-lg border-2 p-6 max-h-[90vh] overflow-y-auto"
+          style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
+        >
+          <h3 className="text-lg font-bold mb-3" style={{ color: "var(--color-heading)" }}>
+            {BUYER_REFUND_POLICY_POPUP_TITLE}
+          </h3>
+          <p className="text-sm mb-4 leading-relaxed opacity-90">{BUYER_REFUND_POLICY_POPUP_BODY}</p>
+          <p className="text-sm font-semibold mb-6" style={{ color: "var(--color-primary)" }}>
+            {feeLine}
+          </p>
+          <div className="flex flex-row gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => setPolicyAccepted(true)}
+              className="btn text-white hover:text-white"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              {BUYER_REFUND_POLICY_CONTINUE_LABEL}
+            </button>
+            <button
+              type="button"
+              onClick={resetAndClose}
+              className="px-4 py-2 rounded border-2"
+              style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+            >
+              {BUYER_REFUND_POLICY_NEVERMIND_LABEL}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={overlayClass(true)}>
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={resetAndClose} />
@@ -297,85 +359,88 @@ export function BuyerOrderModals({
           </>
         ) : (
           <>
-        <p className="text-sm mb-4 opacity-80">
-          {isCancel
-            ? BUYER_CANCEL_CARD_HINT
-            : "The seller will review your request. Please provide a reason."}
-        </p>
-        {!isCancel && order.sellerChargeReturnShipping ? (
-          <label className="flex items-start gap-2 mb-4 text-sm">
-            <input
-              type="checkbox"
-              checked={ackReturnShipping}
-              onChange={(e) => setAckReturnShipping(e.target.checked)}
-              className="mt-1"
-              disabled={submitting}
-            />
-            <span>{BUYER_RETURN_SHIPPING_WARNING}</span>
-          </label>
-        ) : null}
-        <p className="text-sm font-medium mb-2">Reason (required)</p>
-        <select
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          className="w-full border-2 rounded px-3 py-2 mb-4"
-          style={{ borderColor: "var(--color-primary)" }}
-          disabled={submitting}
-        >
-          <option value="">Select a reason…</option>
-          {BUYER_ORDER_REASONS.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        {reason === "Other" && (
-          <div className="mb-4">
-            <p className="text-sm font-medium mb-1">Please specify</p>
-            <textarea
-              value={otherReason}
-              onChange={(e) => setOtherReason(e.target.value)}
-              placeholder="Describe your reason..."
-              rows={2}
-              className="w-full border-2 rounded px-3 py-2 resize-none"
+            <p className="text-sm mb-2 opacity-80">
+              {isCancel
+                ? BUYER_CANCEL_CARD_HINT
+                : "The seller will review your request. Please provide a reason."}
+            </p>
+            <p className="text-xs mb-4 font-medium" style={{ color: "var(--color-primary)" }}>
+              {feeLine}
+            </p>
+            {!isCancel && order.sellerChargeReturnShipping ? (
+              <label className="flex items-start gap-2 mb-4 text-sm">
+                <input
+                  type="checkbox"
+                  checked={ackReturnShipping}
+                  onChange={(e) => setAckReturnShipping(e.target.checked)}
+                  className="mt-1"
+                  disabled={submitting}
+                />
+                <span>{BUYER_RETURN_SHIPPING_WARNING}</span>
+              </label>
+            ) : null}
+            <p className="text-sm font-medium mb-2">Reason (required)</p>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full border-2 rounded px-3 py-2 mb-4"
               style={{ borderColor: "var(--color-primary)" }}
               disabled={submitting}
-            />
-          </div>
-        )}
-        <div className="mb-4">
-          <p className="text-sm font-medium mb-1">Note for seller (optional)</p>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Add a note for the seller..."
-            rows={2}
-            className="w-full border-2 rounded px-3 py-2 resize-none"
-            style={{ borderColor: "var(--color-primary)" }}
-            disabled={submitting}
-          />
-        </div>
-        {error ? <p className="text-sm text-red-700 mb-3">{error}</p> : null}
-        <div className="flex gap-3 justify-end">
-          <button
-            type="button"
-            onClick={resetAndClose}
-            className="px-4 py-2 rounded border-2"
-            style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
-            disabled={submitting}
-          >
-            {isCancel ? "Keep Order" : "Cancel"}
-          </button>
-          <button
-            type="button"
-            onClick={isCancel ? submitCancel : submitRefund}
-            disabled={submitting}
-            className="btn text-white hover:text-white"
-            style={{ backgroundColor: "var(--color-primary)" }}
-          >
-            {submitting ? (isCancel ? "Processing…" : "Submitting…") : isCancel ? "Cancel Order" : "Submit request"}
-          </button>
-        </div>
+            >
+              <option value="">Select a reason…</option>
+              {BUYER_ORDER_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            {reason === "Other" && (
+              <div className="mb-4">
+                <p className="text-sm font-medium mb-1">Please specify</p>
+                <textarea
+                  value={otherReason}
+                  onChange={(e) => setOtherReason(e.target.value)}
+                  placeholder="Describe your reason..."
+                  rows={2}
+                  className="w-full border-2 rounded px-3 py-2 resize-none"
+                  style={{ borderColor: "var(--color-primary)" }}
+                  disabled={submitting}
+                />
+              </div>
+            )}
+            <div className="mb-4">
+              <p className="text-sm font-medium mb-1">Note for seller (optional)</p>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Add a note for the seller..."
+                rows={2}
+                className="w-full border-2 rounded px-3 py-2 resize-none"
+                style={{ borderColor: "var(--color-primary)" }}
+                disabled={submitting}
+              />
+            </div>
+            {error ? <p className="text-sm text-red-700 mb-3">{error}</p> : null}
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={resetAndClose}
+                className="px-4 py-2 rounded border-2"
+                style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+                disabled={submitting}
+              >
+                {isCancel ? "Keep Order" : "Cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={isCancel ? submitCancel : submitRefund}
+                disabled={submitting}
+                className="btn text-white hover:text-white"
+                style={{ backgroundColor: "var(--color-primary)" }}
+              >
+                {submitting ? (isCancel ? "Processing…" : "Submitting…") : isCancel ? "Cancel Order" : "Submit request"}
+              </button>
+            </div>
           </>
         )}
       </div>

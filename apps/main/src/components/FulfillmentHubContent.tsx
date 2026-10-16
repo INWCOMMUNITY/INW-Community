@@ -26,6 +26,13 @@ import {
   isOrderEligibleForToShipQueue,
   type FulfillmentTabKey,
 } from "@/lib/store-order-fulfillment";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  formatSellerRefundFeeAbsorptionLine,
+  SELLER_REFUND_POLICY_POPUP_BODY,
+  SELLER_REFUND_POLICY_POPUP_TITLE,
+} from "@/lib/store-return";
 
 const SHIPPO_BULK_CONTAINER_ID = "shippo-elements-bulk-storefront-orders";
 const SELECTION_STORAGE_KEY = "fulfillment-hub-ship-selection";
@@ -78,6 +85,7 @@ export function FulfillmentHubContent(props: {
   const [sellerProfile, setSellerProfile] = useState<SellerProfileForSlips | null>(null);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [cancelPolicyOrder, setCancelPolicyOrder] = useState<FulfillmentStoreOrder | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [shipActionError, setShipActionError] = useState<string | null>(null);
   const [pendingPrintUrls, setPendingPrintUrls] = useState<string[]>([]);
@@ -367,12 +375,13 @@ export function FulfillmentHubContent(props: {
     window.print();
   };
 
-  async function cancelAndRefund(order: FulfillmentStoreOrder) {
-    const ok = window.confirm(
-      "Cancel this order and refund the buyer? Listing quantities will be restored. This cannot be undone."
-    );
-    if (!ok) return;
+  function requestCancelAndRefund(order: FulfillmentStoreOrder) {
     setMenuOpenId(null);
+    setCancelPolicyOrder(order);
+  }
+
+  async function confirmCancelAndRefund(order: FulfillmentStoreOrder) {
+    setCancelPolicyOrder(null);
     setCancelingId(order.id);
     setShipActionError(null);
     try {
@@ -511,7 +520,7 @@ export function FulfillmentHubContent(props: {
                                   type="button"
                                   className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 font-medium disabled:opacity-50"
                                   disabled={cancelingId === order.id}
-                                  onClick={() => void cancelAndRefund(order)}
+                                  onClick={() => requestCancelAndRefund(order)}
                                 >
                                   {cancelingId === order.id
                                     ? "Canceling…"
@@ -598,6 +607,65 @@ export function FulfillmentHubContent(props: {
         subtitle={progressSubtitle}
         actions={<ShippoPrintLabelActions urls={purchasedLabelUrls} />}
       />
+
+      {cancelPolicyOrder ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close"
+            onClick={() => setCancelPolicyOrder(null)}
+            disabled={cancelingId != null}
+          />
+          <div
+            className="relative w-full max-w-md rounded-lg border-2 p-6 max-h-[90vh] overflow-y-auto"
+            style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
+            role="dialog"
+            aria-modal
+            aria-labelledby="seller-refund-policy-title"
+          >
+            <h3
+              id="seller-refund-policy-title"
+              className="text-lg font-bold mb-3"
+              style={{ color: "var(--color-heading)" }}
+            >
+              {SELLER_REFUND_POLICY_POPUP_TITLE}
+            </h3>
+            <p className="text-sm mb-4 leading-relaxed opacity-90">{SELLER_REFUND_POLICY_POPUP_BODY}</p>
+            <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-primary)" }}>
+              {formatSellerRefundFeeAbsorptionLine({
+                totalCents: cancelPolicyOrder.totalCents,
+                taxCents: cancelPolicyOrder.taxCents,
+              })}
+            </p>
+            <p className="text-xs mb-6 opacity-70">
+              Listing quantities will be restored. This cannot be undone.
+            </p>
+            <div className="flex flex-row gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => void confirmCancelAndRefund(cancelPolicyOrder)}
+                className="btn text-white hover:text-white"
+                style={{ backgroundColor: "var(--color-primary)" }}
+                disabled={cancelingId != null}
+              >
+                {cancelingId === cancelPolicyOrder.id
+                  ? "Canceling…"
+                  : BUYER_REFUND_POLICY_CONTINUE_LABEL}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCancelPolicyOrder(null)}
+                className="px-4 py-2 rounded border-2"
+                style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+                disabled={cancelingId != null}
+              >
+                {BUYER_REFUND_POLICY_NEVERMIND_LABEL}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
