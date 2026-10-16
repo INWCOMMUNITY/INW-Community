@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Temporary localhost skip for seller subscription checkout.
- * Remove this route when the seller says Beans.
+ * Beans: remove this route, the localhost Continue buttons on shipping and payouts,
+ * and the nwc_local_onboarding_skip cookie. The form then requires checkout, Shippo, and Stripe.
  */
 function localDev(req: NextRequest): boolean {
   if (process.env.NODE_ENV !== "development") return false;

@@ -14,6 +14,9 @@ type ListingPhotoGalleryProps = {
   photoError?: string;
   showSyncHint?: boolean;
   listingOnEbay?: boolean;
+  helperText?: string;
+  emptyTitle?: string;
+  moreTitle?: string;
 };
 
 export function ListingPhotoGallery({
@@ -24,6 +27,9 @@ export function ListingPhotoGallery({
   photoError,
   showSyncHint,
   listingOnEbay,
+  helperText,
+  emptyTitle = "Add Photos",
+  moreTitle = "Add More Photos",
 }: ListingPhotoGalleryProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const thumbScrollRef = useRef<HTMLDivElement>(null);
@@ -160,11 +166,11 @@ export function ListingPhotoGallery({
         }`}
       >
         <p className="text-sm font-medium text-gray-800 mb-1">
-          {photos.length > 0 ? "Add More Photos" : "Add Photos"}
+          {photos.length > 0 ? moreTitle : emptyTitle}
         </p>
         <p className="text-xs text-gray-500 mb-3">
-          Drag and drop or choose from your device. Up to {formatListingPhotoSizeLabel()} each;
-          large photos are resized automatically.
+          {helperText ??
+            `Drag and drop or choose from your device. Up to ${formatListingPhotoSizeLabel()} each; large photos are resized automatically.`}
         </p>
         <label className="inline-block cursor-pointer">
           <span className="action-pill action-pill-sm btn-pill-primary">

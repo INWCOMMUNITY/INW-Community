@@ -882,6 +882,9 @@ export async function POST(req: NextRequest) {
         shippingCostCents = await getShippingOptionCostCents(userId, shippingOptionId);
       }
     }
+    if (!data.shippingDisabled && member?.offerFreeShippingOnInw) {
+      shippingCostCents = 0;
+    }
     const createData = {
         memberId: userId,
         businessId: data.businessId || null,

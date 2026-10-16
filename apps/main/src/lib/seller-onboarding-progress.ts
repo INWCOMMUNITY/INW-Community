@@ -30,7 +30,10 @@ export function sellerOnboardingResumePath(step: SellerOnboardingStep): string |
   return `/signup/seller?step=${step}`;
 }
 
-export async function getSellerOnboardingProgress(memberId: string) {
+export async function getSellerOnboardingProgress(
+  memberId: string,
+  opts?: { localSkipShippingAndStripe?: boolean }
+) {
   const [member, business, subscription, shippingOptionCount] = await Promise.all([
     prisma.member.findUnique({
       where: { id: memberId },
@@ -41,6 +44,7 @@ export async function getSellerOnboardingProgress(memberId: string) {
         phone: true,
         shippoOAuthTokenEncrypted: true,
         stripeConnectAccountId: true,
+        offerFreeShippingOnInw: true,
       },
     }),
     prisma.business.findFirst({
@@ -58,6 +62,15 @@ export async function getSellerOnboardingProgress(memberId: string) {
   const hasSubscription = Boolean(subscription);
   const shippoConnected = Boolean(member?.shippoOAuthTokenEncrypted);
   const stripeConnectStarted = Boolean(member?.stripeConnectAccountId);
+  const freeShippingOnInw = Boolean(member?.offerFreeShippingOnInw);
+  // Beans: remove localSkipShippingAndStripe, the localhost Continue buttons on
+  // shipping and payouts, and /api/signup/seller/dev-skip. Shipping then requires
+  // Shippo, and payouts require Stripe.
+  const localSkip =
+    opts?.localSkipShippingAndStripe === true && process.env.NODE_ENV === "development";
+  const shippingStepDone =
+    localSkip || (shippoConnected && (freeShippingOnInw || shippingOptionCount >= 1));
+  const payoutsStepDone = localSkip || stripeConnectStarted;
   const hasBusiness = Boolean(business);
 
   if (member?.signupIntent === "business" && !hasSubscription) {
@@ -88,9 +101,9 @@ export async function getSellerOnboardingProgress(memberId: string) {
     furthest = "import";
   } else if (!hasSubscription) {
     furthest = hasBusiness ? "subscribe" : "business";
-  } else if (!shippoConnected || shippingOptionCount < 1) {
+  } else if (!shippingStepDone) {
     furthest = "shipping";
-  } else if (!stripeConnectStarted) {
+  } else if (!payoutsStepDone) {
     furthest = "payouts";
   } else {
     furthest = "import";

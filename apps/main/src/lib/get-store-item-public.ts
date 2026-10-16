@@ -57,6 +57,7 @@ const storeItemPublicSelect = {
       sellerPickupPolicy: true,
       sellerReturnPolicy: true,
       freeShippingMinimumCents: true,
+      offerFreeShippingOnInw: true,
     },
   },
   business: {
@@ -106,6 +107,7 @@ export type StoreItemPublicPayload = {
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
     freeShippingMinimumCents?: number | null;
+    offerFreeShippingOnInw?: boolean | null;
   } | null;
   freeShippingBanner?: FreeShippingBanner | null;
   business?: {
@@ -235,6 +237,7 @@ export async function getStoreItemPublicPayload(
     member: resolvedItem.member,
     freeShippingBanner: freeShippingBannerForStore({
       freeShippingMinimumCents: resolvedItem.member?.freeShippingMinimumCents,
+      offerFreeShippingOnInw: resolvedItem.member?.offerFreeShippingOnInw,
       items: shippingRows,
     }),
     business,

@@ -693,10 +693,12 @@ export default function ListItemScreen() {
         const offerFree = Boolean(data.offerFreeShippingOnInw);
         setOfferFreeShippingOnInw(offerFree);
         if (!editId && !draftId) {
-          if (offerFree) setShippingFree(true);
-          if (options.length === 1 && options[0]) {
+          if (offerFree) {
+            setShippingFree(true);
+            setShippingCostDollars("0.00");
+          } else if (options.length === 1 && options[0]) {
             setShippingOptionId(options[0].id);
-            if (!offerFree && options[0].shippingCostCents != null) {
+            if (options[0].shippingCostCents != null) {
               setShippingCostDollars((options[0].shippingCostCents / 100).toFixed(2));
               setShippingFree(options[0].shippingCostCents === 0);
             }
@@ -817,7 +819,7 @@ export default function ListItemScreen() {
     if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
       setError("You must offer at least one form of delivery."); return;
     }
-    if (!editId && !shippingDisabled && !shippingOptionId) {
+    if (!editId && !shippingDisabled && !offerFreeShippingOnInw && !shippingOptionId) {
       setError("Choose a shipping option."); return;
     }
 
@@ -857,7 +859,13 @@ export default function ListItemScreen() {
       localDeliveryAvailable,
       inStorePickupAvailable,
       businessId: businessId || null,
-      shippingCostCents: !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
+      shippingCostCents: !shippingDisabled
+        ? (offerFreeShippingOnInw && !editId) || shippingFree
+          ? 0
+          : shipCost > 0
+            ? shipCost
+            : null
+        : null,
       shippingOptionId: shippingOptionId || null,
       shippingPolicy: shippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
       localDeliveryTerms: localDeliveryAvailable && !useSellerProfileLocalDelivery ? localDeliveryTerms.trim() || null : null,
@@ -1277,19 +1285,27 @@ export default function ListItemScreen() {
               </View>
               {!shippingDisabled && (
                 <>
-                  <Text style={styles.label}>Shipping price ($)</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. 5.99"
-                    placeholderTextColor={placeholderColor}
-                    value={shippingCostDollars}
-                    onChangeText={(v) => { setShippingCostDollars(v); if (v.trim()) setShippingFree(false); }}
-                    keyboardType="decimal-pad"
-                    editable={!shippingFree}
-                    autoCorrect={true}
-                  />
+                  {offerFreeShippingOnInw && !editId ? (
+                    <Text style={styles.hint}>
+                      This listing ships free on INW. A shipping price and shipping option are not required.
+                    </Text>
+                  ) : (
+                    <>
+                      <Text style={styles.label}>Shipping price ($)</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. 5.99"
+                        placeholderTextColor={placeholderColor}
+                        value={shippingCostDollars}
+                        onChangeText={(v) => { setShippingCostDollars(v); if (v.trim()) setShippingFree(false); }}
+                        keyboardType="decimal-pad"
+                        editable={!shippingFree}
+                        autoCorrect={true}
+                      />
+                    </>
+                  )}
                   <SelectField
-                    label="Shipping option (package)"
+                    label={offerFreeShippingOnInw && !editId ? "Shipping option (package, optional)" : "Shipping option (package)"}
                     value={shippingOptionId}
                     placeholder="Select a shipping option"
                     options={shippingOptions.map((opt) => ({
@@ -1298,6 +1314,11 @@ export default function ListItemScreen() {
                     }))}
                     onChange={(id) => {
                       setShippingOptionId(id);
+                      if (offerFreeShippingOnInw) {
+                        setShippingCostDollars("0.00");
+                        setShippingFree(true);
+                        return;
+                      }
                       const opt = shippingOptions.find((o) => o.id === id);
                       if (opt?.shippingCostCents != null) {
                         setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));

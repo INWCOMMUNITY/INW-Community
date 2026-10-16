@@ -177,4 +177,27 @@ export async function uploadListingPhoto(file: File): Promise<string> {
   throw new Error(tokenData.error ?? "Photo upload failed.");
 }
 
+/** Storefront logo, cover, and shop photos. Logos are squared on the server when the file is small enough to send that way. */
+export async function uploadBusinessPhoto(file: File, opts?: { logo?: boolean }): Promise<string> {
+  if (file.size > MAX_LISTING_PHOTO_BYTES) {
+    throw new Error(`Each photo must be under ${formatListingPhotoSizeLabel()}.`);
+  }
+  if (!listingPhotoEffectiveMime(file.type, file.name)) {
+    throw new Error("Invalid file type. Use JPEG, PNG, WebP, GIF, or HEIC.");
+  }
+
+  const prepared = await prepareListingPhotoForUpload(file);
+  if (prepared.size <= MULTIPART_SAFE_BYTES) {
+    const formData = new FormData();
+    formData.append("file", prepared);
+    if (opts?.logo) formData.append("purpose", "business-logo");
+    const res = await fetch("/api/upload", { method: "POST", body: formData });
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (res.ok && data.url) return toAbsoluteUrl(data.url);
+    throw new Error(data.error ?? "Upload failed");
+  }
+
+  return uploadListingPhoto(prepared);
+}
+
 export { MAX_LISTING_PHOTO_BYTES, formatListingPhotoSizeLabel };

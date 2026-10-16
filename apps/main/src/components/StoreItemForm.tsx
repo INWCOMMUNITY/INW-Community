@@ -774,9 +774,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         : NaN
       : Math.round(parseFloat(priceDollars) * 100);
     const priceCents = asDraft && (isNaN(parsedPrice) || parsedPrice < 0) ? 0 : parsedPrice;
-    const shippingCostCents = shippingCostDollars.trim()
-      ? Math.round(parseFloat(shippingCostDollars) * 100)
-      : null;
+    const shippingCostCents =
+      offerFreeShippingOnInw && !existing
+        ? 0
+        : shippingCostDollars.trim()
+          ? Math.round(parseFloat(shippingCostDollars) * 100)
+          : null;
     if (!title.trim()) {
       setError(asDraft ? "Add a title to save this draft." : "Title is required");
       return null;
@@ -853,7 +856,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setError("Shipping policy is required when you offer shipping. Set it in Policies.");
       return null;
     }
-    if (!asDraft && !existing && !effectiveShippingDisabled && !shippingOptionId) {
+    if (!asDraft && !existing && !effectiveShippingDisabled && !offerFreeShippingOnInw && !shippingOptionId) {
       setError("Choose a shipping option, or create one in Shipping options.");
       return null;
     }
@@ -1748,6 +1751,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   </label>
                   {!shippingDisabled && (
                     <>
+                      {offerFreeShippingOnInw && !existing ? (
+                        <p className="text-sm text-gray-600">
+                          This listing ships free on INW. A shipping price and shipping option are not required.
+                        </p>
+                      ) : (
                       <div>
                         <label className="block text-sm font-medium mb-1">Shipping price (USD)</label>
                         <input
@@ -1761,8 +1769,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                         />
                         <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
                       </div>
+                      )}
                       <div>
-                        <label className="block text-sm font-medium mb-1">Shipping option (package)</label>
+                        <label className="block text-sm font-medium mb-1">
+                          Shipping option (package){offerFreeShippingOnInw && !existing ? " (optional)" : ""}
+                        </label>
                         <select
                           className={listingSelectClass}
                           value={shippingOptionId}
@@ -1770,7 +1781,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                             const id = e.target.value;
                             setShippingOptionId(id);
                             if (offerFreeShippingOnInw) {
-                              setShippingCostDollars((prev) => prev || "0.00");
+                              setShippingCostDollars("0.00");
                               return;
                             }
                             const selected = shippingOptions.find((o) => o.id === id);
@@ -1778,7 +1789,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                               setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
                             }
                           }}
-                          required={!isEdit}
+                          required={!isEdit && !offerFreeShippingOnInw}
                         >
                           <option value="">{isEdit ? "None (INW defaults)" : "Select a package"}</option>
                           {shippingOptions.map((opt) => (

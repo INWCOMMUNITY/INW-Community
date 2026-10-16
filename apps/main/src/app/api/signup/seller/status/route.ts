@@ -8,6 +8,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** Beans: remove this cookie skip with the localhost shipping and Stripe continues. */
+function localOnboardingSkip(req: NextRequest): boolean {
+  if (process.env.NODE_ENV !== "development") return false;
+  const host = (req.headers.get("host") ?? "").split(":")[0];
+  if (host !== "localhost" && host !== "127.0.0.1") return false;
+  return req.cookies.get("nwc_local_onboarding_skip")?.value === "1";
+}
+
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
   const memberId = session?.user?.id;
@@ -16,7 +24,9 @@ export async function GET(req: NextRequest) {
   }
 
   const [progress, etsy, shopify] = await Promise.all([
-    getSellerOnboardingProgress(memberId),
+    getSellerOnboardingProgress(memberId, {
+      localSkipShippingAndStripe: localOnboardingSkip(req),
+    }),
     prisma.etsyConnection.findFirst({
       where: { memberId, status: "ACTIVE" },
       select: { id: true, shopName: true },

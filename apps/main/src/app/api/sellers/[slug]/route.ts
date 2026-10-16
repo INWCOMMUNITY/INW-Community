@@ -52,6 +52,7 @@ export async function GET(
             offerLocalDelivery: true,
             offerLocalPickup: true,
             freeShippingMinimumCents: true,
+            offerFreeShippingOnInw: true,
             acceptMessagesForListings: true,
           },
         },
@@ -136,6 +137,7 @@ export async function GET(
       freeShippingMinimumCents: business.member.freeShippingMinimumCents,
       freeShippingBanner: freeShippingBannerForStore({
         freeShippingMinimumCents: business.member.freeShippingMinimumCents,
+        offerFreeShippingOnInw: business.member.offerFreeShippingOnInw,
         items: shippingRows,
       }),
       acceptMessagesForListings: business.member.acceptMessagesForListings,

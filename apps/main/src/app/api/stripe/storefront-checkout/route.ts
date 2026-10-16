@@ -39,7 +39,7 @@ import {
 } from "@/lib/pickup-delivery-checkout";
 import { ensureStripeCustomerForStorefrontCheckout } from "@/lib/stripe-storefront-checkout-customer";
 import { storefrontCheckoutTaxShippingParams } from "@/lib/storefront-checkout-session-params";
-import { shippingCentsForSellerLines } from "@/lib/checkout-shipping-cost";
+import { shippingCentsForSellerLines, storefrontGroupKey } from "@/lib/checkout-shipping-cost";
 import {
   cancelStaleBuyerPendingOrders,
   conflictingQty1PendingHold,
@@ -291,6 +291,7 @@ export async function POST(req: NextRequest) {
       combineShipping: true,
       combinedShippingMaxCents: true,
       freeShippingMinimumCents: true,
+      offerFreeShippingOnInw: true,
     },
   });
   const connectMap = new Map(membersForConnect.map((m) => [m.id, m.stripeConnectAccountId]));
@@ -301,6 +302,7 @@ export async function POST(req: NextRequest) {
         combineShipping: m.combineShipping,
         combinedShippingMaxCents: m.combinedShippingMaxCents,
         freeShippingMinimumCents: m.freeShippingMinimumCents,
+        offerFreeShippingOnInw: m.offerFreeShippingOnInw,
       },
     ])
   );
@@ -426,12 +428,39 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const orderShippingCents = hasShippedInThisOrder
-      ? shippingCentsForSellerLines(sellerItems, itemMap, {
-          merchandiseCents: subtotalCents,
+    const byStorefront = new Map<string, typeof sellerItems>();
+    for (const item of sellerItems) {
+      const storeItem = itemMap.get(item.storeItemId);
+      const key = storefrontGroupKey({
+        businessId: storeItem?.businessId,
+        memberId: storeItem?.memberId ?? sellerId,
+        storeItemId: item.storeItemId,
+      });
+      const group = byStorefront.get(key) ?? [];
+      group.push(item);
+      byStorefront.set(key, group);
+    }
+    let orderShippingCents = 0;
+    if (hasShippedInThisOrder) {
+      for (const group of byStorefront.values()) {
+        const groupMerchandise = group.reduce((sum, item) => {
+          const storeItem = itemMap.get(item.storeItemId);
+          if (!storeItem) return sum;
+          const cartRow = findCartRowForCheckoutLine(cartDbItems, item);
+          const listPriceCents = getSkuPriceCents(storeItem, item.variant);
+          const { unitPriceCents } = resolvedPriceForCartLine(
+            { priceCents: listPriceCents },
+            cartRow,
+            session.user.id
+          );
+          return sum + unitPriceCents * item.quantity;
+        }, 0);
+        orderShippingCents += shippingCentsForSellerLines(group, itemMap, {
+          merchandiseCents: groupMerchandise,
           rules: shippingRulesBySeller.get(sellerId) ?? null,
-        })
-      : 0;
+        });
+      }
+    }
     const totalCents = subtotalCents + orderShippingCents + localDeliveryFeeCentsTotal;
 
     if (orderShippingCents > 0) {
