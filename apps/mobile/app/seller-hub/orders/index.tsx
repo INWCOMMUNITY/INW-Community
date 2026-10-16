@@ -32,6 +32,7 @@ import {
   filterOrdersForDeliveryTab,
   ordersCanCombineShipping,
   clusterOrdersForCombinedShipping,
+  labelGroupsForSelection,
 } from "@/lib/store-order-fulfillment";
 import {
   BUYER_REFUND_POLICY_CONTINUE_LABEL,
@@ -276,18 +277,13 @@ function ToShipFlowView({
         Alert.alert("Sign in required", "Please sign in to save packing slips.");
         return;
       }
-      const sameBuyer =
-        selectedOrders.length <= 1 ||
-        selectedOrders.every(
-          (o) => (o.buyer?.email ?? "").trim().toLowerCase() ===
-            (selectedOrders[0].buyer?.email ?? "").trim().toLowerCase()
-        );
       const orderIds = selectedOrders.map((o) => o.id);
+      const groups = labelGroupsForSelection(orderIds, combinedGroups);
       const url = `${API_BASE}/api/seller-hub/packing-slip`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderIds, combined: selectedOrders.length > 1 && sameBuyer }),
+        body: JSON.stringify({ orderIds, groups }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

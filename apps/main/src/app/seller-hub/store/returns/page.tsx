@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel, storeReturnSellerMoneyAction, storeReturnSellerMoneyActionLabel } from "@/lib/store-return";
 
 interface OrderItem {
@@ -10,6 +11,8 @@ interface OrderItem {
   quantity: number;
   priceCentsAtPurchase: number;
   fulfillmentType?: string | null;
+  variant?: unknown;
+  stockReturnDecision?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -29,6 +32,8 @@ interface StoreOrder {
   taxCents?: number;
   shippingCostCents: number;
   status: string;
+  cancelReason?: string | null;
+  inventoryRestoredAt?: string | null;
   createdAt: string;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
@@ -36,8 +41,30 @@ interface StoreOrder {
   returnShipment?: { labelUrl?: string | null; labelCostCents?: number; trackingNumber?: string | null } | null;
 }
 
+const SOLD_BEFORE_CHECKOUT_REASON = "Item sold before checkout was complete";
+
+function isCanceledOrder(order: StoreOrder): boolean {
+  if (order.storeReturn) return false;
+  if (order.cancelReason === SOLD_BEFORE_CHECKOUT_REASON) return false;
+  return order.status === "canceled" || order.status === "cancelled" || order.status === "refunded";
+}
+
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function stockChoiceLabel(item: OrderItem): string {
+  const variant = formatCartVariantLabel(item.variant);
+  const name = variant ? `${item.storeItem.title} — ${variant}` : item.storeItem.title;
+  return `Return Stock Count for ${name}?`;
+}
+
+function stockChoiceResult(order: StoreOrder, item: OrderItem): string | null {
+  if (item.stockReturnDecision === "returned" || (order.inventoryRestoredAt && !item.stockReturnDecision)) {
+    return "Stock returned";
+  }
+  if (item.stockReturnDecision === "withheld") return "Stock not returned";
+  return null;
 }
 
 export default function RequestedReturnsPage() {
@@ -71,20 +98,29 @@ export default function RequestedReturnsPage() {
 
   function load() {
     setFetchError(null);
-    fetch("/api/store-orders?mine=1&returns=1")
-      .then(async (r) => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) {
+    Promise.all([
+      fetch("/api/store-orders?mine=1&returns=1"),
+      fetch("/api/store-orders?mine=1&canceled=1"),
+    ])
+      .then(async ([returnsRes, canceledRes]) => {
+        const returnsData = await returnsRes.json().catch(() => ({}));
+        if (!returnsRes.ok) {
           const msg =
-            r.status === 401
+            returnsRes.status === 401
               ? "Please sign in to view returns."
-              : r.status === 403
-                ? (data as { error?: string }).error ?? "Seller plan required."
-                : (data as { error?: string }).error ?? "Failed to load orders.";
+              : returnsRes.status === 403
+                ? (returnsData as { error?: string }).error ?? "Seller plan required."
+                : (returnsData as { error?: string }).error ?? "Failed to load orders.";
           setFetchError(msg);
           return [];
         }
-        return Array.isArray(data) ? data : [];
+        const openReturns: StoreOrder[] = Array.isArray(returnsData) ? returnsData : [];
+        const canceledData = canceledRes.ok ? await canceledRes.json().catch(() => []) : [];
+        const seen = new Set(openReturns.map((order) => order.id));
+        const canceledOrders = (Array.isArray(canceledData) ? (canceledData as StoreOrder[]) : []).filter(
+          (order) => !seen.has(order.id) && isCanceledOrder(order)
+        );
+        return [...openReturns, ...canceledOrders];
       })
       .then((data: StoreOrder[]) => setOrders(data))
       .catch(() => {
@@ -134,7 +170,7 @@ export default function RequestedReturnsPage() {
   if (loading) {
     return (
       <div>
-        <h2 className="text-xl font-bold mb-4">Return Requests</h2>
+        <h2 className="text-xl font-bold mb-4">Refunds & Cancellations</h2>
         <p className="text-gray-500">Loading…</p>
       </div>
     );
@@ -142,10 +178,13 @@ export default function RequestedReturnsPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold mb-4">Return Requests</h2>
+      <h2 className="text-xl font-bold mb-4">Refunds & Cancellations</h2>
       <p className="text-gray-600 mb-6">
-        Approve a return, send a Shippo return label, then refund after you receive the item. Courtesy
-        refunds send money back now and the buyer keeps the item. Refunds come from My Funds.
+        Refund requests arrive here after an item ships. Approve or decline each one. Canceled orders
+        are listed here too. Under those items, choose Return only when you have that variant back.
+        Don't Return leaves the count off the listing. After you approve a mailed return, send a Shippo
+        return label, then refund when the item comes back. Courtesy refunds send money now and the
+        buyer keeps the item. Refunds come from My Funds.
       </p>
 
       {fetchError && (
@@ -171,7 +210,7 @@ export default function RequestedReturnsPage() {
       )}
 
       {orders.length === 0 && !fetchError ? (
-        <p className="text-gray-500">No open return requests.</p>
+        <p className="text-gray-500">No refunds yet.</p>
       ) : (
         <div className="space-y-6">
           {orders.map((order) => {
@@ -188,6 +227,7 @@ export default function RequestedReturnsPage() {
               orderStatus: order.status,
             });
             const busy = busyId === order.id;
+            const pendingRefund = ret?.status === "requested";
             return (
               <div key={order.id} className="border rounded-lg p-6">
                 <div className="flex justify-between items-start mb-4">
@@ -200,45 +240,101 @@ export default function RequestedReturnsPage() {
                       {new Date(order.createdAt).toLocaleString()}
                     </p>
                     <p className="text-sm mt-2" style={{ color: "var(--color-primary)" }}>
-                      {storeReturnBuyerLabel(ret?.status) ?? ret?.status}
+                      {ret ? (storeReturnBuyerLabel(ret.status) ?? ret.status) : "Canceled"}
                     </p>
                     {ret?.reason ? <p className="text-sm text-gray-700 mt-1">Reason: {ret.reason}</p> : null}
+                    {!ret && order.cancelReason ? (
+                      <p className="text-sm text-gray-700 mt-1">{order.cancelReason}</p>
+                    ) : null}
                   </div>
                   <div className="text-right">
                     <p className="font-bold">{formatPrice(order.totalCents + (order.taxCents ?? 0))}</p>
-                    <p className="text-sm text-gray-600">Refund: {formatPrice(proposed)}</p>
+                    {ret ? <p className="text-sm text-gray-600">Refund: {formatPrice(proposed)}</p> : null}
                     {ret?.chargeReturnShipping && labelCost > 0 ? (
                       <p className="text-xs text-gray-500">Minus return label {formatPrice(labelCost)}</p>
                     ) : null}
                   </div>
                 </div>
-                <ul className="space-y-2 mb-4">
-                  {order.items.map((oi) => (
-                    <li key={oi.id} className="flex items-center gap-2 text-sm">
-                      {oi.storeItem.photos[0] ? (
-                        <img src={oi.storeItem.photos[0]} alt="" className="w-10 h-10 object-cover rounded" />
-                      ) : null}
-                      <span>
-                        {oi.storeItem.title} × {oi.quantity}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex flex-wrap gap-2">
-                  {ret?.status === "requested" ? (
-                    <>
+                <div className="mb-4">
+                  {order.items.map((oi) => {
+                    const decided = stockChoiceResult(order, oi);
+                    return (
+                      <div key={oi.id}>
+                        <div className="flex items-start gap-2 text-sm mt-3">
+                          {oi.storeItem.photos[0] ? (
+                            <img src={oi.storeItem.photos[0]} alt="" className="w-10 h-10 object-cover rounded" />
+                          ) : null}
+                          <div className="min-w-0 flex-1">
+                            <span>
+                              {oi.storeItem.title} × {oi.quantity}
+                            </span>
+                            {formatCartVariantLabel(oi.variant) ? (
+                              <p className="text-xs text-gray-600">{formatCartVariantLabel(oi.variant)}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                        {pendingRefund ? null : (
+                          <div className="-mx-6 mt-3 border-t border-neutral-200 px-6 pt-3">
+                            {decided ? (
+                              <p className="text-sm font-semibold text-gray-800">{decided}</p>
+                            ) : (
+                              <>
+                                <p className="text-sm font-semibold text-gray-800">{stockChoiceLabel(oi)}</p>
+                                <p className="mt-1 text-sm text-gray-600">
+                                  If you&apos;re waiting for this item to be returned, ignore this. You can return the stock later.
+                                </p>
+                                <div className="mt-3 flex gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    className="btn flex-1 text-sm py-2 px-3"
+                                    onClick={() =>
+                                      postAction(order.id, "/stock-return", {
+                                        orderItemId: oi.id,
+                                        decision: "return",
+                                      })
+                                    }
+                                  >
+                                    Return
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    className="flex-1 text-sm py-2 px-3 border rounded-lg bg-white"
+                                    onClick={() =>
+                                      postAction(order.id, "/stock-return", {
+                                        orderItemId: oi.id,
+                                        decision: "withhold",
+                                      })
+                                    }
+                                  >
+                                    Don&apos;t Return
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {pendingRefund ? (
+                  <div className="-mx-6 mb-4 border-t border-neutral-200 px-6 pt-3">
+                    <p className="text-sm font-semibold text-gray-800">Approve this refund request?</p>
+                    <div className="mt-3 flex gap-2">
                       <button
                         type="button"
                         disabled={busy}
-                        className="btn text-sm py-2 px-3"
+                        className="btn flex-1 text-sm py-2 px-3"
                         onClick={() => postAction(order.id, "/returns/approve")}
                       >
-                        {busy ? "Working…" : "Approve return"}
+                        {busy ? "Working…" : "Approve"}
                       </button>
                       <button
                         type="button"
                         disabled={busy}
-                        className="btn text-sm py-2 px-3 bg-red-600 hover:bg-red-700 text-white"
+                        className="flex-1 text-sm py-2 px-3 border rounded-lg bg-white"
                         onClick={() => {
                           setDeclineFor(order.id);
                           setDeclineReason("");
@@ -246,16 +342,18 @@ export default function RequestedReturnsPage() {
                       >
                         Decline
                       </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="text-sm py-2 px-3 border rounded-lg"
-                        onClick={() => postAction(order.id, "/refund", { requireReturn: false })}
-                      >
-                        Courtesy refund (keep item)
-                      </button>
-                    </>
-                  ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="mt-3 text-sm py-2 px-3 border rounded-lg"
+                      onClick={() => postAction(order.id, "/refund", { requireReturn: false })}
+                    >
+                      Courtesy refund (keep item)
+                    </button>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
                   {ret?.status === "awaiting_return" || ret?.status === "in_transit" ? (
                     <>
                       {orderCanBuyReturnLabel(order) ? (

@@ -125,6 +125,7 @@ export function SellerHubMobileDrawer({
   shopifyConnected?: boolean;
 }) {
   const [pendingShip, setPendingShip] = useState(0);
+  const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
 
   useLockBodyScroll(open);
@@ -133,8 +134,9 @@ export function SellerHubMobileDrawer({
     if (!open) return;
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { pendingShip?: number; payoutReady?: boolean }) => {
+      .then((d: { pendingShip?: number; pendingReturns?: number; payoutReady?: boolean }) => {
         setPendingShip(Number(d?.pendingShip) || 0);
+        setPendingReturns(Number(d?.pendingReturns) || 0);
         setPayoutReady(Boolean(d?.payoutReady));
       })
       .catch(() => {});
@@ -170,6 +172,12 @@ export function SellerHubMobileDrawer({
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
+    {
+      href: "/seller-hub/store/returns",
+      label: "Refunds & Cancellations",
+      icon: "arrow-undo-outline",
+      alert: pendingReturns > 0,
+    },
   ];
 
   const storeItems: NavItem[] = [

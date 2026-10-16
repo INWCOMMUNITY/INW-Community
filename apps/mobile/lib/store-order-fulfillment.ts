@@ -77,6 +77,24 @@ export function clusterOrdersForCombinedShipping<
   return [...buckets.values()].filter((group) => group.length >= 2);
 }
 
+/** One label, and one packing slip, per explicit box. Orders left out stay separate. */
+export function labelGroupsForSelection(selectedIds: string[], combinedGroups: string[][]): string[][] {
+  const selected = new Set(selectedIds);
+  const used = new Set<string>();
+  const groups: string[][] = [];
+  for (const group of combinedGroups) {
+    const ids = [...new Set(group.filter((id) => selected.has(id)))];
+    if (ids.length >= 2 && ids.length === group.length) {
+      groups.push(ids);
+      ids.forEach((id) => used.add(id));
+    }
+  }
+  for (const id of selectedIds) {
+    if (!used.has(id)) groups.push([id]);
+  }
+  return groups;
+}
+
 export function orderHasShippedLine(items: { fulfillmentType?: string | null }[] | undefined): boolean {
   return (items ?? []).some((i) => (i.fulfillmentType ?? "ship") === "ship");
 }

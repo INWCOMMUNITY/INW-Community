@@ -7,7 +7,7 @@ export default function ManageStorePage() {
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Manage Store</h1>
-      <p className="text-gray-600 mb-6">View your listings, offers, and refund requests.</p>
+      <p className="text-gray-600 mb-6">View your listings, offers, and refunds and cancellations.</p>
       <ul className="space-y-3">
         <li>
           <Link
@@ -55,8 +55,8 @@ export default function ManageStorePage() {
           >
             <IonIcon name="return-down-back" size={28} className="text-[var(--color-primary)] shrink-0" />
             <div className="flex-1 min-w-0 text-left">
-              <span className="font-semibold block">Refund Requests</span>
-              <span className="text-sm text-gray-600">Review and process return requests</span>
+              <span className="font-semibold block">Refunds & Cancellations</span>
+              <span className="text-sm text-gray-600">Canceled orders, returns, and stock</span>
             </div>
             <IonIcon name="chevron-forward" size={22} className="text-gray-400 shrink-0" />
           </Link>

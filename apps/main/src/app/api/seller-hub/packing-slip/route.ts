@@ -9,6 +9,27 @@ import {
 import { getSellerShippoCredential, getSellerFromAddress } from "@/lib/shippo-seller";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
+/** One slip per label. Explicit groups stay together. Every other order is its own slip. */
+function slipIdGroups(orderIds: string[], raw: unknown): string[][] {
+  const allowed = new Set(orderIds);
+  if (!Array.isArray(raw)) return orderIds.map((id) => [id]);
+  const used = new Set<string>();
+  const groups: string[][] = [];
+  for (const entry of raw) {
+    if (!Array.isArray(entry)) continue;
+    const ids = [
+      ...new Set(entry.filter((id): id is string => typeof id === "string" && allowed.has(id))),
+    ];
+    if (ids.length === 0) continue;
+    ids.forEach((id) => used.add(id));
+    groups.push(ids);
+  }
+  for (const id of orderIds) {
+    if (!used.has(id)) groups.push([id]);
+  }
+  return groups;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getSessionForApi(req);
@@ -27,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const orderIds = Array.isArray(body.orderIds) ? (body.orderIds as string[]) : [];
-    const combined = Boolean(body.combined);
+    const requestedGroups = slipIdGroups(orderIds, body.groups);
 
     if (orderIds.length === 0) {
       return NextResponse.json({ error: "orderIds required" }, { status: 400 });
@@ -100,62 +121,40 @@ export async function POST(req: NextRequest) {
       packingSlipNote: member?.packingSlipNote ?? null,
     };
 
-    const groups: PackingSlipGroup[] = combined
-      ? (() => {
-          const byBuyer = new Map<string, typeof orders>();
-          for (const o of orders) {
-            const key = o.buyer.email;
-            if (!byBuyer.has(key)) byBuyer.set(key, []);
-            byBuyer.get(key)!.push(o);
-          }
-          return Array.from(byBuyer.values()).map((group) => ({
-            buyer: group[0].buyer,
-            orders: group.map((o) => ({
-              id: o.id,
-              shippingAddress: o.shippingAddress,
-              createdAt: o.createdAt,
-              stripePaymentIntentId: o.stripePaymentIntentId,
-            })),
-            combinedItems: group.flatMap((o) =>
-              o.items.map((oi) => ({
-                id: oi.id,
-                quantity: oi.quantity,
-                priceCentsAtPurchase: oi.priceCentsAtPurchase,
-                storeItem: oi.storeItem,
-                orderId: o.id,
-              }))
-            ),
-            totalCents: group.reduce((s, o) => s + o.totalCents, 0),
-            subtotalCents: group.reduce(
-              (s, o) => s + (o.subtotalCents ?? o.totalCents - o.shippingCostCents),
-              0
-            ),
-            shippingCostCents: group.reduce((s, o) => s + o.shippingCostCents, 0),
-            taxCents: group.reduce((s, o) => s + o.taxCents, 0),
-          }));
-        })()
-      : orders.map((o) => ({
-          buyer: o.buyer,
-          orders: [
-            {
-              id: o.id,
-              shippingAddress: o.shippingAddress,
-              createdAt: o.createdAt,
-              stripePaymentIntentId: o.stripePaymentIntentId,
-            },
-          ],
-          combinedItems: o.items.map((oi) => ({
-            id: oi.id,
-            quantity: oi.quantity,
-            priceCentsAtPurchase: oi.priceCentsAtPurchase,
-            storeItem: oi.storeItem,
-            orderId: o.id,
+    const byId = new Map(orders.map((order) => [order.id, order]));
+    const groups: PackingSlipGroup[] = requestedGroups
+      .map((ids) => {
+        const group = ids
+          .map((id) => byId.get(id))
+          .filter((order): order is (typeof orders)[number] => Boolean(order));
+        if (group.length === 0) return null;
+        return {
+          buyer: group[0].buyer,
+          orders: group.map((order) => ({
+            id: order.id,
+            shippingAddress: order.shippingAddress,
+            createdAt: order.createdAt,
+            stripePaymentIntentId: order.stripePaymentIntentId,
           })),
-          totalCents: o.totalCents,
-          subtotalCents: o.subtotalCents ?? o.totalCents - o.shippingCostCents,
-          shippingCostCents: o.shippingCostCents,
-          taxCents: o.taxCents,
-        }));
+          combinedItems: group.flatMap((order) =>
+            order.items.map((item) => ({
+              id: item.id,
+              quantity: item.quantity,
+              priceCentsAtPurchase: item.priceCentsAtPurchase,
+              storeItem: item.storeItem,
+              orderId: order.id,
+            }))
+          ),
+          totalCents: group.reduce((sum, order) => sum + order.totalCents, 0),
+          subtotalCents: group.reduce(
+            (sum, order) => sum + (order.subtotalCents ?? order.totalCents - order.shippingCostCents),
+            0
+          ),
+          shippingCostCents: group.reduce((sum, order) => sum + order.shippingCostCents, 0),
+          taxCents: group.reduce((sum, order) => sum + order.taxCents, 0),
+        };
+      })
+      .filter((group): group is PackingSlipGroup => Boolean(group));
 
     const pdfBytes = await generatePackingSlipPdf(groups, sellerProfile);
 

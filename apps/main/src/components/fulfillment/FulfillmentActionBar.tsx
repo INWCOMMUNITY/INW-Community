@@ -40,9 +40,7 @@ export function FulfillmentActionBar({
             {selectedCount} of {totalCount} selected
           </p>
           <p className="text-xs text-gray-500 hidden sm:block">
-            {onCombineShipping
-              ? "Combine groups these orders into one box. Purchase Labels then buys one label."
-              : "Purchase Labels buys one label per order."}
+            Each combined box gets one label and one packing slip. An order you leave out gets its own.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">

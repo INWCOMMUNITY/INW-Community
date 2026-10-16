@@ -3,8 +3,8 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
+import { notifySellerOrderCanceled } from "@/lib/store-return-notify";
 import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 import { buyerFulfillmentHasStarted } from "@/lib/store-return";
@@ -22,8 +22,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Buyer cancels an order before it is shipped.
- * Card: reverse Connect transfer, refund platform PI (incl. tax), restock.
- * Cash: cancel only, restock.
+ * Card: reverse Connect transfer, refund platform PI (incl. tax). Stock stays down until the seller chooses Return.
+ * Cash: cancel only. Stock stays down until the seller chooses Return.
  */
 export async function POST(
   req: NextRequest,
@@ -58,6 +58,7 @@ export async function POST(
   const order = await prisma.storeOrder.findFirst({
     where: { id: params.id, buyerId: session.user.id },
     include: {
+      buyer: { select: { firstName: true, lastName: true } },
       items: true,
       shipments: {
         select: {
@@ -105,16 +106,10 @@ export async function POST(
           status: "canceled",
           cancelReason: cancelReason ?? undefined,
           cancelNote: note ?? undefined,
-          inventoryRestoredAt: new Date(),
         },
       });
-      await restockOrderLinesAfterReturn(
-        tx,
-        order.items,
-        "UNDO_CONSUMPTION",
-        `buyer-cancel:${order.id}`
-      );
     });
+    notifySellerOrderCanceled(order.sellerId, order.id, buyerDisplayName(order));
     return NextResponse.json({ ok: true, refunded: false });
   }
 
@@ -130,10 +125,19 @@ export async function POST(
     stripe,
     order,
     reason: cancelReason ?? "Buyer canceled",
+    restock: false,
     note,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
+  notifySellerOrderCanceled(order.sellerId, order.id, buyerDisplayName(order));
   return NextResponse.json({ ok: true, refunded: true });
+}
+
+function buyerDisplayName(order: {
+  buyer?: { firstName?: string | null; lastName?: string | null } | null;
+}): string {
+  const name = `${order.buyer?.firstName ?? ""} ${order.buyer?.lastName ?? ""}`.trim();
+  return name || "A buyer";
 }

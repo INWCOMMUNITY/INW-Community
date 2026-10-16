@@ -109,39 +109,32 @@ export interface StoreOrderForBulkLabel {
   shippedWithOrderId?: string;
 }
 
-/**
- * Partition to-ship orders so each group shares one buyer email (API requirement for combined save).
- * Orders with no email never merge with others.
- */
-export function groupToShipOrdersByBuyer<T extends { id: string; buyer: { email?: string } }>(orders: T[]): T[][] {
-  const map = new Map<string, T[]>();
-  for (const o of orders) {
-    const email = o.buyer?.email?.trim().toLowerCase();
-    const key = email && email.length > 0 ? email : `__anon__:${o.id}`;
-    const list = map.get(key);
-    if (list) list.push(o);
-    else map.set(key, [o]);
-  }
-  return Array.from(map.values());
-}
-
 export type BulkShipGroup = { orderIds: string[]; combine: boolean };
 
-/** Fully selected combined boxes first, then any remaining orders as their own labels. */
+/**
+ * One label per explicit box, then one label per order that was left out.
+ * An order is combined only when it sits in a box the seller created. Sharing a buyer is not enough.
+ */
 export function purchaseGroupsForSelection(selectedIds: string[], combinedGroups: string[][]): BulkShipGroup[] {
   const selected = new Set(selectedIds);
   const consumed = new Set<string>();
   const groups: BulkShipGroup[] = [];
   for (const group of combinedGroups) {
-    if (group.length >= 2 && group.every((id) => selected.has(id))) {
-      groups.push({ orderIds: group, combine: true });
-      group.forEach((id) => consumed.add(id));
+    const ids = [...new Set(group.filter((id) => selected.has(id)))];
+    if (ids.length >= 2 && ids.length === group.length) {
+      groups.push({ orderIds: ids, combine: true });
+      ids.forEach((id) => consumed.add(id));
     }
   }
   for (const id of selectedIds) {
     if (!consumed.has(id)) groups.push({ orderIds: [id], combine: false });
   }
   return groups;
+}
+
+/** Same batches as labels: one packing slip for each combined box, and one for each order left out. */
+export function packingSlipGroupsForSelection(selectedIds: string[], combinedGroups: string[][]): string[][] {
+  return purchaseGroupsForSelection(selectedIds, combinedGroups).map((group) => group.orderIds);
 }
 
 /** Decode a combined-group query that may still contain `%7C` / `%7c` after one URL decode. */
@@ -367,44 +360,37 @@ export function useShippoBulkLabelFlow(options: {
       selected.push(o);
     }
 
+    const explicitGroups =
+      options?.groups && options.groups.length > 0
+        ? options.groups
+        : options?.combine === true
+          ? [{ orderIds: selected.map((order) => order.id), combine: true }]
+          : selected.map((order) => ({ orderIds: [order.id], combine: false }));
     const resolved: { orders: StoreOrderForBulkLabel[]; combine: boolean }[] = [];
-    if (options?.groups && options.groups.length > 0) {
-      const byId = new Map(selected.map((order) => [order.id, order]));
-      const used = new Set<string>();
-      for (const group of options.groups) {
-        const members = group.orderIds
-          .map((id) => byId.get(id))
-          .filter((order): order is StoreOrderForBulkLabel => Boolean(order));
-        if (members.length === 0) continue;
-        members.forEach((order) => used.add(order.id));
-        if (group.combine && members.length > 1) {
-          if (!ordersCanCombineShipping(members)) {
-            setElementsError(
-              "Combined orders must be from the same person and the same address."
-            );
-            return;
-          }
-          resolved.push({ orders: members, combine: true });
-        } else {
-          resolved.push({ orders: members, combine: false });
+    const byId = new Map(selected.map((order) => [order.id, order]));
+    const used = new Set<string>();
+    for (const group of explicitGroups) {
+      const members: StoreOrderForBulkLabel[] = [];
+      for (const id of group.orderIds) {
+        if (used.has(id)) continue;
+        const order = byId.get(id);
+        if (!order) continue;
+        members.push(order);
+        used.add(id);
+      }
+      if (members.length === 0) continue;
+      if (group.combine && members.length > 1) {
+        if (!ordersCanCombineShipping(members)) {
+          setElementsError("Combined orders must be from the same person and the same address.");
+          return;
         }
+        resolved.push({ orders: members, combine: true });
+      } else {
+        for (const order of members) resolved.push({ orders: [order], combine: false });
       }
-      const rest = selected.filter((order) => !used.has(order.id));
-      for (const buyerGroup of groupToShipOrdersByBuyer(rest)) {
-        resolved.push({ orders: buyerGroup, combine: false });
-      }
-    } else if (options?.combine === true) {
-      if (!ordersCanCombineShipping(selected)) {
-        setElementsError(
-          "Combine shipping needs two or more orders from the same person going to the same address."
-        );
-        return;
-      }
-      resolved.push({ orders: selected, combine: true });
-    } else {
-      for (const buyerGroup of groupToShipOrdersByBuyer(selected)) {
-        resolved.push({ orders: buyerGroup, combine: false });
-      }
+    }
+    for (const order of selected) {
+      if (!used.has(order.id)) resolved.push({ orders: [order], combine: false });
     }
     if (resolved.length === 0) {
       setElementsError("Select at least one order.");

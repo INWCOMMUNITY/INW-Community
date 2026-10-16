@@ -225,6 +225,7 @@ function SellerHubContent() {
       { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
       { label: "Sync Airport", href: "/seller-hub/apps", icon: "apps-outline" },
       { label: "Fulfillment", href: "/seller-hub/orders", icon: "receipt" },
+      { label: "Refunds & Cancellations", href: "/seller-hub/store/returns", icon: "arrow-undo-outline" },
       { label: "Shipping", href: "/seller-hub/shipping-setup", icon: "boat-outline" },
       { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
@@ -243,10 +244,11 @@ function SellerHubContent() {
   const hubBadgeForLabel = useCallback(
     (label: string) => {
       if (label === "Fulfillment") return pendingShip > 0;
+      if (label === "Refunds & Cancellations") return pendingReturns > 0;
       if (label === "Payouts") return payoutReady;
       return false;
     },
-    [pendingShip, payoutReady]
+    [pendingShip, pendingReturns, payoutReady]
   );
 
   return (

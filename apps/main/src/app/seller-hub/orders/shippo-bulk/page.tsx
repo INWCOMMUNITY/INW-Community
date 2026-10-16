@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ShippoElementsSurface, ShippoPrintLabelActions } from "@/components/ShippoElementsModal";
 import {
   parseCombinedOrderGroups,
+  purchaseGroupsForSelection,
   useShippoBulkLabelFlow,
   SHIPPO_BULK_EMBEDDABLE_URL,
   isOrderEligibleForBulkShip,
@@ -128,23 +129,15 @@ export default function ShippoBulkDirectPage() {
       setElementsError(null);
       return;
     }
-    const groups: BulkShipGroup[] = [];
-    const used = new Set<string>();
-    for (const set of combinedSets) {
-      const ids = set.filter((id) => eligibleIds.includes(id));
-      if (ids.length >= 2) {
-        groups.push({ orderIds: ids, combine: true });
-        ids.forEach((id) => used.add(id));
-      }
+    if ((combine || combinedSets.length > 0) && (!requestedSet || requestedSet.size === 0)) {
+      setElementsError("Choose the orders to ship, then purchase labels again.");
+      return;
     }
-    for (const id of eligibleIds) {
-      if (!used.has(id)) groups.push({ orderIds: [id], combine: false });
-    }
-    const hasCombinedBox = groups.some((group) => group.combine);
-    void runBulkFlowRef.current(
+    const groups = purchaseGroupsForSelection(
       eligibleIds,
-      hasCombinedBox ? { groups } : combine ? { combine: true } : { groups }
+      combinedSets.length > 0 ? combinedSets : combine ? [eligibleIds] : []
     );
+    void runBulkFlowRef.current(eligibleIds, { groups });
   }, [loading, fetchError, orders, setElementsError]);
 
   const showIdleHint =

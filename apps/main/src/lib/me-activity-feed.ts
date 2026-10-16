@@ -13,6 +13,7 @@ export type ActivityNav =
   | { kind: "seller_orders" }
   | { kind: "buyer_order"; orderId: string }
   | { kind: "seller_order"; orderId: string }
+  | { kind: "seller_refunds" }
   | { kind: "group"; slug: string }
   | { kind: "resale_chat"; conversationId: string }
   | { kind: "buyer_resale_offer"; offerId: string }
@@ -109,6 +110,8 @@ export async function getMeActivityFeed(
     buyerOrders,
     sellerOrders,
     resaleOffersSeller,
+    sellerCanceledOrders,
+    sellerRefundRequests,
     resaleOffersBuyer,
   ] = await Promise.all([
     prisma.friendRequest.findMany({
@@ -213,6 +216,41 @@ export async function getMeActivityFeed(
         storeItem: { select: { id: true, title: true, photos: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: TAKE_EACH,
+    }),
+    prisma.storeOrder.findMany({
+      where: {
+        sellerId: memberId,
+        updatedAt: { gte: orderSince },
+        NOT: { cancelReason: "Item sold before checkout was complete" },
+        OR: [
+          { status: { in: ["canceled", "cancelled"] } },
+          { status: "refunded", storeReturns: { none: {} } },
+        ],
+      },
+      include: {
+        buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+        items: { take: 1, select: { storeItem: { select: { title: true, photos: true } } } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: TAKE_EACH,
+    }),
+    prisma.storeReturn.findMany({
+      where: {
+        status: "requested",
+        requestedAt: { gte: orderSince },
+        order: { sellerId: memberId },
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+            items: { take: 1, select: { storeItem: { select: { title: true, photos: true } } } },
+          },
+        },
+      },
+      orderBy: { requestedAt: "desc" },
       take: TAKE_EACH,
     }),
     prisma.resaleOffer.findMany({
@@ -464,6 +502,40 @@ export async function getMeActivityFeed(
       occurredAt: ord.createdAt.toISOString(),
       actor: ord.buyer,
       nav: { kind: "seller_order", orderId: ord.id },
+      storeItemPhotoUrl,
+    });
+  }
+
+  for (const ord of sellerCanceledOrders) {
+    if (skipActor(ord.buyer.id)) continue;
+    const label = ord.items[0]?.storeItem?.title ?? "Order";
+    const storeItemPhotoUrl = firstListingPhoto(ord.items[0]?.storeItem?.photos);
+    items.push({
+      id: `order_canceled:${ord.id}`,
+      type: "order_canceled",
+      category: "commerce",
+      title: "Order canceled",
+      subtitle: `${memberName(ord.buyer)} canceled ${label}`,
+      occurredAt: ord.updatedAt.toISOString(),
+      actor: ord.buyer,
+      nav: { kind: "seller_refunds" },
+      storeItemPhotoUrl,
+    });
+  }
+
+  for (const ret of sellerRefundRequests) {
+    if (skipActor(ret.order.buyer.id)) continue;
+    const label = ret.order.items[0]?.storeItem?.title ?? "an item";
+    const storeItemPhotoUrl = firstListingPhoto(ret.order.items[0]?.storeItem?.photos);
+    items.push({
+      id: `refund_request:${ret.id}`,
+      type: "refund_request",
+      category: "commerce",
+      title: "Refund request",
+      subtitle: `${memberName(ret.order.buyer)} requested a refund for ${label}`,
+      occurredAt: ret.requestedAt.toISOString(),
+      actor: ret.order.buyer,
+      nav: { kind: "seller_refunds" },
       storeItemPhotoUrl,
     });
   }

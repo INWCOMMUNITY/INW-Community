@@ -153,15 +153,13 @@ describe("Shippo package from listing options", () => {
     expect(three?.line_items).toHaveLength(1);
     expect(three?.line_items[0]?.quantity).toBe(1);
     expect(three?.line_items[0]?.title).toBe("Combined shipment");
-    expect(three?.order_number).toMatch(/^CMB[A-Z0-9]+$/);
-    expect(three?.order_number).not.toContain("A1");
-    expect(three?.order_number).not.toContain("C3");
+    expect(three?.order_number).toMatch(/^CMB[0-9A-F]{8,}$/);
     expect(details?.line_items).toHaveLength(1);
     expect(details?.line_items[0]?.quantity).toBe(1);
     expect(details?.line_items[0]?.unit_weight).toBe("28");
     expect(details?.line_items[0]?.title).toBe("Combined shipment");
     expect(details?.parcels).toBeUndefined();
-    expect(details?.order_number).toMatch(/^CMB[A-Z0-9]+$/);
+    expect(details?.order_number).toMatch(/^CMB[0-9A-F]{8,}$/);
     expect(details?.order_number).not.toBe(three?.order_number);
     expect(details?.address_to.street1).toBe("1 Main St");
   });

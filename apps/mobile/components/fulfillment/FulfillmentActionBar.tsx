@@ -31,9 +31,7 @@ export function FulfillmentActionBar({
         {selectedCount} of {totalCount} selected
       </Text>
       <Text style={styles.hint}>
-        {onCombineShipping
-          ? "Combine groups these orders into one box. Purchase labels then buys one label."
-          : "Purchase labels buys one label per order."}
+        Each combined box gets one label and one packing slip. An order you leave out gets its own.
       </Text>
       <View style={styles.row}>
         <Pressable

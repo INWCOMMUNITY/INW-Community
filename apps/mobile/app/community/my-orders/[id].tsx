@@ -29,6 +29,7 @@ import {
   buyerHasPendingRefund,
   buyerRefundStatusNote,
   BUYER_RETURN_SHIPPING_WARNING,
+  canCancelMobileBuyerOrder,
   canRequestMobileBuyerRefund,
   formatBuyerRefundFeeDeductionLine,
   getBuyerOrderStatusLabel,
@@ -514,7 +515,7 @@ export default function MyOrderDetailScreen() {
       ) : null}
 
       <View style={styles.actionsSection}>
-        {order.status === "paid" && (
+        {canCancelMobileBuyerOrder(order) && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
             onPress={() => setRefundPolicyIntent("cancel")}

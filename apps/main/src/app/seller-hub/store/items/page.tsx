@@ -33,6 +33,7 @@ type MyStoreItem = {
   soldQty?: number;
   soldChannel?: "inw" | "etsy";
   canRelist?: boolean;
+  canceled?: boolean;
   /** Where the listing is live — INW always; Shopify when linked. */
   channels?: AppsAirportChannelId[];
   needsShopifyMetafields?: boolean;
@@ -60,6 +61,7 @@ function quantityCapTitle(sharedPool: boolean | undefined, sold: boolean): strin
 }
 
 function statusLabel(item: MyStoreItem): string {
+  if (item.canceled) return "Canceled";
   if (item.status === "draft") return "Draft";
   if (item.status === "sold_out") return "Sold";
   if (item.status === "inactive") return "Ended";
@@ -824,7 +826,7 @@ function MyItemsPageInner() {
                       ) : null}
                       {tab === "sold" && item.soldAt ? (
                         <div className="mt-0.5 text-xs text-neutral-500">
-                          Sold {new Date(item.soldAt).toLocaleDateString()}
+                          {item.canceled ? "Canceled" : "Sold"} {new Date(item.soldAt).toLocaleDateString()}
                           {item.soldChannel === "etsy"
                             ? " · Etsy"
                             : item.soldChannel === "inw"
@@ -963,7 +965,7 @@ function MyItemsPageInner() {
                             ) : null}
                             {tab === "sold" && item.soldAt ? (
                               <div className="mt-0.5 text-xs text-neutral-500">
-                                Sold {new Date(item.soldAt).toLocaleDateString()}
+                                {item.canceled ? "Canceled" : "Sold"} {new Date(item.soldAt).toLocaleDateString()}
                                 {item.soldChannel === "etsy"
                                   ? " · Etsy"
                                   : item.soldChannel === "inw"

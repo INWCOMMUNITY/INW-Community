@@ -226,9 +226,7 @@ export async function completeReceivedStoreReturnSettlement(args: {
     order,
     amountCents,
     reason: storeReturn.reason ?? "return_received",
-    restock: true,
-    restockOperationId: args.storeReturnId,
-    restockKind: "PHYSICAL_RECEIPT",
+    restock: false,
     now: args.now,
   });
   if (buyer.status === "uncertain") {

@@ -42,7 +42,8 @@ interface StoreOrder {
 interface PackingSlipPrintProps {
   orders: StoreOrder[];
   sellerProfile: PackingSlipSellerProfile | null;
-  combined?: boolean;
+  /** One inner list per packing slip. A list with several ids is one slip for one label. */
+  slipGroups?: string[][];
 }
 
 function formatSellerAddress(addr: string | null, city?: string | null): string {
@@ -67,30 +68,33 @@ function shipToBlock(buyer: { firstName: string; lastName: string }, shippingAdd
   return formatShippingAddress(addr);
 }
 
-function toPrintGroup(order: StoreOrder): PackingSlipGroup {
+function toPrintGroup(orders: StoreOrder[]): PackingSlipGroup | null {
+  const group = orders.filter(Boolean);
+  if (group.length === 0) return null;
   return {
-    buyer: order.buyer,
-    orders: [
-      {
-        id: order.id,
-        shippingAddress: order.shippingAddress,
-        createdAt: order.createdAt,
-        stripePaymentIntentId: order.stripePaymentIntentId,
-        orderKind: order.orderKind,
-      },
-    ],
-    combinedItems: order.items.map((oi) => ({ ...oi, orderId: order.id })),
-    totalCents: order.totalCents,
-    subtotalCents: order.subtotalCents ?? order.totalCents - order.shippingCostCents,
-    shippingCostCents: order.shippingCostCents,
-    taxCents: order.taxCents,
+    buyer: group[0].buyer,
+    orders: group.map((order) => ({
+      id: order.id,
+      shippingAddress: order.shippingAddress,
+      createdAt: order.createdAt,
+      stripePaymentIntentId: order.stripePaymentIntentId,
+      orderKind: order.orderKind,
+    })),
+    combinedItems: group.flatMap((order) => order.items.map((item) => ({ ...item, orderId: order.id }))),
+    totalCents: group.reduce((sum, order) => sum + order.totalCents, 0),
+    subtotalCents: group.reduce(
+      (sum, order) => sum + (order.subtotalCents ?? order.totalCents - order.shippingCostCents),
+      0
+    ),
+    shippingCostCents: group.reduce((sum, order) => sum + order.shippingCostCents, 0),
+    taxCents: group.reduce((sum, order) => sum + (order.taxCents ?? 0), 0),
   };
 }
 
 export function PackingSlipPrint({
   orders,
   sellerProfile,
-  combined = false,
+  slipGroups,
 }: PackingSlipPrintProps) {
   if (orders.length === 0 || !sellerProfile) {
     return null;
@@ -101,34 +105,12 @@ export function PackingSlipPrint({
   const contact = packingSlipContactLine(biz);
   const note = sellerProfile.packingSlipNote?.trim() ?? "";
 
-  const ordersToPrint: PackingSlipGroup[] = combined
-    ? (() => {
-        const byBuyer = new Map<string, StoreOrder[]>();
-        orders.forEach((o) => {
-          const key = o.buyer.email;
-          if (!byBuyer.has(key)) byBuyer.set(key, []);
-          byBuyer.get(key)!.push(o);
-        });
-        return Array.from(byBuyer.values()).map((group) => ({
-          buyer: group[0].buyer,
-          orders: group.map((o) => ({
-            id: o.id,
-            shippingAddress: o.shippingAddress,
-            createdAt: o.createdAt,
-            stripePaymentIntentId: o.stripePaymentIntentId,
-            orderKind: o.orderKind,
-          })),
-          combinedItems: group.flatMap((o) => o.items.map((oi) => ({ ...oi, orderId: o.id }))),
-          totalCents: group.reduce((s, o) => s + o.totalCents, 0),
-          subtotalCents: group.reduce(
-            (s, o) => s + (o.subtotalCents ?? o.totalCents - o.shippingCostCents),
-            0
-          ),
-          shippingCostCents: group.reduce((s, o) => s + o.shippingCostCents, 0),
-          taxCents: group.reduce((s, o) => s + (o.taxCents ?? 0), 0),
-        }));
-      })()
-    : orders.map(toPrintGroup);
+  const byId = new Map(orders.map((order) => [order.id, order]));
+  const groupedIds =
+    slipGroups && slipGroups.length > 0 ? slipGroups : orders.map((order) => [order.id]);
+  const ordersToPrint: PackingSlipGroup[] = groupedIds
+    .map((ids) => toPrintGroup(ids.map((id) => byId.get(id)).filter((order): order is StoreOrder => Boolean(order))))
+    .filter((group): group is PackingSlipGroup => Boolean(group));
 
   const returnAddress =
     sellerProfile.returnAddressFormatted?.trim() ||

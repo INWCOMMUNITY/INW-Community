@@ -17,6 +17,7 @@ import { OrderEmptyState } from "@/components/fulfillment/OrderEmptyState";
 import { ShippoConnectionBanner } from "@/components/fulfillment/ShippoConnectionBanner";
 import type { FulfillmentStoreOrder, SellerProfileForSlips } from "@/components/fulfillment/types";
 import {
+  packingSlipGroupsForSelection,
   purchaseGroupsForSelection,
   useShippoBulkLabelFlow,
   SHIPPO_BULK_EMBEDDABLE_URL,
@@ -370,9 +371,14 @@ export function FulfillmentHubContent(props: {
 
   const selectedIdsArray = useMemo(() => Array.from(selectedOrderIds), [selectedOrderIds]);
   const selectedOrders = toShipOrders.filter((o) => selectedOrderIds.has(o.id));
-  const sameBuyer =
-    selectedOrders.length <= 1 ||
-    selectedOrders.every((o) => o.buyer?.email === selectedOrders[0]?.buyer?.email);
+  const labelGroups = useMemo(
+    () => purchaseGroupsForSelection(selectedIdsArray, combinedGroups),
+    [selectedIdsArray, combinedGroups]
+  );
+  const slipGroups = useMemo(
+    () => packingSlipGroupsForSelection(selectedIdsArray, combinedGroups),
+    [selectedIdsArray, combinedGroups]
+  );
   const canCombineShipping = ordersCanCombineShipping(selectedOrders);
   const eligibleClusters = useMemo(
     () => clusterOrdersForCombinedShipping(toShipOrders).map((group) => group.map((order) => order.id)),
@@ -660,7 +666,7 @@ export function FulfillmentHubContent(props: {
                     })),
                   }))}
                   sellerProfile={sellerProfile}
-                  combined={selectedOrders.length > 1 && sameBuyer}
+                  slipGroups={slipGroups}
                 />
               </div>
             ) : null}
@@ -677,7 +683,7 @@ export function FulfillmentHubContent(props: {
               shippingConnected={shippingConnected}
               onPurchaseLabels={() =>
                 void runBulkFlow(selectedIdsArray, {
-                  groups: purchaseGroupsForSelection(selectedIdsArray, combinedGroups),
+                  groups: labelGroups,
                 })
               }
               onCombineShipping={
