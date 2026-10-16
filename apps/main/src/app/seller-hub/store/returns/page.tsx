@@ -182,7 +182,7 @@ export default function RequestedReturnsPage() {
       <p className="text-gray-600 mb-6">
         Refund requests arrive here after an item ships. Approve or decline each one. Canceled orders
         are listed here too. Under those items, choose Return only when you have that variant back.
-        Don't Return leaves the count off the listing. After you approve a mailed return, send a Shippo
+        Don&apos;t Return leaves the count off the listing. After you approve a mailed return, send a Shippo
         return label, then refund when the item comes back. Courtesy refunds send money now and the
         buyer keeps the item. Refunds come from My Funds.
       </p>
