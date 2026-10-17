@@ -373,7 +373,7 @@ export function validateBuyerResponses(
 function answerForField(
   field: ListingBuyerFieldPublic,
   index: number,
-  entries: Array<{ fieldId?: unknown; title?: unknown }>,
+  entries: Array<{ fieldId?: unknown; title?: unknown; text?: unknown; optionLabel?: unknown; files?: unknown }>,
   byId: Map<string, { fieldId?: unknown; title?: unknown; text?: unknown; optionLabel?: unknown; files?: unknown }>,
   knownIds: Set<string>
 ) {
