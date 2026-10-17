@@ -79,8 +79,19 @@ export type StorefrontTransferReversalStatus =
 export type StorefrontTransferReversalResult = {
   status: StorefrontTransferReversalStatus;
   reversalId?: string;
+  /** Amount actually reversed (or already reversed / skipped as 0). */
+  amountCents?: number;
   error?: string;
 };
+
+/** Cap a requested reverse to what Stripe still allows on the transfer. */
+export function clampStorefrontTransferReversalCents(
+  requestedCents: number,
+  transfer: { amount: number; amount_reversed?: number | null }
+): number {
+  const remaining = Math.max(0, transfer.amount - Math.max(0, transfer.amount_reversed ?? 0));
+  return Math.max(0, Math.min(Math.max(0, requestedCents), remaining));
+}
 
 type ListedTransferReversal = {
   id: string;
@@ -182,7 +193,20 @@ export async function ensureStorefrontTransferReversal(
     refundOperationId?: string | null;
   }
 ): Promise<StorefrontTransferReversalResult> {
-  if (args.amountCents <= 0) return { status: "skipped" };
+  if (args.amountCents <= 0) return { status: "skipped", amountCents: 0 };
+
+  let transfer: { amount: number; amount_reversed?: number | null };
+  try {
+    transfer = await stripe.transfers.retrieve(args.transferId);
+  } catch (e) {
+    return {
+      status: "uncertain",
+      error: e instanceof Error ? e.message : "Could not load seller transfer",
+    };
+  }
+
+  // Recalculated order math can be a few cents above the live transfer (e.g. tax in fee base).
+  const amountCents = clampStorefrontTransferReversalCents(args.amountCents, transfer);
 
   const discovered = await findExistingStorefrontTransferReversal(stripe, args);
   if (discovered.status === "lookup_failed") {
@@ -192,15 +216,29 @@ export async function ensureStorefrontTransferReversal(
     return { status: "conflict", error: discovered.error };
   }
   if (discovered.status === "found") {
-    if (discovered.reversal.amount !== args.amountCents) {
+    const remaining = Math.max(0, transfer.amount - Math.max(0, transfer.amount_reversed ?? 0));
+    const matchesRequested = discovered.reversal.amount === amountCents;
+    const matchesFullTransfer = discovered.reversal.amount === transfer.amount;
+    const fullyReversedAlready = remaining === 0;
+    if (!matchesRequested && !matchesFullTransfer && !fullyReversedAlready) {
       return {
         status: "conflict",
         reversalId: discovered.reversal.id,
+        amountCents: discovered.reversal.amount,
         error:
           "Existing seller transfer reversal amount conflicts with this refund; operator reconciliation is required",
       };
     }
-    return { status: "already_reversed", reversalId: discovered.reversal.id };
+    return {
+      status: "already_reversed",
+      reversalId: discovered.reversal.id,
+      amountCents: discovered.reversal.amount,
+    };
+  }
+
+  if (amountCents <= 0) {
+    // Nothing left on the transfer (already reversed elsewhere or zero-value).
+    return { status: "skipped", amountCents: 0 };
   }
 
   const metadata = causalStorefrontReversalMetadata(args);
@@ -208,22 +246,31 @@ export async function ensureStorefrontTransferReversal(
   try {
     const created = await stripe.transfers.createReversal(
       args.transferId,
-      { amount: args.amountCents, metadata },
+      { amount: amountCents, metadata },
       { idempotencyKey }
     );
-    return { status: "reversed", reversalId: created.id };
+    return { status: "reversed", reversalId: created.id, amountCents };
   } catch (e) {
     const rediscovered = await findExistingStorefrontTransferReversal(stripe, args);
     if (rediscovered.status === "found") {
-      if (rediscovered.reversal.amount !== args.amountCents) {
+      const remaining = Math.max(0, transfer.amount - Math.max(0, transfer.amount_reversed ?? 0));
+      const matchesRequested = rediscovered.reversal.amount === amountCents;
+      const matchesFullTransfer = rediscovered.reversal.amount === transfer.amount;
+      const fullyReversedAlready = remaining === 0;
+      if (!matchesRequested && !matchesFullTransfer && !fullyReversedAlready) {
         return {
           status: "conflict",
           reversalId: rediscovered.reversal.id,
+          amountCents: rediscovered.reversal.amount,
           error:
             "Existing seller transfer reversal amount conflicts with this refund; operator reconciliation is required",
         };
       }
-      return { status: "already_reversed", reversalId: rediscovered.reversal.id };
+      return {
+        status: "already_reversed",
+        reversalId: rediscovered.reversal.id,
+        amountCents: rediscovered.reversal.amount,
+      };
     }
     const msg = e instanceof Error ? e.message : "Could not reverse seller transfer";
     if (isUnknownRefundProviderOutcome(e) || isStripeRefundIdempotencyMismatch(e)) {
@@ -751,7 +798,7 @@ export async function refundPaidStorefrontOrder(args: {
     }
   }
 
-  const ledgerDebitCents = args.ledgerDebitCents ?? defaultLedgerDebit;
+  let ledgerDebitCents = args.ledgerDebitCents ?? defaultLedgerDebit;
 
   if (amount === 0) {
     await persistLocalStorefrontRefundCompletion({
@@ -843,6 +890,11 @@ export async function refundPaidStorefrontOrder(args: {
       });
       if (reversal.status !== "reversed" && reversal.status !== "already_reversed" && reversal.status !== "skipped") {
         return reversalHttpError(reversal);
+      }
+      // Keep My Funds debit aligned with the amount Stripe actually reversed.
+      if (args.ledgerDebitCents == null && typeof reversal.amountCents === "number") {
+        const feeAddon = feeBearer === "seller" ? nonRefundableStripeFeeCents(order) : 0;
+        ledgerDebitCents = reversal.amountCents + feeAddon;
       }
     }
     try {

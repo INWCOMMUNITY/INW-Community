@@ -160,9 +160,9 @@ describe("completeReceivedStoreReturnSettlement", () => {
         alreadySucceeded: false,
       };
     });
-    ensureStorefrontTransferReversal.mockImplementation(async () => {
+    ensureStorefrontTransferReversal.mockImplementation(async (_stripe: unknown, args: { amountCents: number }) => {
       calls.push("reversal");
-      return { status: "reversed", reversalId: "rev_1" };
+      return { status: "reversed", reversalId: "rev_1", amountCents: args.amountCents };
     });
     executeSellerReturnEntitlement.mockImplementation(async () => {
       calls.push("entitlement");
