@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { LATEST_STORE_RETURN_ORDER_BY } from "@/lib/store-return-order";
@@ -54,7 +54,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   await prisma.storeOrder.update({
     where: { id: order.id },
-    data: { localDeliveryDetails: withReturnRefundTiming(order.localDeliveryDetails, timing) },
+    data: {
+      localDeliveryDetails: withReturnRefundTiming(
+        order.localDeliveryDetails,
+        timing
+      ) as Prisma.InputJsonValue,
+    },
   });
 
   return NextResponse.json({ ok: true, timing });
