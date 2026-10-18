@@ -267,7 +267,7 @@ export function BuyerOrderDetailContent() {
             <div className="flex flex-wrap gap-2 mt-2">
               {trackingHref ? (
                 <a href={trackingHref} target="_blank" rel="noopener noreferrer" className={outlineBtn}>
-                  Track package
+                  Track Package
                 </a>
               ) : null}
               <button type="button" className={outlineBtn} onClick={() => copyTracking(trackingNumber)}>
