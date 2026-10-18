@@ -18,9 +18,9 @@ const HEADING = rgb(62 / 255, 67 / 255, 47 / 255); // #3E432F
 const BODY = rgb(80 / 255, 85 / 255, 66 / 255); // #505542
 const ACCENT = rgb(93 / 255, 79 / 255, 64 / 255); // #5d4f40
 
-const FLYER_LINE_1 = "is a proud partner of Northwest Community.";
+const FLYER_LINE_1 = "A proud partner of Northwest Community.";
 const FLYER_LINE_2 =
-  "Together we champion locally owned businesses across the Inland Northwest.";
+  "Together we work to help local businesses thrive—keeping services local and money in the Inland Northwest.";
 const FLYER_FEATURES =
   "Shop Locally Online - Local Business Directory - Exclusive Community Social Media - Community Calendars";
 
