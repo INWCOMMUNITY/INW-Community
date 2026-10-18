@@ -1,10 +1,17 @@
 import { sendPushNotification } from "@/lib/send-push-notification";
 import { formatReturnLabelDeduction } from "@/lib/seller-return-label-policy";
 
-export function notifySellerReturnRequested(sellerId: string, orderId: string, buyerName: string): void {
+export function notifySellerReturnRequested(
+  sellerId: string,
+  orderId: string,
+  buyerName: string,
+  options?: { needsReturnLabel?: boolean }
+): void {
   sendPushNotification(sellerId, {
     title: "Refund request",
-    body: `${buyerName} requested a refund. Review it in Refunds & Cancellations.`,
+    body: options?.needsReturnLabel
+      ? `${buyerName} requested a refund. Send the return label from your orders page.`
+      : `${buyerName} requested a refund. Review it in Refunds & Cancellations.`,
     data: { screen: "seller-returns", orderId },
     category: "commerce",
   }).catch(() => {});
@@ -38,10 +45,10 @@ export function notifyBuyerReturnLabelReady(
       ? ` ${formatReturnLabelDeduction(deductCents)} will be deducted from your refund.`
       : "";
   sendPushNotification(buyerId, {
-    title: "Your return label is ready",
+    title: "Your return label arrived",
     body: deducted
-      ? `Your return label is ready.${deducted}`
-      : "Your return label is ready. Print it from your order.",
+      ? `Your return label arrived.${deducted} Print it from your order.`
+      : "Your return label arrived. Print it from your order.",
     data: { screen: "my-orders", orderId },
     category: "commerce",
   }).catch(() => {});

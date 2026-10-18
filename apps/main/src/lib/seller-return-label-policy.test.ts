@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buyerReturnLabelFollowup,
   buyerReturnShippingWarning,
   chargeReturnShippingForMode,
   handlingTimeBoldLine,
@@ -52,5 +53,16 @@ describe("seller return label policy", () => {
 
   it("names the seller in the buyer warning", () => {
     expect(buyerReturnShippingWarning("Northwest Community")).toContain("Northwest Community doesn't offer free returns");
+  });
+
+  it("tells the buyer after they choose a reason whether that reason includes a free label", () => {
+    const policy = policyFromStored({ returnLabelPayer: "by_reason" });
+    expect(buyerReturnLabelFollowup("Northwest Community", policy, "Changed my mind")).toContain(
+      "doesn't offer free returns"
+    );
+    expect(buyerReturnLabelFollowup("Northwest Community", policy, "Order Arrived Damaged")).toBe(
+      "Northwest Community will send you a return label very soon!"
+    );
+    expect(buyerReturnLabelFollowup("Northwest Community", policy, "Other")).toContain("will decide");
   });
 });

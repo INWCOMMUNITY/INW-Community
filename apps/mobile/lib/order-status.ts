@@ -75,6 +75,80 @@ export function buyerHasPendingRefund(order: {
   return storeOrderRefundPhase(order) != null;
 }
 
+export type BuyerCommerceStatusTone = "pending" | "approved" | "moving" | "complete" | "declined";
+
+export type BuyerCommerceStatus = {
+  title: string;
+  detail: string;
+  note?: string;
+  tone: BuyerCommerceStatusTone;
+  icon: "time-outline" | "card-outline" | "print-outline" | "checkmark-circle-outline" | "checkmark-done-outline" | "swap-horizontal-outline" | "cube-outline" | "close-circle-outline";
+};
+
+/** Title and short detail for a buyer refund or return. Keep in sync with apps/main buyer-commerce-status.ts. */
+export function buyerCommerceStatus(order: {
+  status: string;
+  isCashOrder?: boolean;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
+  refundRequestedAt?: string | null;
+  refundReason?: string | null;
+  storeReturn?: { status: string; declineReason?: string | null } | null;
+  returnShipment?: { labelUrl?: string | null } | null;
+}): BuyerCommerceStatus | null {
+  const phase = storeOrderRefundPhase(order);
+  if (phase === "complete") {
+    return { title: "Refund complete", detail: BUYER_REFUND_TIMING_NOTE, tone: "complete", icon: "checkmark-done-outline" };
+  }
+  if (phase === "initiated") {
+    return { title: "Refund initiated", detail: BUYER_REFUND_TIMING_NOTE, tone: "moving", icon: "card-outline" };
+  }
+
+  const ret = order.storeReturn;
+  if (ret?.status === "requested") {
+    return { title: "Return requested", detail: "The seller will review.", tone: "pending", icon: "time-outline" };
+  }
+  if (ret?.status === "awaiting_return") {
+    const hasLabel = Boolean(order.returnShipment?.labelUrl);
+    return {
+      title: "Return approved",
+      detail: hasLabel ? "Print your return label." : "A return label is on the way.",
+      tone: "approved",
+      icon: hasLabel ? "print-outline" : "checkmark-circle-outline",
+    };
+  }
+  if (ret?.status === "in_transit") {
+    return { title: "Return in progress", detail: "On the way back to the seller.", tone: "moving", icon: "swap-horizontal-outline" };
+  }
+  if (ret?.status === "received") {
+    return { title: "Return received", detail: "Your refund is processing.", tone: "moving", icon: "cube-outline" };
+  }
+  if (ret?.status === "refunded") {
+    return { title: "Refund initiated", detail: BUYER_REFUND_TIMING_NOTE, tone: "moving", icon: "card-outline" };
+  }
+  if (ret?.status === "declined") {
+    return {
+      title: "Return declined",
+      detail: ret.declineReason?.trim() || "The seller declined this request.",
+      tone: "declined",
+      icon: "close-circle-outline",
+    };
+  }
+  if (ret?.status === "canceled") {
+    return { title: "Return canceled", detail: "This return was canceled.", tone: "declined", icon: "close-circle-outline" };
+  }
+  if (order.refundRequestedAt) {
+    return {
+      title: "Refund requested",
+      detail: "The seller will review.",
+      note: order.refundReason?.trim() || undefined,
+      tone: "pending",
+      icon: "time-outline",
+    };
+  }
+  return null;
+}
+
 export const BUYER_RETURN_SHIPPING_WARNING =
   "This seller charges return shipping. The Shippo return-label price will be deducted from your refund once the seller buys the label. The exact amount is set at that time.";
 

@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Alert,
   TextInput,
+  Modal,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import {
   storeReturnSellerMoneyAction,
   storeReturnSellerMoneyActionLabel,
 } from "@/lib/store-return-seller-action";
+import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
 
 interface OrderItem {
   id: string;
@@ -45,6 +47,7 @@ interface StoreOrder {
   cancelReason?: string | null;
   inventoryRestoredAt?: string | null;
   createdAt: string;
+  localDeliveryDetails?: unknown;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   storeReturn?: StoreReturn | null;
@@ -102,6 +105,8 @@ export default function ReturnsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
+  const [choiceBusy, setChoiceBusy] = useState(false);
+  const [choiceError, setChoiceError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     Promise.all([
@@ -131,6 +136,26 @@ export default function ReturnsScreen() {
 
   const openReturnLabel = (orderId: string) => {
     router.push(`/seller-hub/shippo-order/${orderId}?mode=return` as never);
+  };
+
+  const choiceOrder = orders.find((order) => sellerMustChooseReturnRefundTiming(order)) ?? null;
+
+  const chooseRefundTiming = async (timing: "now" | "on_arrival") => {
+    if (!choiceOrder || choiceBusy) return;
+    setChoiceBusy(true);
+    setChoiceError(null);
+    try {
+      if (timing === "now") {
+        await apiPost(`/api/store-orders/${choiceOrder.id}/returns/receive`, {});
+      } else {
+        await apiPost(`/api/store-orders/${choiceOrder.id}/returns/refund-timing`, { timing: "on_arrival" });
+      }
+      load();
+    } catch (e) {
+      setChoiceError(e instanceof Error ? e.message : "Could not save that choice.");
+    } finally {
+      setChoiceBusy(false);
+    }
   };
 
   const act = async (orderId: string, path: string, body?: object) => {
@@ -190,7 +215,13 @@ export default function ReturnsScreen() {
               <Text style={styles.buyer}>
                 {order.buyer.firstName} {order.buyer.lastName}
               </Text>
-              <Text style={styles.meta}>{ret ? statusCopy(ret.status) : "Canceled"}</Text>
+              <Text style={styles.meta}>
+                {ret
+                  ? ret.status === "awaiting_return" && !order.returnShipment?.labelUrl
+                    ? "Return approved. Send the buyer a return label."
+                    : statusCopy(ret.status)
+                  : "Canceled"}
+              </Text>
               {ret?.reason ? <Text style={styles.meta}>Reason: {ret.reason}</Text> : null}
               {!ret && order.cancelReason ? (
                 <Text style={styles.meta}>{order.cancelReason}</Text>
@@ -295,7 +326,8 @@ export default function ReturnsScreen() {
               {hasShip &&
               (ret?.status === "awaiting_return" || ret?.status === "in_transit") &&
               !order.returnShipment?.labelUrl ? (
-                <View style={styles.actions}>
+                <View style={[styles.actions, styles.pairRow]}>
+                  <View style={styles.pairCol}>
                   <Pressable
                     style={styles.btn}
                     onPress={() => {
@@ -332,10 +364,31 @@ export default function ReturnsScreen() {
                   >
                     <Text style={styles.btnText}>Send Buyer Return Label</Text>
                   </Pressable>
+                  {returnLabelIsDue(order) ? (
+                    <View style={styles.dueTag}>
+                      <Text style={styles.dueTagText}>Due</Text>
+                    </View>
+                  ) : null}
+                  </View>
+                  {moneyAction ? (
+                    <View style={[styles.pairCol, styles.autoRefundBlock]}>
+                      <Pressable
+                        style={styles.btn}
+                        disabled={busy}
+                        onPress={() => act(order.id, "/returns/receive")}
+                      >
+                        <Text style={styles.btnText}>
+                          {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
+                        </Text>
+                      </Pressable>
+                      {moneyAction === "receive" ? (
+                        <Text style={styles.autoRefundNote}>(Refunds Automatic at Delivery)</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-              {moneyAction ? (
-                <View style={styles.actions}>
+              ) : moneyAction ? (
+                <View style={[styles.actions, styles.autoRefundBlock]}>
                   <Pressable
                     style={styles.btn}
                     disabled={busy}
@@ -345,6 +398,9 @@ export default function ReturnsScreen() {
                       {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
                     </Text>
                   </Pressable>
+                  {moneyAction === "receive" ? (
+                    <Text style={styles.autoRefundNote}>(Refunds Automatic at Delivery)</Text>
+                  ) : null}
                 </View>
               ) : null}
               {declineFor === order.id ? (
@@ -372,6 +428,29 @@ export default function ReturnsScreen() {
           );
         })
       )}
+      <Modal visible={choiceOrder != null} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>When should this refund go out?</Text>
+            <Text style={styles.modalBody}>The return label was sent. Choose one to continue.</Text>
+            {choiceError ? <Text style={styles.error}>{choiceError}</Text> : null}
+            <Pressable
+              style={styles.btn}
+              disabled={choiceBusy}
+              onPress={() => void chooseRefundTiming("now")}
+            >
+              <Text style={styles.btnText}>{choiceBusy ? "Working…" : "Refund Now"}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.btnOutline, { marginTop: 10 }]}
+              disabled={choiceBusy}
+              onPress={() => void chooseRefundTiming("on_arrival")}
+            >
+              <Text style={styles.btnOutlineText}>Refund when item arrives</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -423,6 +502,28 @@ const styles = StyleSheet.create({
   },
   stockBtnOutlineText: { color: theme.colors.primary, fontSize: 15, fontWeight: "700" },
   actions: { marginTop: 12, gap: 8 },
+  pairRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  pairCol: { flex: 1, gap: 8 },
+  dueStack: { gap: 8 },
+  dueTag: {
+    backgroundColor: "#6b2430",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  dueTagText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  autoRefundBlock: { alignItems: "center" },
+  autoRefundNote: { fontSize: 13, fontWeight: "700", color: "#6b2430", textAlign: "center" },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: { backgroundColor: "#fff", borderRadius: 12, padding: 20 },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.heading },
+  modalBody: { marginTop: 8, marginBottom: 16, fontSize: 14, lineHeight: 20, color: "#444" },
   btn: {
     backgroundColor: theme.colors.primary,
     borderRadius: 8,

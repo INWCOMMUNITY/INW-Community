@@ -3,9 +3,9 @@
 import type { FulfillmentTabKey } from "@/lib/store-order-fulfillment";
 import type { FulfillmentTabCounts } from "./types";
 
-const TABS: { key: FulfillmentTabKey; label: string; countKey?: keyof FulfillmentTabCounts }[] = [
-  { key: "ship", label: "Ship", countKey: "ship" },
-  { key: "deliveries", label: "Deliveries", countKey: "deliveries" },
+const TABS: { key: FulfillmentTabKey; label: string; countKey?: keyof FulfillmentTabCounts; alert?: boolean }[] = [
+  { key: "ship", label: "Ship", countKey: "ship", alert: true },
+  { key: "deliveries", label: "Deliveries", countKey: "deliveries", alert: true },
   { key: "shipped", label: "Shipped", countKey: "shipped" },
   { key: "history", label: "History" },
 ];
@@ -46,6 +46,15 @@ export function FulfillmentTabBar({ activeTab, onTabChange, counts }: Fulfillmen
                 }}
               >
                 {count}
+              </span>
+            ) : null}
+            {t.alert && count != null ? (
+              <span
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none"
+                style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-earth)" }}
+                aria-label={`${count} need attention`}
+              >
+                !
               </span>
             ) : null}
           </button>

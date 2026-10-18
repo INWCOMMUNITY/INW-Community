@@ -14,7 +14,7 @@ const SEGMENT_COLOR = "#5F6955";
 type Child = { href: string; label: string; icon: string; alert?: boolean };
 type NavItem =
   | { href: string; label: string; icon: string; alert?: boolean }
-  | { label: string; icon: string; children: Child[] };
+  | { label: string; icon: string; children: Child[]; alert?: boolean };
 
 function hrefPath(href: string): string {
   return href.split("?")[0] || href;
@@ -69,6 +69,8 @@ export function SellerHubTopNav() {
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
+  const [pendingShip, setPendingShip] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
   const [etsyConnected, setEtsyConnected] = useState(false);
@@ -98,8 +100,16 @@ export function SellerHubTopNav() {
   useEffect(() => {
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { hasLocalDelivery?: boolean; pendingReturns?: number; payoutReady?: boolean }) => {
+      .then((d: {
+        hasLocalDelivery?: boolean;
+        pendingShip?: number;
+        pendingDeliveries?: number;
+        pendingReturns?: number;
+        payoutReady?: boolean;
+      }) => {
         setHasLocalDelivery(Boolean(d?.hasLocalDelivery));
+        setPendingShip(Number(d?.pendingShip) || 0);
+        setPendingDeliveries(Number(d?.pendingDeliveries) || 0);
         setPendingReturns(Number(d?.pendingReturns) || 0);
         setPayoutReady(Boolean(d?.payoutReady));
       })
@@ -148,9 +158,9 @@ export function SellerHubTopNav() {
   ];
 
   const ordersChildren: Child[] = [
-    { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline" },
+    { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline", alert: pendingShip > 0 },
     ...(hasLocalDelivery
-      ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
+      ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline", alert: pendingDeliveries > 0 }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
     {
@@ -173,7 +183,12 @@ export function SellerHubTopNav() {
     { href: "/", label: "NWC Home", icon: "home-outline" },
     { href: "/seller-hub", label: "Seller Hub", icon: "globe-outline" },
     { label: "Listings", icon: "cube-outline", children: listingsChildren },
-    { label: "Orders", icon: "receipt-outline", children: ordersChildren },
+    {
+      label: "Orders",
+      icon: "receipt-outline",
+      children: ordersChildren,
+      alert: pendingShip > 0 || pendingDeliveries > 0 || pendingReturns > 0,
+    },
     { label: "Store", icon: "storefront-outline", children: storeChildren },
     {
       href: "/seller-hub/store/payouts",
@@ -287,6 +302,15 @@ export function SellerHubTopNav() {
                 >
                   <IonIcon name={item.icon} size={22} className="text-current" />
                   <span>{item.label}</span>
+                  {item.alert ? (
+                    <span
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none"
+                      style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-earth)" }}
+                      aria-label="Action needed"
+                    >
+                      !
+                    </span>
+                  ) : null}
                   {hasChildren && <span className="text-xs opacity-80" aria-hidden>▾</span>}
                 </Link>
                 {hasChildren && hoveredDropdown === item.label && typeof document !== "undefined" && createPortal(

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { formatShippingAddress } from "@/lib/format-address";
@@ -10,7 +11,8 @@ import {
   sellerOrderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
 import type { FulfillmentStoreOrder } from "./types";
-import { parseBuyerResponseViews } from "@/lib/buyer-response-lines";
+import { parseBuyerResponseViews, type BuyerResponseView } from "@/lib/buyer-response-lines";
+import { hasMeaningfulVariantSelection } from "@/lib/store-item-variants";
 
 type OrderCardProps = {
   order: FulfillmentStoreOrder;
@@ -42,6 +44,8 @@ export function OrderCard({
     .join(" · ");
   const paymentLabel = sellerOrderPaymentLabel(order);
   const stop = (e: MouseEvent) => e.stopPropagation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailItems = (order.items ?? []).filter(itemHasFilledOptions);
 
   return (
     <article
@@ -151,6 +155,27 @@ export function OrderCard({
             ) : null}
           </div>
 
+          {detailItems.length > 0 ? (
+            <button
+              type="button"
+              className="mt-3 text-sm font-semibold underline"
+              style={{ color: "var(--color-primary)" }}
+              onClick={(e) => {
+                stop(e);
+                setDetailsOpen((open) => !open);
+              }}
+            >
+              {detailsOpen ? "Hide item details" : "View item details"}
+            </button>
+          ) : null}
+          {detailsOpen && detailItems.length > 0 ? (
+            <div className="mt-3 space-y-3" onClick={stop}>
+              {detailItems.map((item) => (
+                <ItemOptionDetails key={item.id} item={item} />
+              ))}
+            </div>
+          ) : null}
+
           {trailing ? <div onClick={stop}>{trailing}</div> : null}
         </div>
 
@@ -241,6 +266,50 @@ export function CombinedOrderCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function responseIsFilled(row: BuyerResponseView): boolean {
+  if (row.kind === "FILE") return row.files.length > 0;
+  if (row.kind === "DROPDOWN") return Boolean(row.optionLabel?.trim());
+  return Boolean(row.text?.trim());
+}
+
+function filledResponses(raw: unknown): BuyerResponseView[] {
+  return parseBuyerResponseViews(raw).filter(responseIsFilled);
+}
+
+function variantLines(variant: unknown): Array<[string, string]> {
+  if (!hasMeaningfulVariantSelection(variant) || typeof variant !== "object" || variant == null) return [];
+  return Object.entries(variant as Record<string, unknown>).flatMap(([key, value]) => {
+    if (value == null) return [];
+    const text = String(value).trim();
+    return text ? [[key, text] as [string, string]] : [];
+  });
+}
+
+function itemHasFilledOptions(item: { buyerResponses?: unknown; variant?: unknown }): boolean {
+  return variantLines(item.variant).length > 0 || filledResponses(item.buyerResponses).length > 0;
+}
+
+function ItemOptionDetails({ item }: { item: FulfillmentStoreOrder["items"][number] }) {
+  const options = variantLines(item.variant);
+  const responses = filledResponses(item.buyerResponses);
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <p className="text-sm font-medium text-gray-900">{item.storeItem?.title ?? "Item"}</p>
+      {options.length > 0 ? (
+        <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+          {options.map(([key, value]) => (
+            <div key={key}>
+              <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">{key}</dt>
+              <dd className="mt-0.5 text-sm text-gray-900 break-words">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <BuyerResponseDetails raw={responses} />
+    </div>
   );
 }
 

@@ -14,6 +14,8 @@ import {
 } from "@/hooks/use-shippo-label-flow-for-order";
 import { orderEligibleForAnotherShippoLabel } from "types";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
+import { sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
+import { ReturnLabelDueTag, SellerReturnRefundChoiceModal } from "@/components/seller/SellerReturnRefundChoice";
 
 const SHIPPO_CONTAINER_ID_THIN = "shippo-elements-container-order-thin";
 
@@ -47,6 +49,9 @@ interface StoreOrder extends StoreOrderForShippo {
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   shipment?: Shipment | null;
+  localDeliveryDetails?: unknown;
+  storeReturn?: { status?: string | null } | null;
+  returnShipment?: { labelUrl?: string | null } | null;
 }
 
 export default function SellerShippoThinLabelPage() {
@@ -76,6 +81,9 @@ export default function SellerShippoThinLabelPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [autoOpenBlockedReason, setAutoOpenBlockedReason] = useState<string | null>(null);
+  const [labelJustSent, setLabelJustSent] = useState(false);
+  const [choiceBusy, setChoiceBusy] = useState(false);
+  const [choiceError, setChoiceError] = useState<string | null>(null);
 
   const refetchOrder = useCallback(() => {
     if (!orderId) return;
@@ -100,7 +108,10 @@ export default function SellerShippoThinLabelPage() {
     containerId: SHIPPO_CONTAINER_ID_THIN,
     order,
     orderLoading: loading,
-    onLabelSaved: refetchOrder,
+    onLabelSaved: () => {
+      refetchOrder();
+      if (capturedNwAppShippo === "return") setLabelJustSent(true);
+    },
   });
 
   useEffect(() => {
@@ -137,6 +148,43 @@ export default function SellerShippoThinLabelPage() {
     }
     setAutoOpenBlockedReason(getNwAppShippoSkippedReason(capturedNwAppShippo, order));
   }, [order, loading, capturedNwAppShippo]);
+
+  async function chooseRefundTiming(timing: "now" | "on_arrival") {
+    if (!orderId) return;
+    setChoiceBusy(true);
+    setChoiceError(null);
+    try {
+      if (timing === "now") {
+        const res = await fetch(`/api/store-orders/${orderId}/returns/receive`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setChoiceError((data as { error?: string }).error ?? "Could not refund this order.");
+          return;
+        }
+      } else {
+        const res = await fetch(`/api/store-orders/${orderId}/returns/refund-timing`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timing: "on_arrival" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setChoiceError((data as { error?: string }).error ?? "Could not save that choice.");
+          return;
+        }
+      }
+      setLabelJustSent(false);
+      refetchOrder();
+    } catch {
+      setChoiceError("Connection failed.");
+    } finally {
+      setChoiceBusy(false);
+    }
+  }
 
   if (!orderId) {
     return (
@@ -233,7 +281,7 @@ export default function SellerShippoThinLabelPage() {
       {elementsError ? <p className="text-sm text-amber-700 mb-3">{elementsError}</p> : null}
 
       <div className="flex flex-col gap-2">
-            {order.shipment?.labelUrl ? (
+            {capturedNwAppShippo !== "return" && order.shipment?.labelUrl ? (
               <a
                 href={order.shipment.labelUrl}
                 target="_blank"
@@ -243,7 +291,10 @@ export default function SellerShippoThinLabelPage() {
                 Reprint Label
               </a>
             ) : null}
-            {order.status === "paid" && !order.shipment && orderHasShippedLine(order.items) && (
+            {capturedNwAppShippo !== "return" &&
+            order.status === "paid" &&
+            !order.shipment &&
+            orderHasShippedLine(order.items) ? (
               <button
                 type="button"
                 onClick={() => void openElementsFlow()}
@@ -252,8 +303,8 @@ export default function SellerShippoThinLabelPage() {
               >
                 {elementsLoading ? "Opening…" : "Purchase Label"}
               </button>
-            )}
-            {orderEligibleForAnotherShippoLabel(order) && (
+            ) : null}
+            {capturedNwAppShippo !== "return" && orderEligibleForAnotherShippoLabel(order) ? (
               <button
                 type="button"
                 onClick={() => void openElementsFlow({ forceAdditionalLabel: true })}
@@ -262,18 +313,29 @@ export default function SellerShippoThinLabelPage() {
               >
                 {elementsLoading ? "Opening…" : "Repurchase Label"}
               </button>
-            )}
-            {capturedNwAppShippo === "return" && (
-              <button
-                type="button"
-                onClick={() => void openElementsFlow({ forReturn: true })}
-                disabled={elementsLoading}
-                className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
-              >
-                {elementsLoading ? "Opening…" : "Send Buyer Return Label"}
-              </button>
-            )}
+            ) : null}
+            {capturedNwAppShippo === "return" && !order.returnShipment?.labelUrl ? (
+              <div className="flex w-full flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => void openElementsFlow({ forReturn: true })}
+                  disabled={elementsLoading}
+                  className="btn text-sm py-2 px-4 disabled:opacity-50 w-full"
+                >
+                  {elementsLoading ? "Opening…" : "Send Buyer Return Label"}
+                </button>
+                <ReturnLabelDueTag />
+              </div>
+            ) : null}
       </div>
+
+      <SellerReturnRefundChoiceModal
+        open={labelJustSent || sellerMustChooseReturnRefundTiming(order)}
+        busy={choiceBusy}
+        error={choiceError}
+        onRefundNow={() => void chooseRefundTiming("now")}
+        onRefundWhenArrives={() => void chooseRefundTiming("on_arrival")}
+      />
 
       <ShippoElementsSurface
         open={shippoModalOpen}

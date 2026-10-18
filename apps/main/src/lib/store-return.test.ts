@@ -288,7 +288,7 @@ describe("return status", () => {
 });
 
 describe("storeReturnSellerMoneyAction", () => {
-  it("shows Mark received & refund while goods are still inbound", () => {
+  it("shows Mark Received & Refund while goods are still inbound", () => {
     expect(
       storeReturnSellerMoneyAction({ returnStatus: "awaiting_return", orderStatus: "shipped" })
     ).toBe("receive");

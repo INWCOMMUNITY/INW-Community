@@ -10,6 +10,7 @@ type QueueAction = {
   href: string;
   icon: string;
   description?: string;
+  detail?: string;
   show?: boolean;
   badge?: boolean;
 };
@@ -33,6 +34,7 @@ export function SellerHubWorkQueue({
   variant: "desktop" | "mobile";
 }) {
   const [pendingShip, setPendingShip] = useState(0);
+  const [shipCountReady, setShipCountReady] = useState(false);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [pendingOffers, setPendingOffers] = useState(0);
@@ -51,6 +53,7 @@ export function SellerHubWorkQueue({
           payoutReady?: boolean;
         }) => {
           setPendingShip(Number(d?.pendingShip) || 0);
+          setShipCountReady(true);
           setPendingReturns(Number(d?.pendingReturns) || 0);
           setPendingDeliveries(Number(d?.pendingDeliveries) || 0);
           setPendingOffers(Number(d?.sellerOffersPending) || 0);
@@ -112,6 +115,9 @@ export function SellerHubWorkQueue({
           href: "/seller-hub/orders",
           icon: "receipt",
           description: "Orders to ship and shipping labels.",
+          detail: shipCountReady
+            ? `${pendingShip} ${pendingShip === 1 ? "order" : "orders"} to ship`
+            : undefined,
           badge: pendingShip > 0,
         },
         {
@@ -175,6 +181,7 @@ export function SellerHubWorkQueue({
       pendingOffers,
       pendingReturns,
       pendingShip,
+      shipCountReady,
       payoutReady,
       sellerSetupComplete,
     ]
@@ -212,6 +219,11 @@ export function SellerHubWorkQueue({
               >
                 {action.label}
               </span>
+              {action.detail ? (
+                <span className="text-[11px] font-semibold leading-tight text-[var(--color-primary)]">
+                  {action.detail}
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -239,6 +251,9 @@ export function SellerHubWorkQueue({
             <IonIcon name={action.icon} size={28} className="text-[var(--color-primary)] mb-2" />
             <h2 className="text-lg font-bold mb-2">{action.label}</h2>
             {action.description ? <p className="text-sm text-gray-600">{action.description}</p> : null}
+            {action.detail ? (
+              <p className="text-sm font-semibold mt-1 text-[var(--color-primary)]">{action.detail}</p>
+            ) : null}
           </Link>
         );
       })}

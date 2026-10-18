@@ -125,6 +125,7 @@ export function SellerHubMobileDrawer({
   shopifyConnected?: boolean;
 }) {
   const [pendingShip, setPendingShip] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
 
@@ -134,8 +135,9 @@ export function SellerHubMobileDrawer({
     if (!open) return;
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { pendingShip?: number; pendingReturns?: number; payoutReady?: boolean }) => {
+      .then((d: { pendingShip?: number; pendingDeliveries?: number; pendingReturns?: number; payoutReady?: boolean }) => {
         setPendingShip(Number(d?.pendingShip) || 0);
+        setPendingDeliveries(Number(d?.pendingDeliveries) || 0);
         setPendingReturns(Number(d?.pendingReturns) || 0);
         setPayoutReady(Boolean(d?.payoutReady));
       })
@@ -169,7 +171,7 @@ export function SellerHubMobileDrawer({
   const ordersItems: NavItem[] = [
     { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline", alert: pendingShip > 0 },
     ...(hasLocalDelivery
-      ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
+      ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline", alert: pendingDeliveries > 0 }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
     {

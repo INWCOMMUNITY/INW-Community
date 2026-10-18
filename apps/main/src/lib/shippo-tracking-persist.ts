@@ -1,6 +1,7 @@
 import { prisma } from "database";
 import { isShippoTrackingDelivered } from "@/lib/shippo-tracking-status";
 import { nextStatusAfterFulfillmentConfirmations } from "@/lib/store-order-fulfillment";
+import { readReturnRefundTiming } from "@/lib/return-refund-timing";
 
 export async function persistShipmentTrackingStatus(args: {
   shipmentId?: string | null;
@@ -59,13 +60,22 @@ export async function persistShipmentTrackingStatus(args: {
     const ret = await prisma.storeReturn.findFirst({
       where: { returnShipmentId: shipment.id, status: { in: ["awaiting_return", "in_transit"] } },
     });
-    if (ret && ret.status === "awaiting_return") {
+    const refundOnArrival =
+      delivered && readReturnRefundTiming(shipment.order.localDeliveryDetails) === "on_arrival";
+    if (refundOnArrival && ret) {
+      try {
+        const { refundStoreReturnOnDelivery } = await import("@/lib/store-return-issue-refund");
+        await refundStoreReturnOnDelivery(shipment.orderId);
+      } catch (error) {
+        console.error("[return refund on delivery]", error);
+      }
+    } else if (ret && ret.status === "awaiting_return") {
       await prisma.storeReturn.update({
         where: { id: ret.id },
         data: { status: "in_transit" },
       });
     }
-    return { updated: true, delivered: false, orderId: shipment.orderId };
+    return { updated: true, delivered: refundOnArrival, orderId: shipment.orderId };
   }
 
   const next = nextStatusAfterFulfillmentConfirmations(

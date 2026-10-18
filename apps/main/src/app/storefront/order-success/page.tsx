@@ -56,8 +56,7 @@ function OrderSuccessContent() {
         style={{ backgroundColor: "rgba(0, 0, 0, 0.45)" }}
       >
         <div
-          className="bg-white px-8 py-10 text-center w-[88vw] max-w-[420px] min-h-[200px] flex items-center justify-center"
-          style={{ border: "4px solid #000" }}
+          className="bg-white px-8 py-10 text-center w-[88vw] max-w-[420px] min-h-[200px] flex items-center justify-center border-4 border-[var(--color-earth)] rounded-[4px]"
         >
           <p className="text-gray-600 font-medium">Processing your order…</p>
         </div>
@@ -72,8 +71,7 @@ function OrderSuccessContent() {
         style={{ backgroundColor: "rgba(0, 0, 0, 0.45)" }}
       >
         <div
-          className="bg-white px-8 py-10 text-center w-[88vw] max-w-[420px]"
-          style={{ border: "4px solid #000" }}
+          className="bg-white px-8 py-10 text-center w-[88vw] max-w-[420px] border-4 border-[var(--color-earth)] rounded-[4px]"
         >
           <h1 className="text-xl font-bold mb-3">Order not found</h1>
           <p className="text-gray-600 mb-6 text-sm">
@@ -81,7 +79,7 @@ function OrderSuccessContent() {
           </p>
           <a
             href="/storefront"
-            className="inline-block py-3 px-8 rounded-full font-bold border-[3px] border-black"
+            className="btn-pill-primary inline-block py-3 px-8 rounded-full font-bold text-white text-center transition-colors hover:text-white"
           >
             Keep Shopping
           </a>

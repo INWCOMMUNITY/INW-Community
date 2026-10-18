@@ -171,6 +171,23 @@ export function buyerReturnShippingWarning(sellerName: string): string {
   return `${sellerName} doesn't offer free returns, and the return label cost will be deducted from your refund.`;
 }
 
+/** Shown after the buyer submits a return reason, before the request is sent. */
+export function buyerReturnLabelFollowup(
+  sellerName: string,
+  policy: SellerReturnLabelPolicy,
+  reason: string | null | undefined
+): string {
+  const payer = payerForReason(policy, reason);
+  if (payer === "seller") {
+    return `${sellerName} will send you a return label very soon!`;
+  }
+  if (payer === "later") {
+    return `${sellerName} will decide who pays for the return label when they send it.`;
+  }
+  if (payer === "buyer") return buyerReturnShippingWarning(sellerName);
+  return `${sellerName} does not charge you for the return label on this reason.`;
+}
+
 export function formatReturnLabelDeduction(cents: number): string {
   return `$${(Math.max(0, cents) / 100).toFixed(2)}`;
 }

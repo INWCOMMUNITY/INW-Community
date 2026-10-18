@@ -112,6 +112,7 @@ export async function getMeActivityFeed(
     resaleOffersSeller,
     sellerCanceledOrders,
     sellerRefundRequests,
+    buyerReturnLabels,
     resaleOffersBuyer,
   ] = await Promise.all([
     prisma.friendRequest.findMany({
@@ -246,11 +247,36 @@ export async function getMeActivityFeed(
           select: {
             id: true,
             buyer: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-            items: { take: 1, select: { storeItem: { select: { title: true, photos: true } } } },
+            items: {
+              take: 5,
+              select: {
+                fulfillmentType: true,
+                storeItem: { select: { title: true, photos: true } },
+              },
+            },
           },
         },
       },
       orderBy: { requestedAt: "desc" },
+      take: TAKE_EACH,
+    }),
+    prisma.storeReturn.findMany({
+      where: {
+        returnShipmentId: { not: null },
+        order: { buyerId: memberId },
+        returnShipment: { createdAt: { gte: orderSince } },
+      },
+      include: {
+        returnShipment: { select: { createdAt: true } },
+        order: {
+          select: {
+            id: true,
+            seller: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+            items: { take: 1, select: { storeItem: { select: { title: true, photos: true } } } },
+          },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
       take: TAKE_EACH,
     }),
     prisma.resaleOffer.findMany({
@@ -527,15 +553,36 @@ export async function getMeActivityFeed(
     if (skipActor(ret.order.buyer.id)) continue;
     const label = ret.order.items[0]?.storeItem?.title ?? "an item";
     const storeItemPhotoUrl = firstListingPhoto(ret.order.items[0]?.storeItem?.photos);
+    const needsReturnLabel = ret.order.items.some((item) => (item.fulfillmentType ?? "ship") === "ship");
     items.push({
       id: `refund_request:${ret.id}`,
       type: "refund_request",
       category: "commerce",
       title: "Refund request",
-      subtitle: `${memberName(ret.order.buyer)} requested a refund for ${label}`,
+      subtitle: needsReturnLabel
+        ? `${memberName(ret.order.buyer)} requested a refund for ${label}. Send the return label from your orders page.`
+        : `${memberName(ret.order.buyer)} requested a refund for ${label}`,
       occurredAt: ret.requestedAt.toISOString(),
       actor: ret.order.buyer,
       nav: { kind: "seller_refunds" },
+      storeItemPhotoUrl,
+    });
+  }
+
+  for (const ret of buyerReturnLabels) {
+    if (skipActor(ret.order.seller.id)) continue;
+    const label = ret.order.items[0]?.storeItem?.title ?? "your order";
+    const storeItemPhotoUrl = firstListingPhoto(ret.order.items[0]?.storeItem?.photos);
+    const arrivedAt = ret.returnShipment?.createdAt ?? ret.updatedAt;
+    items.push({
+      id: `return_label:${ret.id}`,
+      type: "return_label",
+      category: "commerce",
+      title: "Your return label arrived",
+      subtitle: `${memberName(ret.order.seller)} sent a return label for ${label}. Print it from your order.`,
+      occurredAt: arrivedAt.toISOString(),
+      actor: ret.order.seller,
+      nav: { kind: "buyer_order", orderId: ret.order.id },
       storeItemPhotoUrl,
     });
   }

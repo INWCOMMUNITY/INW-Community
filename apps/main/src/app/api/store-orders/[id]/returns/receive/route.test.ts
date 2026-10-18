@@ -32,6 +32,7 @@ vi.mock("@/lib/stripe/refund-store-order", async (importOriginal) => {
   return { ...actual, refundPaidStorefrontOrder };
 });
 vi.mock("@/lib/store-return-notify", () => ({ notifyBuyerRefundIssued }));
+vi.mock("@/lib/stripe-clients", () => ({ createMarketplaceStripe: vi.fn(() => ({})) }));
 vi.mock("@/lib/nwc-paid-subscription", () => ({
   prismaWhereMemberSellerPlanAccess: (id: string) => ({ memberId: id }),
 }));

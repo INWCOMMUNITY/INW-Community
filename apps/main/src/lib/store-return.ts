@@ -50,7 +50,7 @@ export function isReturnReceiveRefundRetryable(status: string | null | undefined
 
 export type StoreReturnSellerMoneyAction = "receive" | "retry_refund";
 
-export const STORE_RETURN_RECEIVE_ACTION_LABEL = "Mark received & refund";
+export const STORE_RETURN_RECEIVE_ACTION_LABEL = "Mark Received & Refund";
 export const STORE_RETURN_RETRY_REFUND_ACTION_LABEL = "Retry refund";
 
 /**

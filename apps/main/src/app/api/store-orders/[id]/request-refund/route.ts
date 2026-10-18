@@ -87,12 +87,14 @@ export async function POST(
     select: {
       sellerId: true,
       buyer: { select: { firstName: true, lastName: true } },
+      items: { select: { fulfillmentType: true } },
     },
   });
   if (order) {
     const buyerName =
       `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "A buyer";
-    notifySellerReturnRequested(order.sellerId, id, buyerName);
+    const needsReturnLabel = order.items.some((item) => (item.fulfillmentType ?? "ship") === "ship");
+    notifySellerReturnRequested(order.sellerId, id, buyerName, { needsReturnLabel });
   }
 
   return NextResponse.json({

@@ -24,13 +24,7 @@ export function OrderSuccessPanel({
       aria-modal="true"
       aria-labelledby="order-success-title"
     >
-      <div
-        className="flex flex-col items-center justify-between bg-white text-center w-[88vw] max-w-[420px] min-h-[min(80vh,560px)] px-7 pt-9 pb-8"
-        style={{
-          border: "4px solid #000",
-          borderRadius: "4px",
-        }}
-      >
+      <div className="flex flex-col items-center justify-between bg-white text-center w-[88vw] max-w-[420px] min-h-[min(80vh,560px)] px-7 pt-9 pb-8 border-4 border-[var(--color-earth)] rounded-[4px]">
         <div className="w-full">
           <h1
             id="order-success-title"
@@ -63,15 +57,13 @@ export function OrderSuccessPanel({
         <div className="w-full flex flex-col gap-3.5">
           <Link
             href={ordersHref}
-            className="block w-full py-4 px-6 rounded-full font-bold text-lg text-black bg-white text-center transition-opacity hover:opacity-90"
-            style={{ border: "3px solid #000" }}
+            className="btn-pill-earth block w-full py-4 px-6 rounded-full font-bold text-lg text-white text-center transition-colors hover:text-white"
           >
             {soldWhilePaying ? "View account" : "View Order"}
           </Link>
           <Link
             href={shopHref}
-            className="block w-full py-4 px-6 rounded-full font-bold text-lg text-black bg-white text-center transition-opacity hover:opacity-90"
-            style={{ border: "3px solid #000" }}
+            className="btn-pill-primary block w-full py-4 px-6 rounded-full font-bold text-lg text-white text-center transition-colors hover:text-white"
           >
             Keep Shopping
           </Link>

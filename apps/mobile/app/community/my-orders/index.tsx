@@ -15,7 +15,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
-import { buyerHasPendingRefund, buyerRefundStatusNote, getBuyerOrderStatusLabel } from "@/lib/order-status";
+import { buyerCommerceStatus, getBuyerOrderStatusLabel } from "@/lib/order-status";
+import { BuyerCommerceStatusBanner } from "@/components/BuyerCommerceStatusBanner";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -170,6 +171,7 @@ export default function MyOrdersScreen() {
               (`${item.seller?.firstName ?? ""} ${item.seller?.lastName ?? ""}`.trim() || "Seller");
             const firstPhoto = item.items?.[0]?.storeItem?.photos?.[0];
             const photoUrl = resolvePhotoUrl(firstPhoto);
+            const commerceStatus = buyerCommerceStatus(item);
 
             return (
               <Pressable
@@ -192,9 +194,7 @@ export default function MyOrdersScreen() {
                     <View style={styles.statusBadge}>
                       <Text style={styles.statusText}>{getBuyerOrderStatusLabel(item.status, item)}</Text>
                     </View>
-                    {buyerHasPendingRefund(item) ? (
-                      <Text style={styles.pendingRefund}>{buyerRefundStatusNote(item)}</Text>
-                    ) : null}
+                    {commerceStatus ? <BuyerCommerceStatusBanner status={commerceStatus} /> : null}
                     {item.returnShipment?.labelUrl ? (
                       <Pressable
                         onPress={() => {
@@ -204,8 +204,6 @@ export default function MyOrdersScreen() {
                       >
                         <Text style={styles.printLabel}>Print return label now</Text>
                       </Pressable>
-                    ) : item.storeReturn?.status === "awaiting_return" ? (
-                      <Text style={styles.pendingRefund}>Return approved. Waiting for the return label.</Text>
                     ) : null}
                     <View style={styles.paymentTag}>
                       <Text style={styles.paymentTagText}>Paid: Online NWC</Text>
@@ -278,7 +276,6 @@ const styles = StyleSheet.create({
   total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 4 },
   statusBadge: { marginTop: 4, alignSelf: "flex-start" },
   statusText: { fontSize: 12, color: "#666", textTransform: "capitalize" },
-  pendingRefund: { fontSize: 12, color: "#92400e", marginTop: 4 },
   printLabel: { fontSize: 13, color: theme.colors.primary, fontWeight: "700", marginTop: 6 },
   paymentTag: { marginTop: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)" },
   paymentTagText: { fontSize: 11, color: theme.colors.primary, fontWeight: "600" },

@@ -11,9 +11,6 @@ import {
   buyerPaymentLabel,
   buyerSellerName,
   buyerTrackingHref,
-  buyerHasPendingRefund,
-  buyerRefundStatusNote,
-  BUYER_PENDING_REFUND_COPY,
   canCancelBuyerOrder,
   canRequestBuyerRefund,
   formatBuyerOrderDate,
@@ -22,6 +19,8 @@ import {
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
 import { orderHasLocalDeliveryLine } from "@/lib/store-order-fulfillment";
+import { buyerCommerceStatus } from "@/lib/buyer-commerce-status";
+import { BuyerCommerceStatusBanner } from "@/components/orders/BuyerCommerceStatusBanner";
 import type { BuyerOrderModal } from "@/components/orders/BuyerOrderModals";
 
 const outlineBtn =
@@ -61,6 +60,7 @@ export function BuyerOrderCard({
     (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
   const canCancel = canCancelBuyerOrder(order);
   const canRefund = canRequestBuyerRefund(order);
+  const commerceStatus = buyerCommerceStatus(order);
 
   return (
     <article
@@ -132,25 +132,7 @@ export function BuyerOrderCard({
             )}
           </ul>
 
-          {buyerHasPendingRefund(order) ? (
-            <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>
-              {buyerRefundStatusNote(order) ?? BUYER_PENDING_REFUND_COPY}
-            </p>
-          ) : order.storeReturn || order.refundRequestedAt ? (
-            <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>
-              {order.storeReturn?.status === "awaiting_return"
-                ? order.returnShipment?.labelUrl
-                  ? "Your return has been approved. Print your return label now."
-                  : "Return approved. Waiting for the return label."
-                : order.storeReturn?.status === "in_transit"
-                ? "Return in progress."
-                : order.storeReturn?.status === "declined"
-                  ? "Return declined."
-                  : order.storeReturn?.status === "refunded"
-                    ? BUYER_PENDING_REFUND_COPY
-                    : "Return requested. The seller will review."}
-            </p>
-          ) : null}
+          {commerceStatus ? <BuyerCommerceStatusBanner status={commerceStatus} className="mt-3" /> : null}
 
           <div className="flex flex-wrap gap-2 mt-4">
             <Link href={detailHref} className={outlineBtn}>
@@ -183,7 +165,7 @@ export function BuyerOrderCard({
             ) : null}
             {canRefund ? (
               <button type="button" className={outlineBtn} onClick={() => onAction({ kind: "refund", order })}>
-                Request refund
+                Request Refund
               </button>
             ) : null}
           </div>

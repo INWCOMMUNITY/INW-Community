@@ -72,7 +72,7 @@ function webHrefFromNav(nav: ActivityNav): string | null {
     case "seller_orders":
       return "/seller-hub/orders";
     case "buyer_order":
-      return "/my-community/orders";
+      return `/my-community/orders/${nav.orderId}`;
     case "seller_order":
       return `/seller-hub/orders/${nav.orderId}`;
     case "seller_refunds":

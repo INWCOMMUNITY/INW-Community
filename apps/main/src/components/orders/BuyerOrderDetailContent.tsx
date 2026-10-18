@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { IonIcon } from "@/components/IonIcon";
 import { BuyerOrderModals, type BuyerOrderModal } from "@/components/orders/BuyerOrderModals";
 import { formatShippingAddress } from "@/lib/format-address";
@@ -17,9 +18,6 @@ import {
   buyerSellerName,
   buyerShopSlug,
   buyerTrackingHref,
-  buyerHasPendingRefund,
-  buyerRefundStatusNote,
-  BUYER_PENDING_REFUND_COPY,
   canCancelBuyerOrder,
   canRequestBuyerRefund,
   formatBuyerOrderDate,
@@ -29,13 +27,19 @@ import {
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
 import { orderHasLocalDeliveryLine } from "@/lib/store-order-fulfillment";
+import { buyerCommerceStatus } from "@/lib/buyer-commerce-status";
+import { BuyerCommerceStatusBanner } from "@/components/orders/BuyerCommerceStatusBanner";
 
 const outlineBtn =
   "inline-flex items-center justify-center gap-1 rounded-lg border-2 border-[var(--color-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--color-primary)] hover:opacity-90";
 
 export function BuyerOrderDetailContent() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const { data: session } = useSession();
   const orderId = typeof params?.id === "string" ? params.id : "";
+  const [openingChat, setOpeningChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [order, setOrder] = useState<BuyerStoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +77,29 @@ export function BuyerOrderDetailContent() {
 
   function patchOrder(_id: string, patch: Partial<BuyerStoreOrder>) {
     setOrder((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  async function openSellerChat(sellerMemberId: string) {
+    if (openingChat) return;
+    setOpeningChat(true);
+    setChatError(null);
+    try {
+      const res = await fetch("/api/direct-conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addresseeId: sellerMemberId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !data.id) {
+        setChatError(data.error ?? "Could not open chat.");
+        return;
+      }
+      router.push(`/my-community/messages?direct=${encodeURIComponent(data.id)}`);
+    } catch {
+      setChatError("Could not open chat.");
+    } finally {
+      setOpeningChat(false);
+    }
   }
 
   async function copyTracking(tracking: string) {
@@ -120,6 +147,7 @@ export function BuyerOrderDetailContent() {
   const showDelivery = orderHasLocalDeliveryLine(items) && activeFulfillment;
   const firstSlug = items.find((i) => i.storeItem?.slug)?.storeItem?.slug;
   const productRef = { type: "order" as const, orderId: order.id, orderKind: "buyer" as const };
+  const commerceStatus = buyerCommerceStatus(order);
 
   return (
     <div>
@@ -166,12 +194,18 @@ export function BuyerOrderDetailContent() {
               Visit shop
             </Link>
           ) : null}
-          {sellerId ? (
-            <Link href={`/my-community/messages?addresseeId=${encodeURIComponent(sellerId)}`} className={outlineBtn}>
-              Message seller
-            </Link>
+          {sellerId && sellerId !== session?.user?.id ? (
+            <button
+              type="button"
+              className={outlineBtn}
+              disabled={openingChat}
+              onClick={() => void openSellerChat(sellerId)}
+            >
+              {openingChat ? "Opening chat…" : "Message seller"}
+            </button>
           ) : null}
         </div>
+        {chatError ? <p className="text-sm text-red-700 mt-2">{chatError}</p> : null}
       </section>
 
       <section className="mb-6">
@@ -282,30 +316,7 @@ export function BuyerOrderDetailContent() {
         )}
       </section>
 
-      {buyerHasPendingRefund(order) ? (
-        <p className="text-sm mb-6" style={{ color: "var(--color-primary)" }}>
-          {buyerRefundStatusNote(order) ?? BUYER_PENDING_REFUND_COPY}
-        </p>
-      ) : order.storeReturn || order.refundRequestedAt ? (
-        <p className="text-sm mb-6" style={{ color: "var(--color-primary)" }}>
-          {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
-          {order.storeReturn?.status === "awaiting_return" &&
-            (order.returnShipment?.labelUrl
-              ? "Your return has been approved. Print your return label now."
-              : "Return approved. A return label will appear on this order when the seller sends it.")}
-          {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
-          {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
-          {order.storeReturn?.status === "refunded" && BUYER_PENDING_REFUND_COPY}
-          {order.storeReturn?.status === "declined" &&
-            `The seller declined this return.${order.storeReturn.declineReason ? ` ${order.storeReturn.declineReason}` : ""}`}
-          {!order.storeReturn && order.refundRequestedAt
-            ? `Refund requested ${formatBuyerOrderDate(order.refundRequestedAt)}. The seller will review.`
-            : null}
-          {order.refundReason && !order.storeReturn ? (
-            <span className="block mt-1 opacity-90">Reason: {order.refundReason}</span>
-          ) : null}
-        </p>
-      ) : null}
+      {commerceStatus ? <BuyerCommerceStatusBanner status={commerceStatus} className="mb-6 max-w-lg" /> : null}
 
       {order.returnShipment?.labelUrl ? (
         <p className="text-sm mb-6">
@@ -340,7 +351,7 @@ export function BuyerOrderDetailContent() {
         ) : null}
         {canRequestBuyerRefund(order) ? (
           <button type="button" className={outlineBtn} onClick={() => setModal({ kind: "refund", order })}>
-            Request refund
+            Request Refund
           </button>
         ) : null}
         {firstSlug ? (

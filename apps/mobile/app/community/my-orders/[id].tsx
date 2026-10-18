@@ -26,8 +26,7 @@ import {
   BUYER_REFUND_POLICY_NEVERMIND_LABEL,
   BUYER_REFUND_POLICY_POPUP_BODY,
   BUYER_REFUND_POLICY_POPUP_TITLE,
-  buyerHasPendingRefund,
-  buyerRefundStatusNote,
+  buyerCommerceStatus,
   canCancelMobileBuyerOrder,
   canRequestMobileBuyerRefund,
   formatBuyerRefundFeeDeductionLine,
@@ -35,10 +34,10 @@ import {
 } from "@/lib/order-status";
 import { buildProductPath } from "@/lib/product-referrer";
 import {
-  buyerReturnShippingWarning,
+  buyerReturnLabelFollowup,
   policyFromStored,
-  returnLabelChargesBuyer,
 } from "@/lib/seller-return-label-policy";
+import { BuyerCommerceStatusBanner } from "@/components/BuyerCommerceStatusBanner";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -164,7 +163,7 @@ export default function MyOrderDetailScreen() {
   const [refundOther, setRefundOther] = useState("");
   const [refundNote, setRefundNote] = useState("");
   const [requestingRefund, setRequestingRefund] = useState(false);
-  const [ackReturnShipping, setAckReturnShipping] = useState(false);
+  const [refundReview, setRefundReview] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [refundPolicyIntent, setRefundPolicyIntent] = useState<"cancel" | "refund" | null>(null);
   const [cancelReason, setCancelReason] = useState("");
@@ -216,23 +215,6 @@ export default function MyOrderDetailScreen() {
       Alert.alert("Provide details", "Please provide details for \"Other\".");
       return;
     }
-    const chargesLabel =
-      !!order &&
-      returnLabelChargesBuyer(
-        policyFromStored({
-          returnLabelPayer: order.returnLabelPayer,
-          returnLabelPayerByReason: order.returnLabelPayerByReason,
-          chargeReturnShipping: order.sellerChargeReturnShipping,
-        }),
-        refundReason
-      );
-    if (chargesLabel && !ackReturnShipping) {
-      Alert.alert(
-        "Return shipping",
-        "Please confirm you understand return shipping may be deducted from your refund."
-      );
-      return;
-    }
     setRequestingRefund(true);
     try {
       await apiPost(`/api/store-orders/${orderId}/request-refund`, {
@@ -244,7 +226,7 @@ export default function MyOrderDetailScreen() {
       setRefundReason("");
       setRefundOther("");
       setRefundNote("");
-      setAckReturnShipping(false);
+      setRefundReview(false);
       load();
       Alert.alert("Request sent", "Your refund request was submitted. The seller will review it.");
     } catch (e) {
@@ -253,7 +235,7 @@ export default function MyOrderDetailScreen() {
     } finally {
       setRequestingRefund(false);
     }
-  }, [orderId, order, ackReturnShipping, refundReason, refundOther, refundNote, load]);
+  }, [orderId, order, refundReason, refundOther, refundNote, load]);
 
   const cancelOrder = useCallback(async () => {
     if (!orderId) return;
@@ -332,6 +314,7 @@ export default function MyOrderDetailScreen() {
   const orderNumberDisplay = order?.orderNumber ?? order?.id.slice(-8).toUpperCase();
   const paymentLabelText =
     order?.paymentLabel ?? "Paid Online";
+  const commerceStatus = order ? buyerCommerceStatus(order) : null;
 
   return viewMode === "loading" ? (
     <View style={styles.center}>
@@ -504,29 +487,9 @@ export default function MyOrderDetailScreen() {
           ) : null}
         </View>
       ) : null}
-      {buyerHasPendingRefund(order) ? (
-        <View style={styles.refundBanner}>
-          <Ionicons name="information-circle" size={20} color="#92400e" />
-          <Text style={styles.refundBannerText}>{buyerRefundStatusNote(order) ?? BUYER_PENDING_REFUND_COPY}</Text>
-        </View>
-      ) : (order.storeReturn || order.refundRequestedAt) ? (
-        <View style={styles.refundBanner}>
-          <Ionicons name="information-circle" size={20} color="#92400e" />
-          <Text style={styles.refundBannerText}>
-            {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
-            {order.storeReturn?.status === "awaiting_return" &&
-              (order.returnShipment?.labelUrl
-                ? "Your return has been approved. Print your return label now."
-                : "Return approved. A return label will appear on this order when the seller sends it.")}
-            {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
-            {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
-            {order.storeReturn?.status === "refunded" && BUYER_PENDING_REFUND_COPY}
-            {order.storeReturn?.status === "declined" &&
-              `The seller declined this return.${order.storeReturn.declineReason ? ` ${order.storeReturn.declineReason}` : ""}`}
-            {!order.storeReturn && order.refundRequestedAt
-              ? `Refund requested ${new Date(order.refundRequestedAt).toLocaleDateString()}. The seller will review.`
-              : null}
-          </Text>
+      {commerceStatus ? (
+        <View style={{ marginBottom: 12 }}>
+          <BuyerCommerceStatusBanner status={commerceStatus} />
         </View>
       ) : null}
 
@@ -620,28 +583,30 @@ export default function MyOrderDetailScreen() {
       </Modal>
 
       <Modal visible={refundModal} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => !requestingRefund && setRefundModal(false)}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => {
+            if (requestingRefund) return;
+            setRefundReview(false);
+            setRefundModal(false);
+          }}
+        >
           <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Request Refund</Text>
-            {returnLabelChargesBuyer(
-              policyFromStored({
-                returnLabelPayer: order.returnLabelPayer,
-                returnLabelPayerByReason: order.returnLabelPayerByReason,
-                chargeReturnShipping: order.sellerChargeReturnShipping,
-              }),
-              refundReason
-            ) ? (
-              <Pressable style={styles.ackRow} onPress={() => setAckReturnShipping((v) => !v)}>
-                <Ionicons
-                  name={ackReturnShipping ? "checkbox" : "square-outline"}
-                  size={22}
-                  color={theme.colors.primary}
-                />
-                <Text style={[styles.ackText, { fontWeight: "700" }]}>
-                  {buyerReturnShippingWarning(order.sellerPolicyName || "This seller")}
-                </Text>
-              </Pressable>
-            ) : null}
+            <Text style={styles.modalTitle}>{refundReview ? "Return label" : "Request Refund"}</Text>
+            {refundReview ? (
+              <Text style={[styles.ackText, { fontWeight: "700", marginBottom: 16 }]}>
+                {buyerReturnLabelFollowup(
+                  order.sellerPolicyName || "This seller",
+                  policyFromStored({
+                    returnLabelPayer: order.returnLabelPayer,
+                    returnLabelPayerByReason: order.returnLabelPayerByReason,
+                    chargeReturnShipping: order.sellerChargeReturnShipping,
+                  }),
+                  refundReason
+                )}
+              </Text>
+            ) : (
+              <>
             <Text style={styles.modalLabel}>Reason</Text>
             <ScrollView style={styles.reasonScroll} nestedScrollEnabled>
               {REFUND_REASONS.map((r) => (
@@ -675,12 +640,40 @@ export default function MyOrderDetailScreen() {
               numberOfLines={2}
               autoCorrect={true}
             />
+              </>
+            )}
             <View style={styles.modalButtons}>
-              <Pressable style={styles.modalBtnCancel} onPress={() => !requestingRefund && setRefundModal(false)} disabled={requestingRefund}>
-                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+              <Pressable
+                style={styles.modalBtnCancel}
+                onPress={() => {
+                  if (requestingRefund) return;
+                  if (refundReview) setRefundReview(false);
+                  else setRefundModal(false);
+                }}
+                disabled={requestingRefund}
+              >
+                <Text style={styles.modalBtnCancelText}>{refundReview ? "Go back" : "Cancel"}</Text>
               </Pressable>
-              <Pressable style={[styles.modalBtnSubmit, requestingRefund && styles.modalBtnDisabled]} onPress={requestRefund} disabled={requestingRefund}>
-                <Text style={styles.modalBtnSubmitText}>{requestingRefund ? "Submitting…" : "Submit request"}</Text>
+              <Pressable
+                style={[styles.modalBtnSubmit, requestingRefund && styles.modalBtnDisabled]}
+                onPress={() => {
+                  if (refundReview) {
+                    void requestRefund();
+                    return;
+                  }
+                  if (!refundReason.trim()) {
+                    Alert.alert("Select a reason", "Please select a reason for your refund request.");
+                    return;
+                  }
+                  if (refundReason === "Other" && !refundOther.trim()) {
+                    Alert.alert("Provide details", "Please provide details for \"Other\".");
+                    return;
+                  }
+                  setRefundReview(true);
+                }}
+                disabled={requestingRefund}
+              >
+                <Text style={styles.modalBtnSubmitText}>{requestingRefund ? "Submitting…" : "Submit Request"}</Text>
               </Pressable>
             </View>
           </View>
@@ -1133,18 +1126,6 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   backBtnOutlineText: { color: theme.colors.primary, fontSize: 16, fontWeight: "600" },
-  refundBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    marginBottom: 12,
-    padding: 12,
-    backgroundColor: "#fef3c7",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#fde68a",
-  },
-  refundBannerText: { flex: 1, fontSize: 14, color: "#92400e" },
   cancelReasonSection: {
     marginBottom: 12,
     padding: 12,

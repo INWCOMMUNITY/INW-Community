@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel, storeReturnSellerMoneyAction, storeReturnSellerMoneyActionLabel } from "@/lib/store-return";
+import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
+import { ReturnLabelDueTag, SellerReturnRefundChoiceModal } from "@/components/seller/SellerReturnRefundChoice";
 
 interface OrderItem {
   id: string;
@@ -35,6 +37,7 @@ interface StoreOrder {
   cancelReason?: string | null;
   inventoryRestoredAt?: string | null;
   createdAt: string;
+  localDeliveryDetails?: unknown;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   storeReturn?: StoreReturn | null;
@@ -78,6 +81,8 @@ export default function RequestedReturnsPage() {
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
   const [sendLabelOrder, setSendLabelOrder] = useState<StoreOrder | null>(null);
+  const [choiceBusy, setChoiceBusy] = useState(false);
+  const [choiceError, setChoiceError] = useState<string | null>(null);
 
   const openReturnLabel = useCallback(
     (orderId: string) => {
@@ -119,6 +124,41 @@ export default function RequestedReturnsPage() {
       setSendLabelOrder(null);
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function chooseRefundTiming(orderId: string, timing: "now" | "on_arrival") {
+    setChoiceBusy(true);
+    setChoiceError(null);
+    try {
+      if (timing === "now") {
+        const res = await fetch(`/api/store-orders/${orderId}/returns/receive`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setChoiceError((data as { error?: string }).error ?? "Could not refund this order.");
+          return;
+        }
+      } else {
+        const res = await fetch(`/api/store-orders/${orderId}/returns/refund-timing`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timing: "on_arrival" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setChoiceError((data as { error?: string }).error ?? "Could not save that choice.");
+          return;
+        }
+      }
+      load();
+    } catch {
+      setChoiceError("Connection failed.");
+    } finally {
+      setChoiceBusy(false);
     }
   }
 
@@ -193,6 +233,8 @@ export default function RequestedReturnsPage() {
     }
   }
 
+  const choiceOrder = orders.find((order) => sellerMustChooseReturnRefundTiming(order)) ?? null;
+
   if (loading) {
     return (
       <div>
@@ -266,7 +308,13 @@ export default function RequestedReturnsPage() {
                       {new Date(order.createdAt).toLocaleString()}
                     </p>
                     <p className="text-sm mt-2" style={{ color: "var(--color-primary)" }}>
-                      {ret ? (storeReturnBuyerLabel(ret.status) ?? ret.status) : "Canceled"}
+                      {ret
+                        ? ret.status === "awaiting_return" && !order.returnShipment?.labelUrl
+                          ? "Return approved. Send the buyer a return label."
+                          : (storeReturnBuyerLabel(ret.status, {
+                              hasReturnLabel: Boolean(order.returnShipment?.labelUrl),
+                            }) ?? ret.status)
+                        : "Canceled"}
                     </p>
                     {ret?.reason ? <p className="text-sm text-gray-700 mt-1">Reason: {ret.reason}</p> : null}
                     {!ret && order.cancelReason ? (
@@ -379,27 +427,39 @@ export default function RequestedReturnsPage() {
                     </button>
                   </div>
                 ) : null}
-                <div className="flex flex-wrap gap-2">
+                <div
+                  className={
+                    orderCanBuyReturnLabel(order) &&
+                    returnLabelIsDue(order) &&
+                    (ret?.status === "awaiting_return" || ret?.status === "in_transit") &&
+                    moneyAction
+                      ? "grid w-full max-w-2xl grid-cols-2 items-start gap-x-3 gap-y-2"
+                      : "flex flex-col items-start gap-2"
+                  }
+                >
                   {ret?.status === "awaiting_return" || ret?.status === "in_transit" ? (
                     <>
-                      {orderCanBuyReturnLabel(order) && !order.returnShipment?.labelUrl ? (
-                        ret.chargeReturnShipping ? (
-                          <button
-                            type="button"
-                            className="btn text-sm py-2 px-3"
-                            disabled={busy}
-                            onClick={() => setSendLabelOrder(order)}
-                          >
-                            Send Buyer Return Label
-                          </button>
-                        ) : (
-                          <Link
-                            href={`/seller-hub/orders/shippo/${order.id}?labelAction=return`}
-                            className="btn text-sm py-2 px-3 inline-block"
-                          >
-                            Send Buyer Return Label
-                          </Link>
-                        )
+                      {orderCanBuyReturnLabel(order) && returnLabelIsDue(order) ? (
+                        <div className="flex min-w-0 flex-col gap-2">
+                          {ret.chargeReturnShipping ? (
+                            <button
+                              type="button"
+                              className="btn w-full text-sm py-2 px-3"
+                              disabled={busy}
+                              onClick={() => setSendLabelOrder(order)}
+                            >
+                              Send Buyer Return Label
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/seller-hub/orders/shippo/${order.id}?labelAction=return`}
+                              className="btn w-full text-sm py-2 px-3 inline-block text-center"
+                            >
+                              Send Buyer Return Label
+                            </Link>
+                          )}
+                          <ReturnLabelDueTag />
+                        </div>
                       ) : null}
                       {order.returnShipment?.labelUrl ? (
                         <a
@@ -414,14 +474,21 @@ export default function RequestedReturnsPage() {
                     </>
                   ) : null}
                   {moneyAction ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      className="btn text-sm py-2 px-3"
-                      onClick={() => postAction(order.id, "/returns/receive")}
-                    >
-                      {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
-                    </button>
+                    <div className="flex min-w-0 flex-col items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="btn w-full text-sm py-2 px-3"
+                        onClick={() => postAction(order.id, "/returns/receive")}
+                      >
+                        {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
+                      </button>
+                      {moneyAction === "receive" ? (
+                        <p className="w-full text-center text-sm font-semibold" style={{ color: "#6b2430" }}>
+                          (Refunds Automatic at Delivery)
+                        </p>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
                 {declineFor === order.id ? (
@@ -526,6 +593,18 @@ export default function RequestedReturnsPage() {
           </div>
         </div>
       ) : null}
+
+      <SellerReturnRefundChoiceModal
+        open={choiceOrder != null}
+        busy={choiceBusy}
+        error={choiceError}
+        onRefundNow={() => {
+          if (choiceOrder) void chooseRefundTiming(choiceOrder.id, "now");
+        }}
+        onRefundWhenArrives={() => {
+          if (choiceOrder) void chooseRefundTiming(choiceOrder.id, "on_arrival");
+        }}
+      />
     </div>
   );
 }

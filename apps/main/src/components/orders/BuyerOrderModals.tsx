@@ -20,9 +20,8 @@ import {
   formatBuyerRefundFeeDeductionLine,
 } from "@/lib/store-return";
 import {
-  buyerReturnShippingWarning,
+  buyerReturnLabelFollowup,
   policyFromStored,
-  returnLabelChargesBuyer,
 } from "@/lib/seller-return-label-policy";
 
 export type BuyerOrderModal =
@@ -50,8 +49,8 @@ export function BuyerOrderModals({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [ackReturnShipping, setAckReturnShipping] = useState(false);
   const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [refundReview, setRefundReview] = useState(false);
 
   const order = modal?.order ?? null;
   const modalKey = modal ? `${modal.kind}:${modal.order.id}` : "";
@@ -62,8 +61,8 @@ export function BuyerOrderModals({
     setNote("");
     setError(null);
     setSuccessMessage(null);
-    setAckReturnShipping(false);
     setPolicyAccepted(false);
+    setRefundReview(false);
   }, [modalKey]);
 
   function resetAndClose() {
@@ -73,8 +72,8 @@ export function BuyerOrderModals({
     setNote("");
     setError(null);
     setSuccessMessage(null);
-    setAckReturnShipping(false);
     setPolicyAccepted(false);
+    setRefundReview(false);
     onClose();
   }
 
@@ -140,18 +139,6 @@ export function BuyerOrderModals({
     }
     if (reason === "Other" && !otherReason.trim()) {
       setError('Please provide details for "Other".');
-      return;
-    }
-    const chargesLabel = returnLabelChargesBuyer(
-      policyFromStored({
-        returnLabelPayer: order.returnLabelPayer,
-        returnLabelPayerByReason: order.returnLabelPayerByReason,
-        chargeReturnShipping: order.sellerChargeReturnShipping,
-      }),
-      reason
-    );
-    if (chargesLabel && !ackReturnShipping) {
-      setError("Please confirm you understand return shipping may be deducted from your refund.");
       return;
     }
     setSubmitting(true);
@@ -300,6 +287,20 @@ export function BuyerOrderModals({
     );
   }
 
+  function reviewRefund() {
+    if (!order) return;
+    if (!reason) {
+      setError("Please select a reason for your refund request.");
+      return;
+    }
+    if (reason === "Other" && !otherReason.trim()) {
+      setError('Please provide details for "Other".');
+      return;
+    }
+    setError(null);
+    setRefundReview(true);
+  }
+
   const isCancel = modal.kind === "cancel";
   const feeLine = formatBuyerRefundFeeDeductionLine({
     totalCents: order.totalCents,
@@ -353,7 +354,7 @@ export function BuyerOrderModals({
         style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
       >
         <h3 className="text-lg font-bold mb-3" style={{ color: "var(--color-heading)" }}>
-          {successMessage ? (isCancel ? "Order canceled" : "Request sent") : isCancel ? "Cancel order" : "Request refund"}
+          {successMessage ? (isCancel ? "Order canceled" : "Request sent") : isCancel ? "Cancel order" : "Request Refund"}
         </h3>
         {successMessage ? (
           <>
@@ -369,6 +370,41 @@ export function BuyerOrderModals({
               Close
             </button>
           </>
+        ) : !isCancel && refundReview ? (
+          <>
+            <p className="text-sm font-semibold mb-6 leading-relaxed">
+              {buyerReturnLabelFollowup(
+                order.sellerPolicyName || "This seller",
+                policyFromStored({
+                  returnLabelPayer: order.returnLabelPayer,
+                  returnLabelPayerByReason: order.returnLabelPayerByReason,
+                  chargeReturnShipping: order.sellerChargeReturnShipping,
+                }),
+                reason
+              )}
+            </p>
+            {error ? <p className="text-sm text-red-700 mb-3">{error}</p> : null}
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setRefundReview(false)}
+                className="px-4 py-2 rounded border-2"
+                style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+                disabled={submitting}
+              >
+                Go back
+              </button>
+              <button
+                type="button"
+                onClick={submitRefund}
+                disabled={submitting}
+                className="btn text-white hover:text-white"
+                style={{ backgroundColor: "var(--color-primary)" }}
+              >
+                {submitting ? "Submitting…" : "Submit Request"}
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <p className="text-sm mb-2 opacity-80">
@@ -379,28 +415,6 @@ export function BuyerOrderModals({
             <p className="text-xs mb-4 font-medium" style={{ color: "var(--color-primary)" }}>
               {feeLine}
             </p>
-            {!isCancel &&
-            returnLabelChargesBuyer(
-              policyFromStored({
-                returnLabelPayer: order.returnLabelPayer,
-                returnLabelPayerByReason: order.returnLabelPayerByReason,
-                chargeReturnShipping: order.sellerChargeReturnShipping,
-              }),
-              reason
-            ) ? (
-              <label className="flex items-start gap-2 mb-4 text-sm">
-                <input
-                  type="checkbox"
-                  checked={ackReturnShipping}
-                  onChange={(e) => setAckReturnShipping(e.target.checked)}
-                  className="mt-1"
-                  disabled={submitting}
-                />
-                <span className="font-semibold">
-                  {buyerReturnShippingWarning(order.sellerPolicyName || "This seller")}
-                </span>
-              </label>
-            ) : null}
             <p className="text-sm font-medium mb-2">Reason (required)</p>
             <select
               value={reason}
@@ -455,12 +469,12 @@ export function BuyerOrderModals({
               </button>
               <button
                 type="button"
-                onClick={isCancel ? submitCancel : submitRefund}
+                onClick={isCancel ? submitCancel : reviewRefund}
                 disabled={submitting}
                 className="btn text-white hover:text-white"
                 style={{ backgroundColor: "var(--color-primary)" }}
               >
-                {submitting ? (isCancel ? "Processing…" : "Submitting…") : isCancel ? "Cancel Order" : "Submit request"}
+                {submitting ? (isCancel ? "Processing…" : "Submitting…") : isCancel ? "Cancel Order" : "Submit Request"}
               </button>
             </div>
           </>
