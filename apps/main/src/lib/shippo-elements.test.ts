@@ -69,21 +69,30 @@ describe("Shippo package from listing options", () => {
   });
 
   it("swaps buyer checkout address to seller ship-from on a return label", () => {
-    const details = buildOrderDetailsFromOrder(makeOrder(), null, {
-      isReturn: true,
-      sellerFromAddress: {
-        name: "Seller Shop",
-        street1: "200 Pine St",
-        city: "Spokane",
-        state: "WA",
-        zip: "99202",
-        country: "US",
-      },
-    });
+    const details = buildOrderDetailsFromOrder(
+      makeOrder({ buyer: { firstName: "Ada", lastName: "Lovelace", email: "ada@example.com" } }),
+      null,
+      {
+        isReturn: true,
+        sellerFromAddress: {
+          name: "Seller Shop",
+          street1: "200 Pine St",
+          city: "Spokane",
+          state: "WA",
+          zip: "99202",
+          country: "US",
+          phone: "509-555-0100",
+          email: "shop@example.com",
+        },
+      }
+    );
     expect(details?.address_from?.street1).toBe("1 Main St");
     expect(details?.address_from?.name).toBe("Ada Lovelace");
+    expect(details?.address_from?.email).toBe("ada@example.com");
+    expect(details?.address_from?.phone).toBe("509-555-0100");
     expect(details?.address_to?.street1).toBe("200 Pine St");
     expect(details?.address_to?.name).toBe("Seller Shop");
+    expect(details?.address_to?.phone).toBe("509-555-0100");
     expect(details?.extra?.is_return).toBe(true);
   });
 

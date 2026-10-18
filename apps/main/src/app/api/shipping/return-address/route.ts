@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerFromAddress, getSellerShippoCredential } from "@/lib/shippo-seller";
 
@@ -22,6 +23,11 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+  const member = await prisma.member.findUnique({
+    where: { id: userId },
+    select: { phone: true },
+  });
+  const phone = from.phone?.trim() || member?.phone?.trim() || undefined;
   return NextResponse.json({
     name: from.name,
     company: from.company,
@@ -31,7 +37,7 @@ export async function GET(req: NextRequest) {
     state: from.state,
     zip: from.zip,
     country: from.country || "US",
-    phone: from.phone,
+    ...(phone ? { phone: phone.slice(0, 32) } : {}),
     email: from.email,
   });
 }

@@ -312,8 +312,12 @@ export function buildOrderDetailsFromOrder(
     if (!sellerAddr?.street1?.trim() || !sellerAddr.city?.trim() || !sellerAddr.state?.trim() || !sellerAddr.zip?.trim()) {
       return null;
     }
+    const sellerPhone = sellerAddr.phone?.trim().slice(0, 32);
     return {
-      address_from: buyerAddress,
+      address_from: {
+        ...buyerAddress,
+        ...(sellerPhone ? { phone: sellerPhone } : {}),
+      },
       address_to: {
         ...sellerAddr,
         street1: sellerAddr.street1.slice(0, 35),
