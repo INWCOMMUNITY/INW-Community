@@ -74,6 +74,32 @@ export interface StoreOrderForShippo extends OrderForElements {
 
 export type NwAppShippoMode = "reprint" | "purchase" | "another" | "return";
 
+const SHIPPO_MODE_STORAGE_PREFIX = "nwc-shippo-label-mode:";
+
+function isNwAppShippoMode(value: string | null): value is NwAppShippoMode {
+  return value === "reprint" || value === "purchase" || value === "another" || value === "return";
+}
+
+/** Survives the query-param strip so closing Shippo does not fall back to Reprint Label. */
+export function rememberNwAppShippoMode(orderId: string, mode: NwAppShippoMode): void {
+  if (typeof window === "undefined" || !orderId) return;
+  try {
+    sessionStorage.setItem(`${SHIPPO_MODE_STORAGE_PREFIX}${orderId}`, mode);
+  } catch {
+    /* private mode */
+  }
+}
+
+export function recallNwAppShippoMode(orderId: string): NwAppShippoMode | null {
+  if (typeof window === "undefined" || !orderId) return null;
+  try {
+    const value = sessionStorage.getItem(`${SHIPPO_MODE_STORAGE_PREFIX}${orderId}`);
+    return isNwAppShippoMode(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function stripNwAppShippoDeepLinkParams(): void {
   if (typeof window === "undefined") return;
   const sp = new URLSearchParams(window.location.search);
@@ -103,6 +129,8 @@ export function useShippoLabelFlowForOrder(options: {
   elementsError: string | null;
   shippoModalOpen: boolean;
   purchasedLabelUrls: string[];
+  /** Mode from the URL, kept after the query string is removed. */
+  deepLinkMode: NwAppShippoMode | null;
   printPurchasedLabels: () => void;
   openElementsFlow: (opts?: {
     forReprint?: boolean;
@@ -117,6 +145,14 @@ export function useShippoLabelFlowForOrder(options: {
   const [elementsError, setElementsError] = useState<string | null>(null);
   const [shippoModalOpen, setShippoModalOpen] = useState(false);
   const [purchasedLabelUrls, setPurchasedLabelUrls] = useState<string[]>([]);
+  const [stickyMode, setStickyMode] = useState<NwAppShippoMode | null>(null);
+  const urlMode = readNwAppShippoModeFromWindow();
+  const storedMode = recallNwAppShippoMode(orderId);
+  const seenMode = urlMode ?? storedMode;
+  if (seenMode && seenMode !== stickyMode) {
+    setStickyMode(seenMode);
+  }
+  const deepLinkMode = urlMode ?? stickyMode ?? storedMode;
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
   /** Ship-to used for the open Shippo session; saved on the order when the label is recorded. */
@@ -370,7 +406,9 @@ export function useShippoLabelFlowForOrder(options: {
     const sp = new URLSearchParams(window.location.search);
     const mode = sp.get("nwAppShippo") ?? sp.get("labelAction");
     if (!mode) return;
-    if (mode !== "reprint" && mode !== "purchase" && mode !== "another" && mode !== "return") return;
+    if (!isNwAppShippoMode(mode)) return;
+    setStickyMode(mode);
+    rememberNwAppShippoMode(orderId, mode);
 
     const run = openElementsFlowRef.current;
 
@@ -406,6 +444,7 @@ export function useShippoLabelFlowForOrder(options: {
     elementsError,
     shippoModalOpen,
     purchasedLabelUrls,
+    deepLinkMode,
     printPurchasedLabels,
     openElementsFlow,
     closeShippoModal,
@@ -460,6 +499,5 @@ export function readNwAppShippoModeFromWindow(): NwAppShippoMode | null {
   if (typeof window === "undefined") return null;
   const sp = new URLSearchParams(window.location.search);
   const m = sp.get("nwAppShippo") ?? sp.get("labelAction");
-  if (m === "reprint" || m === "purchase" || m === "another" || m === "return") return m;
-  return null;
+  return isNwAppShippoMode(m) ? m : null;
 }

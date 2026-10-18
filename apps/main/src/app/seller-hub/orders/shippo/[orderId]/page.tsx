@@ -9,7 +9,6 @@ import {
   useShippoLabelFlowForOrder,
   SHIPPO_EMBEDDABLE_URL,
   getNwAppShippoSkippedReason,
-  readNwAppShippoModeFromWindow,
   type StoreOrderForShippo,
 } from "@/hooks/use-shippo-label-flow-for-order";
 import { orderEligibleForAnotherShippoLabel } from "types";
@@ -60,12 +59,8 @@ export default function SellerShippoThinLabelPage() {
   const orderId =
     typeof rawOrderId === "string" ? rawOrderId : Array.isArray(rawOrderId) ? (rawOrderId[0] ?? "") : "";
 
-  /** Capture deep-link mode once on first client render (URL params are stripped after auto-open). */
-  const nwAppModeCaptureRef = useRef<ReturnType<typeof readNwAppShippoModeFromWindow> | undefined>(undefined);
+  /** Capture deep-link chrome once; label mode is kept by the Shippo hook after the query is stripped. */
   const nwAppChromeCaptureRef = useRef<boolean | undefined>(undefined);
-  if (typeof window !== "undefined" && nwAppModeCaptureRef.current === undefined) {
-    nwAppModeCaptureRef.current = readNwAppShippoModeFromWindow();
-  }
   if (typeof window !== "undefined" && nwAppChromeCaptureRef.current === undefined) {
     try {
       nwAppChromeCaptureRef.current =
@@ -74,7 +69,6 @@ export default function SellerShippoThinLabelPage() {
       nwAppChromeCaptureRef.current = false;
     }
   }
-  const capturedNwAppShippo = nwAppModeCaptureRef.current ?? null;
   const embeddedNwAppChrome = nwAppChromeCaptureRef.current ?? false;
 
   const [order, setOrder] = useState<StoreOrder | null>(null);
@@ -96,11 +90,14 @@ export default function SellerShippoThinLabelPage() {
       .then((data) => data && setOrder(data));
   }, [orderId]);
 
+  const labelModeRef = useRef<"reprint" | "purchase" | "another" | "return" | null>(null);
+
   const {
     elementsLoading,
     elementsError,
     shippoModalOpen,
     purchasedLabelUrls,
+    deepLinkMode,
     openElementsFlow,
     closeShippoModal,
   } = useShippoLabelFlowForOrder({
@@ -110,9 +107,11 @@ export default function SellerShippoThinLabelPage() {
     orderLoading: loading,
     onLabelSaved: () => {
       refetchOrder();
-      if (capturedNwAppShippo === "return") setLabelJustSent(true);
+      if (labelModeRef.current === "return") setLabelJustSent(true);
     },
   });
+  labelModeRef.current = deepLinkMode;
+  const capturedNwAppShippo = deepLinkMode;
 
   useEffect(() => {
     if (!orderId) {
