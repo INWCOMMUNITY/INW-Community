@@ -51,12 +51,14 @@ import { createMarketplaceStripe } from "@/lib/stripe-clients";
 import { resolveMarketplaceStripeSecretKey } from "@/lib/stripe-secret-key";
 
 /**
- * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
- * Every Checkout line from the storefront (merchandise, shipping, local delivery fee)
- * uses this code so Stripe Tax treats the session consistently with your Dashboard preset.
+ * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`) for merchandise.
+ * Shipping / local-delivery fee lines use **Shipping** (`txcd_92010001`) so Stripe Tax can
+ * apply jurisdiction rules (e.g. Idaho: separately stated shipping/handling often not taxable;
+ * Washington: shipping generally taxable when the underlying goods are taxable).
  *
  * Dynamic `price_data` still needs `tax_behavior: "exclusive"` per line — see Stripe Tax + Checkout docs.
- * Optional override: `STRIPE_TAX_CODE_GENERAL_TANGIBLE_GOODS` (or legacy `STRIPE_TAX_CODE_TANGIBLE`).
+ * Optional overrides: `STRIPE_TAX_CODE_GENERAL_TANGIBLE_GOODS` / `STRIPE_TAX_CODE_TANGIBLE`,
+ * `STRIPE_TAX_CODE_SHIPPING`.
  *
  * @see https://docs.stripe.com/tax/tax-codes
  * @see https://docs.stripe.com/tax/checkout
@@ -65,6 +67,9 @@ const TAX_CODE_GENERAL_TANGIBLE_GOODS =
   process.env.STRIPE_TAX_CODE_GENERAL_TANGIBLE_GOODS?.trim() ||
   process.env.STRIPE_TAX_CODE_TANGIBLE?.trim() ||
   "txcd_99999999";
+
+const TAX_CODE_SHIPPING =
+  process.env.STRIPE_TAX_CODE_SHIPPING?.trim() || "txcd_92010001";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -471,7 +476,9 @@ export async function POST(req: NextRequest) {
           tax_behavior: "exclusive",
           product_data: {
             name: "Shipping",
-            tax_code: TAX_CODE_GENERAL_TANGIBLE_GOODS,
+            // Separate line + Shipping tax code → Stripe Tax applies destination rules
+            // (e.g. ID exempt when separately stated; WA taxable when goods are taxable).
+            tax_code: TAX_CODE_SHIPPING,
           },
         },
         quantity: 1,
@@ -485,7 +492,7 @@ export async function POST(req: NextRequest) {
           tax_behavior: "exclusive",
           product_data: {
             name: "Local Delivery fee",
-            tax_code: TAX_CODE_GENERAL_TANGIBLE_GOODS,
+            tax_code: TAX_CODE_SHIPPING,
           },
         },
         quantity: 1,
