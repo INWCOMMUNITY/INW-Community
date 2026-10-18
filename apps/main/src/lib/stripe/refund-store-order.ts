@@ -64,8 +64,15 @@ export const STOREFRONT_TRANSFER_REVERSAL_IDEMPOTENCY_PREFIX = "nwc_store_revers
 const STOREFRONT_TRANSFER_REVERSAL_PAGE_SIZE = 100;
 const STOREFRONT_TRANSFER_REVERSAL_MAX_PAGES = 5;
 
-export function storefrontTransferReversalIdempotencyKey(storeOrderId: string): string {
-  return `${STOREFRONT_TRANSFER_REVERSAL_IDEMPOTENCY_PREFIX}${storeOrderId}`;
+/**
+ * Include amount so a clamped retry does not collide with a prior failed over-request
+ * that burned the order-only key (Stripe idempotency keys bind to first parameters).
+ */
+export function storefrontTransferReversalIdempotencyKey(
+  storeOrderId: string,
+  amountCents: number
+): string {
+  return `${STOREFRONT_TRANSFER_REVERSAL_IDEMPOTENCY_PREFIX}${storeOrderId}_${amountCents}`;
 }
 
 export type StorefrontTransferReversalStatus =
@@ -242,38 +249,67 @@ export async function ensureStorefrontTransferReversal(
   }
 
   const metadata = causalStorefrontReversalMetadata(args);
-  const idempotencyKey = storefrontTransferReversalIdempotencyKey(args.storeOrderId);
+  const params = { amount: amountCents, metadata };
+  const idempotencyKey = storefrontTransferReversalIdempotencyKey(args.storeOrderId, amountCents);
+
+  const acceptRediscovered = (
+    rediscovered: Extract<StorefrontReversalDiscovery, { status: "found" }>
+  ): StorefrontTransferReversalResult => {
+    const remaining = Math.max(0, transfer.amount - Math.max(0, transfer.amount_reversed ?? 0));
+    const matchesRequested = rediscovered.reversal.amount === amountCents;
+    const matchesFullTransfer = rediscovered.reversal.amount === transfer.amount;
+    const fullyReversedAlready = remaining === 0;
+    if (!matchesRequested && !matchesFullTransfer && !fullyReversedAlready) {
+      return {
+        status: "conflict",
+        reversalId: rediscovered.reversal.id,
+        amountCents: rediscovered.reversal.amount,
+        error:
+          "Existing seller transfer reversal amount conflicts with this refund; operator reconciliation is required",
+      };
+    }
+    return {
+      status: "already_reversed",
+      reversalId: rediscovered.reversal.id,
+      amountCents: rediscovered.reversal.amount,
+    };
+  };
+
   try {
-    const created = await stripe.transfers.createReversal(
-      args.transferId,
-      { amount: amountCents, metadata },
-      { idempotencyKey }
-    );
+    const created = await stripe.transfers.createReversal(args.transferId, params, {
+      idempotencyKey,
+    });
     return { status: "reversed", reversalId: created.id, amountCents };
   } catch (e) {
     const rediscovered = await findExistingStorefrontTransferReversal(stripe, args);
     if (rediscovered.status === "found") {
-      const remaining = Math.max(0, transfer.amount - Math.max(0, transfer.amount_reversed ?? 0));
-      const matchesRequested = rediscovered.reversal.amount === amountCents;
-      const matchesFullTransfer = rediscovered.reversal.amount === transfer.amount;
-      const fullyReversedAlready = remaining === 0;
-      if (!matchesRequested && !matchesFullTransfer && !fullyReversedAlready) {
-        return {
-          status: "conflict",
-          reversalId: rediscovered.reversal.id,
-          amountCents: rediscovered.reversal.amount,
-          error:
-            "Existing seller transfer reversal amount conflicts with this refund; operator reconciliation is required",
-        };
-      }
-      return {
-        status: "already_reversed",
-        reversalId: rediscovered.reversal.id,
-        amountCents: rediscovered.reversal.amount,
-      };
+      return acceptRediscovered(rediscovered);
     }
+
+    // Legacy order-only keys may be burned with a different amount/metadata; recover once.
+    if (isStripeRefundIdempotencyMismatch(e)) {
+      const recoveryKey = `${idempotencyKey}_r`;
+      try {
+        const created = await stripe.transfers.createReversal(args.transferId, params, {
+          idempotencyKey: recoveryKey,
+        });
+        return { status: "reversed", reversalId: created.id, amountCents };
+      } catch (retryErr) {
+        const afterRetry = await findExistingStorefrontTransferReversal(stripe, args);
+        if (afterRetry.status === "found") {
+          return acceptRediscovered(afterRetry);
+        }
+        const msg =
+          retryErr instanceof Error ? retryErr.message : "Could not reverse seller transfer";
+        if (isUnknownRefundProviderOutcome(retryErr) || isStripeRefundIdempotencyMismatch(retryErr)) {
+          return { status: "uncertain", error: msg };
+        }
+        return { status: "failed", error: msg };
+      }
+    }
+
     const msg = e instanceof Error ? e.message : "Could not reverse seller transfer";
-    if (isUnknownRefundProviderOutcome(e) || isStripeRefundIdempotencyMismatch(e)) {
+    if (isUnknownRefundProviderOutcome(e)) {
       return { status: "uncertain", error: msg };
     }
     return { status: "failed", error: msg };
