@@ -96,16 +96,21 @@ export async function POST(req: NextRequest) {
 
   try {
     if (process.env.BLOB_READ_WRITE_TOKEN) {
-      const blob = await put(
-        filename,
-        uploadBuffer ?? file,
-        {
-          access: "public",
-          addRandomSuffix: false,
-          contentType: contentType || undefined,
-        }
-      );
-      return NextResponse.json({ url: blob.url });
+      try {
+        const blob = await put(
+          filename,
+          uploadBuffer ?? file,
+          {
+            access: "public",
+            addRandomSuffix: false,
+            contentType: contentType || undefined,
+          }
+        );
+        return NextResponse.json({ url: blob.url });
+      } catch (e) {
+        if (process.env.VERCEL) throw e;
+        console.error("[upload] blob rejected, storing on disk", e);
+      }
     }
 
     const buffer =

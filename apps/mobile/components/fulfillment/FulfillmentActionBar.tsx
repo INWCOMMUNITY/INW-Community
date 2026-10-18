@@ -8,6 +8,7 @@ export function FulfillmentActionBar({
   savingSlips,
   connected,
   onPurchaseLabels,
+  onCombineShipping,
   onPrintSlips,
   onSelectAll,
   onClearSelection,
@@ -17,6 +18,7 @@ export function FulfillmentActionBar({
   savingSlips: boolean;
   connected: boolean;
   onPurchaseLabels: () => void;
+  onCombineShipping?: () => void;
   onPrintSlips: () => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -28,7 +30,9 @@ export function FulfillmentActionBar({
       <Text style={styles.count}>
         {selectedCount} of {totalCount} selected
       </Text>
-      <Text style={styles.hint}>Same-buyer orders combine into one label purchase per buyer.</Text>
+      <Text style={styles.hint}>
+        Each combined box gets one label and one packing slip. An order you leave out gets its own.
+      </Text>
       <View style={styles.row}>
         <Pressable
           style={({ pressed }) => [styles.outlineBtn, pressed && { opacity: 0.8 }]}
@@ -53,6 +57,19 @@ export function FulfillmentActionBar({
             <Text style={styles.outlineText}>Print slips</Text>
           )}
         </Pressable>
+        {onCombineShipping ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.outlineBtn,
+              pressed && { opacity: 0.8 },
+              !connected && { opacity: 0.45 },
+            ]}
+            onPress={onCombineShipping}
+            disabled={!connected}
+          >
+            <Text style={styles.outlineText}>Combine</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={({ pressed }) => [
             styles.primaryBtn,

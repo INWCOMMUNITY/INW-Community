@@ -4,21 +4,48 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { CityPicker } from "@/components/CityPicker";
+import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
+import { normalizeResidentCity } from "@/lib/city-utils";
 import {
   BUSINESS_CATEGORIES,
   getSubcategoriesForBusinessCategory,
   normalizeSubcategoriesByPrimary,
   parseSubcategoriesByPrimary,
+  sellerSignupCategories,
+  type BusinessCategoryOption,
 } from "@/lib/business-categories";
 import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
-import {
-  MAX_BUSINESS_GALLERY_PHOTOS,
-  MAX_UPLOAD_FILE_BYTES,
-  formatMaxUploadSizeLabel,
-} from "@/lib/upload-limits";
+import { ListingFormSection } from "@/components/store-item/ListingFormSection";
+import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
+import { MAX_BUSINESS_GALLERY_PHOTOS, formatListingPhotoSizeLabel } from "@/lib/upload-limits";
+import { uploadBusinessPhoto } from "@/lib/upload-listing-photo-browser";
 import type { Business } from "database";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+
+function emptyStorefrontAddress(): AddressValue {
+  return { street: "", aptOrSuite: "", city: "", state: "", zip: "" };
+}
+
+function parseStoredStorefrontAddress(raw: string): AddressValue {
+  const trimmed = raw.trim();
+  if (!trimmed) return emptyStorefrontAddress();
+  const match = trimmed.match(/^(.*?),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  if (!match) return { ...emptyStorefrontAddress(), street: trimmed };
+  return {
+    street: match[1].trim(),
+    aptOrSuite: "",
+    city: match[2].trim(),
+    state: match[3].trim().toUpperCase(),
+    zip: match[4].trim(),
+  };
+}
+
+function formatStorefrontAddress(addr: AddressValue): string {
+  const street = [addr.street.trim(), addr.aptOrSuite?.trim()].filter(Boolean).join(", ");
+  const region = [addr.state.trim(), addr.zip.trim()].filter(Boolean).join(" ");
+  return [street, addr.city.trim(), region].filter(Boolean).join(", ");
+}
 type HoursRecord = Partial<Record<(typeof DAYS)[number], string>>;
 
 export type BusinessFormData = {
@@ -51,6 +78,99 @@ interface BusinessFormProps {
   onDataReady?: (data: BusinessFormData) => void;
   /** When provided, called after successful save instead of navigating to /business-hub/business */
   onSuccess?: () => void;
+  /** Seller signup leads with shop categories. Directory signup keeps the local-business order. */
+  categoryCatalog?: "directory" | "seller";
+  /** Signup pages place Back beside Continue. */
+  onBack?: () => void;
+}
+
+function StorefrontImageField({
+  title,
+  hint,
+  imageUrl,
+  uploading,
+  onFile,
+  onClear,
+  frameClass,
+  error,
+}: {
+  title: string;
+  hint: string;
+  imageUrl: string;
+  uploading: boolean;
+  onFile: (file: File) => void;
+  onClear: () => void;
+  frameClass: string;
+  error?: string;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  function takeFiles(files: FileList | null) {
+    const file = files?.[0];
+    if (file) onFile(file);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-gray-500 mt-1">{hint}</p>
+      </div>
+      {imageUrl ? (
+        <div className={`relative w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 ${frameClass}`}>
+          <img src={imageUrl} alt="" className="h-full w-full object-contain" />
+          <button
+            type="button"
+            onClick={onClear}
+            className="absolute right-2 top-2 z-10 h-6 w-6 rounded-full bg-red-500 text-sm leading-none text-white hover:bg-red-600"
+            aria-label={`Remove ${title}`}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          takeFiles(e.dataTransfer.files);
+        }}
+        className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+          dragOver
+            ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5"
+            : "border-gray-300 bg-gray-50/50 hover:border-gray-400"
+        }`}
+      >
+        <p className="mb-1 text-sm font-medium text-gray-800">{imageUrl ? `Change ${title}` : `Add ${title}`}</p>
+        <p className="mb-3 text-xs text-gray-500">
+          Drag and drop or choose from your device. Up to {formatListingPhotoSizeLabel()}; large photos are resized automatically.
+        </p>
+        <label className="inline-block cursor-pointer">
+          <span className="action-pill action-pill-sm btn-pill-primary">{uploading ? "Uploading…" : "Choose Photo"}</span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/*"
+            disabled={uploading}
+            onChange={(e) => {
+              takeFiles(e.target.files);
+              e.target.value = "";
+            }}
+            className="sr-only"
+          />
+        </label>
+        {error ? (
+          <p className="mt-3 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function parseHours(ho: unknown): HoursRecord {
@@ -92,7 +212,16 @@ function SubcategoryCustomRow({
   );
 }
 
-export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }: BusinessFormProps) {
+export function BusinessForm({
+  existing,
+  mode = "edit",
+  onDataReady,
+  onSuccess,
+  categoryCatalog = "directory",
+  onBack,
+}: BusinessFormProps) {
+  const categoryPresets: BusinessCategoryOption[] =
+    categoryCatalog === "seller" ? sellerSignupCategories() : BUSINESS_CATEGORIES;
   const router = useRouter();
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(existing?.shortDescription ?? "");
@@ -107,6 +236,10 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("coverPhotoUrl" in (existing ?? {}) ? (existing as { coverPhotoUrl?: string }).coverPhotoUrl ?? "" : "");
   const [uploadingCover, setUploadingCover] = useState(false);
   const [address, setAddress] = useState("address" in (existing ?? {}) ? (existing as { address?: string }).address ?? "" : "");
+  const [storefrontAddress, setStorefrontAddress] = useState<AddressValue>(() =>
+    parseStoredStorefrontAddress("address" in (existing ?? {}) ? (existing as { address?: string }).address ?? "" : "")
+  );
+  const [addressNotApplicable, setAddressNotApplicable] = useState(false);
   const [city, setCity] = useState(existing?.city ?? "");
   const [categories, setCategories] = useState<string[]>(() => {
     const cats = existing?.categories ?? [];
@@ -159,117 +292,78 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
     () => (existing?.photos ?? []).slice(0, MAX_BUSINESS_GALLERY_PHOTOS)
   );
   const [hours, setHours] = useState<HoursRecord>(() => parseHours(existing?.hoursOfOperation ?? null));
+  const [hoursNotApplicable, setHoursNotApplicable] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [logoError, setLogoError] = useState("");
+  const [coverError, setCoverError] = useState("");
+  const [photoError, setPhotoError] = useState("");
 
-  async function uploadFile(file: File, opts?: { purpose?: "business-logo" }): Promise<string> {
-    const formData = new FormData();
-    formData.append("file", file);
-    if (opts?.purpose) formData.append("purpose", opts.purpose);
-    const res = await fetch("/api/upload", { method: "POST", body: formData });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error ?? "Upload failed");
-    const url = data.url;
-    if (!url) throw new Error("No URL returned");
-    if (url.startsWith("/")) return `${window.location.origin}${url}`;
-    return url;
+  function uploadFailureMessage(err: unknown, fallback: string) {
+    return err instanceof Error && err.message ? err.message : fallback;
   }
 
-  async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > MAX_UPLOAD_FILE_BYTES) {
-      setError(`Image is too large (max ${formatMaxUploadSizeLabel()}).`);
-      e.target.value = "";
-      return;
-    }
+  async function uploadLogoFile(file: File) {
     setUploadingLogo(true);
+    setLogoError("");
     try {
-      const url = await uploadFile(file, { purpose: "business-logo" });
+      const url = await uploadBusinessPhoto(file, { logo: true });
       setLogoUrl(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Logo upload failed");
+      setLogoError(uploadFailureMessage(err, "Logo upload failed"));
     } finally {
       setUploadingLogo(false);
-      e.target.value = "";
     }
   }
 
-  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function uploadCoverFile(file: File) {
     setUploadingCover(true);
+    setCoverError("");
     try {
-      const url = await uploadFile(file);
+      const url = await uploadBusinessPhoto(file);
       setCoverPhotoUrl(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cover upload failed");
+      setCoverError(uploadFailureMessage(err, "Cover upload failed"));
     } finally {
       setUploadingCover(false);
-      e.target.value = "";
     }
   }
 
-  async function handlePhotosChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
+  async function uploadGalleryFiles(files: File[]) {
     const remaining = MAX_BUSINESS_GALLERY_PHOTOS - photos.length;
     if (remaining <= 0) {
-      setError(`Maximum ${MAX_BUSINESS_GALLERY_PHOTOS} gallery photos. Remove one to add another.`);
-      e.target.value = "";
+      setPhotoError(`Maximum ${MAX_BUSINESS_GALLERY_PHOTOS} photos. Remove one to add another.`);
       return;
     }
     setUploadingPhotos(true);
-    setError("");
-    const list = Array.from(files).slice(0, remaining);
+    setPhotoError("");
+    const list = files.slice(0, remaining);
     let added = 0;
     let lastErr = "";
     try {
-      for (let i = 0; i < list.length; i++) {
-        const file = list[i];
-        if (file.size > MAX_UPLOAD_FILE_BYTES) {
-          lastErr = `A photo exceeds ${formatMaxUploadSizeLabel()}.`;
-          continue;
-        }
+      for (const file of list) {
         try {
-          const url = await uploadFile(file);
+          const url = await uploadBusinessPhoto(file);
           setPhotos((prev) => {
             if (prev.length >= MAX_BUSINESS_GALLERY_PHOTOS) return prev;
             return prev.includes(url) ? prev : [...prev, url];
           });
           added += 1;
         } catch (err) {
-          lastErr = err instanceof Error ? err.message : "Photo upload failed";
+          lastErr = uploadFailureMessage(err, "Business photo upload failed");
         }
       }
+      if (files.length > remaining) {
+        lastErr = `Only ${MAX_BUSINESS_GALLERY_PHOTOS} photos can be added.`;
+      }
       if (added < list.length && lastErr) {
-        setError(added > 0 ? `Uploaded ${added} of ${list.length}. ${lastErr}` : lastErr);
+        setPhotoError(added > 0 ? `Uploaded ${added} of ${list.length}. ${lastErr}` : lastErr);
       }
     } finally {
       setUploadingPhotos(false);
-      e.target.value = "";
     }
-  }
-
-  function removePhoto(i: number) {
-    setPhotos(photos.filter((_, idx) => idx !== i));
-  }
-
-  function movePhoto(fromIndex: number, toIndex: number) {
-    if (fromIndex === toIndex) return;
-    setPhotos((prev) => {
-      const next = [...prev];
-      const [removed] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, removed);
-      return next;
-    });
-  }
-
-  function handleDragEnd() {
-    setDragIndex(null);
   }
 
   function buildFormData() {
@@ -291,12 +385,12 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       email: email?.trim() || null,
       logoUrl: logoUrl?.trim() || null,
       coverPhotoUrl: coverPhotoUrl?.trim() || null,
-      address: address?.trim() || null,
+      address: addressNotApplicable ? null : address?.trim() || null,
       city: city.trim(),
       categories: cats,
       subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
       photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),
-      hoursOfOperation: Object.keys(hoursFiltered).length ? hoursFiltered : null,
+      hoursOfOperation: hoursNotApplicable || Object.keys(hoursFiltered).length === 0 ? null : hoursFiltered,
       facebookUrl: facebookUrl?.trim() || null,
       instagramUrl: instagramUrl?.trim() || null,
       tiktokUrl: tiktokUrl?.trim() || null,
@@ -341,7 +435,54 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <ListingFormSection title="Photos" description="Logo, cover, and shop photos. The first shop photo is the main image.">
+      <StorefrontImageField
+        title="Logo"
+        hint="Required. Shown on your storefront and in the directory."
+        imageUrl={logoUrl}
+        uploading={uploadingLogo}
+        onFile={(file) => void uploadLogoFile(file)}
+        onClear={() => {
+          setLogoUrl("");
+          setLogoError("");
+        }}
+        frameClass="aspect-square max-h-80"
+        error={logoError}
+      />
+      <StorefrontImageField
+        title="Cover Photo"
+        hint="Optional. Wide backdrop for your seller storefront. Recommended 820×312 px."
+        imageUrl={coverPhotoUrl}
+        uploading={uploadingCover}
+        onFile={(file) => void uploadCoverFile(file)}
+        onClear={() => {
+          setCoverPhotoUrl("");
+          setCoverError("");
+        }}
+        frameClass="aspect-[2.6/1] max-h-56"
+        error={coverError}
+      />
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm font-medium">Business Photos</p>
+          <p className="mt-1 text-xs text-gray-500">
+            Optional. Up to {MAX_BUSINESS_GALLERY_PHOTOS} photos. The first photo is the main image.
+          </p>
+        </div>
+        <ListingPhotoGallery
+          photos={photos}
+          onPhotosChange={(next) => setPhotos(next.slice(0, MAX_BUSINESS_GALLERY_PHOTOS))}
+          onUploadFiles={uploadGalleryFiles}
+          uploadingPhotos={uploadingPhotos}
+          photoError={photoError}
+          emptyTitle="Add Business Photos"
+          moreTitle="Add More Business Photos"
+          helperText={`Drag and drop or choose from your device. Up to ${MAX_BUSINESS_GALLERY_PHOTOS} photos, ${formatListingPhotoSizeLabel()} each. Large photos are resized automatically.`}
+        />
+      </div>
+      </ListingFormSection>
+      <ListingFormSection title="Business details" description="The name and story shoppers see on your storefront.">
       <div>
         <label className="block text-sm font-medium mb-1">Company Name *</label>
         <input
@@ -434,83 +575,39 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
           </div>
         </div>
       </div>
+      </ListingFormSection>
+      <ListingFormSection title="Location" description="City is required. A storefront address is optional.">
       <div>
-        <label className="block text-sm font-medium mb-1">Logo *</label>
-        <div className="flex items-center gap-4">
-          {logoUrl && (
-            <div className="relative">
-              <img src={logoUrl} alt="Logo preview" className="w-20 h-20 object-contain border rounded" />
-              <button
-                type="button"
-                onClick={() => setLogoUrl("")}
-                className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none"
-                aria-label="Remove logo"
-              >
-                ×
-              </button>
-            </div>
-          )}
-          <label className="cursor-pointer">
-            <span className="inline-block px-4 py-2 border rounded hover:bg-gray-100">
-              {uploadingLogo ? "Uploading…" : logoUrl ? "Change logo" : "Upload logo"}
-            </span>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">Storefront Address</label>
+          <label className="flex items-center gap-2 text-sm">
             <input
-              type="file"
-              accept="image/*"
-              onChange={handleLogoChange}
-              disabled={uploadingLogo}
-              className="sr-only"
+              type="checkbox"
+              checked={addressNotApplicable}
+              onChange={(e) => setAddressNotApplicable(e.target.checked)}
             />
+            Not applicable
           </label>
         </div>
-        <p className="text-xs text-gray-500 mt-1">
-          Upload from your device or camera. Max {formatMaxUploadSizeLabel()}. JPEG, PNG, WebP, GIF.
+        <p className="text-xs text-gray-500 mb-2">
+          Don&apos;t put a personal address here. Add this only if you have a storefront.
         </p>
-      </div>
-      <div>
-          <label className="block text-sm font-medium mb-1">Storefront cover photo (optional)</label>
-          <p className="text-xs text-gray-500 mb-2">Facebook-style backdrop for your seller storefront page. Recommended 820×312 px.</p>
-          <div className="flex items-center gap-4">
-            {coverPhotoUrl && (
-              <div className="relative">
-                <img src={coverPhotoUrl} alt="Cover preview" className="w-40 h-24 object-cover border rounded" />
-                <button
-                  type="button"
-                  onClick={() => setCoverPhotoUrl("")}
-                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none"
-                  aria-label="Remove cover"
-                >
-                  ×
-                </button>
-              </div>
-            )}
-            <label className="cursor-pointer">
-              <span className="inline-block px-4 py-2 border rounded hover:bg-gray-100">
-                {uploadingCover ? "Uploading…" : coverPhotoUrl ? "Change cover" : "Upload cover"}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleCoverChange}
-                disabled={uploadingCover}
-                className="sr-only"
-              />
-            </label>
-          </div>
-        </div>
-      <div>
-        <label className="block text-sm font-medium mb-1">Address *</label>
-        <input
-          type="text"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          required
-          className="w-full border rounded px-3 py-2"
-          placeholder="e.g. 123 Main St, Coeur d'Alene, ID 83815"
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          Your address will open in Google Maps or Apple Maps on your business page.
-        </p>
+        {addressNotApplicable ? null : (
+          <>
+            <AddressSearchInput
+              value={storefrontAddress}
+              onChange={(addr) => {
+                setStorefrontAddress(addr);
+                setAddress(formatStorefrontAddress(addr));
+                if (addr.city.trim()) setCity(normalizeResidentCity(addr.city));
+              }}
+              placeholder="Search for your storefront address"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Your storefront address will open in Google Maps or Apple Maps on your business page.
+            </p>
+          </>
+        )}
       </div>
       <div>
         <label className="block text-sm font-medium mb-1">City *</label>
@@ -522,6 +619,8 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
           className="w-full border rounded px-3 py-2"
         />
       </div>
+      </ListingFormSection>
+      <ListingFormSection title="Categories" description="Pick up to two. Use the list or add your own.">
       <div>
         <label className="block text-sm font-medium mb-1">Business categories (up to 2) *</label>
         <p className="text-xs text-gray-500 mb-2">
@@ -549,7 +648,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
                 }}
                 shortDescription={shortDescription}
                 fullDescription={fullDescription}
-                presets={BUSINESS_CATEGORIES}
+                presets={categoryPresets}
                 required={i === 0}
                 placeholder="Search categories…"
               />
@@ -601,8 +700,22 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
           );
         })}
       </div>
+      </ListingFormSection>
+      <ListingFormSection title="Hours" description="Add your open hours, or mark them not applicable.">
       <div>
-        <label className="block text-sm font-medium mb-1">Hours of Operation</label>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">Hours of Operation</label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={hoursNotApplicable}
+              onChange={(e) => setHoursNotApplicable(e.target.checked)}
+            />
+            Not applicable
+          </label>
+        </div>
+        {hoursNotApplicable ? null : (
+          <>
         <p className="text-xs text-gray-500 mb-2">Enter hours for each day, e.g. 9:00 AM - 5:00 PM or CLOSED</p>
         <div className="grid gap-y-2 gap-x-1 sm:grid-cols-2">
           {DAYS.map((day) => (
@@ -618,86 +731,21 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
             </div>
           ))}
         </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium mb-1">Photos of your Business (optional)</label>
-        <label className="cursor-pointer inline-block">
-          <span className="inline-block px-4 py-2 border rounded hover:bg-gray-100">
-            {uploadingPhotos ? "Uploading…" : "Upload photos"}
-          </span>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handlePhotosChange}
-            disabled={uploadingPhotos}
-            className="sr-only"
-          />
-        </label>
-        <p className="text-xs text-gray-500 mt-1">
-          Up to {MAX_BUSINESS_GALLERY_PHOTOS} photos, {formatMaxUploadSizeLabel()} each. JPEG, PNG, WebP, GIF.
-        </p>
-        {photos.length > 0 && (
-          <div className="mt-3">
-            <div className="flex flex-wrap gap-2">
-              {photos.map((url, i) => (
-                <div
-                  key={url}
-                  draggable
-                  onDragStart={(e) => {
-                    setDragIndex(i);
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("text/plain", String(i));
-                    e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-                    if (!isNaN(fromIndex) && fromIndex !== i) {
-                      movePhoto(fromIndex, i);
-                    }
-                    setDragIndex(null);
-                  }}
-                  onDragEnd={handleDragEnd}
-                  className={`relative shrink-0 w-16 h-16 rounded border-2 cursor-grab active:cursor-grabbing select-none ${
-                    dragIndex === i ? "opacity-50 border-red-500" : "border-gray-300"
-                  }`}
-                >
-                  <img
-                    src={url}
-                    alt=""
-                    className="w-full h-full object-cover rounded pointer-events-none"
-                    draggable={false}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removePhoto(i);
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs z-10"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">Drag thumbnails to reorder. First image is the main photo.</p>
-          </div>
+          </>
         )}
       </div>
+      </ListingFormSection>
       {error && <p className="text-red-600 text-sm">{error}</p>}
-      <button type="submit" className="btn" disabled={submitting}>
-        {mode === "signup" ? "Continue" : submitting ? "Saving…" : existing ? "Update Business" : "Add Business"}
-      </button>
+      <div className="flex gap-2">
+        {onBack ? (
+          <button type="button" onClick={onBack} className="btn-outline flex-1 text-center">
+            Back
+          </button>
+        ) : null}
+        <button type="submit" className={`btn text-center ${onBack ? "flex-1" : ""}`} disabled={submitting}>
+          {mode === "signup" ? "Continue" : submitting ? "Saving…" : existing ? "Update Business" : "Add Business"}
+        </button>
+      </div>
     </form>
   );
 }

@@ -147,6 +147,12 @@ export function buyerFulfillmentHasStarted(order: {
   return false;
 }
 
+export function canCancelMobileBuyerOrder(
+  order: Parameters<typeof buyerFulfillmentHasStarted>[0]
+): boolean {
+  return order.status === "paid" && !buyerFulfillmentHasStarted(order);
+}
+
 export function canRequestMobileBuyerRefund(order: {
   status: string;
   isCashOrder?: boolean;

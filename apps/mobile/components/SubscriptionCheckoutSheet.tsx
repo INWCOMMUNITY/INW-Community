@@ -243,10 +243,11 @@ export function SubscriptionCheckoutSheet({
 
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.button,
-        (loading || pressed) && styles.buttonDisabled,
-      ]}
+        style={({ pressed }) => [
+          styles.button,
+          planId !== "subscribe" && planId !== "sponsor" ? styles.sellerButton : null,
+          (loading || pressed) && styles.buttonDisabled,
+        ]}
       onPress={handleCheckout}
       disabled={loading}
     >
@@ -258,7 +259,7 @@ export function SubscriptionCheckoutSheet({
             ? "Subscribe"
             : planId === "sponsor"
               ? "Subscribe to Business plan"
-              : "Subscribe as Seller"}
+              : "Subscribe & Complete Onboarding"}
         </Text>
       )}
     </Pressable>
@@ -274,6 +275,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 16,
   },
+  sellerButton: { backgroundColor: theme.colors.earth },
   buttonDisabled: { opacity: 0.7 },
   buttonText: {
     color: theme.colors.buttonText ?? "#fff",

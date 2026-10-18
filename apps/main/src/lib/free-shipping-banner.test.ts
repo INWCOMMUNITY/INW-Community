@@ -45,6 +45,16 @@ describe("freeShippingBannerForStore", () => {
     ).toBeNull();
   });
 
+  it("hides the purchase-amount line when free shipping on INW is on", () => {
+    expect(
+      freeShippingBannerForStore({
+        freeShippingMinimumCents: 3500,
+        offerFreeShippingOnInw: true,
+        items: [{ shippingCostCents: 500 }],
+      })
+    ).toBeNull();
+  });
+
   it("shows the purchase-amount line when a minimum is set and the store has no items yet", () => {
     expect(
       freeShippingBannerForStore({

@@ -87,6 +87,7 @@ async function loadNormalizedFields(storeItemId: string): Promise<NormalizedList
     etsyQuestionId: row.etsyQuestionId,
     options: row.options.map((option) => ({
       label: option.label,
+      required: option.required,
       etsyOptionId: option.etsyOptionId,
     })),
   }));

@@ -93,17 +93,7 @@ export default function SellerProfilePage() {
       </p>
 
       <div className="mb-4 overflow-hidden rounded-xl border border-[#e6e0d6] bg-white text-center">
-        <div className="relative aspect-[16/9] bg-[#FDEDCC]">
-          {biz?.coverPhotoUrl ? (
-            <img src={biz.coverPhotoUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-1 text-[var(--color-earth)]">
-              <IonIcon name="image-outline" size={36} />
-              <span className="text-sm font-semibold">Add a cover photo</span>
-            </div>
-          )}
-        </div>
-        <div className="-mt-9 mb-3 flex justify-center">
+        <div className="flex justify-center pt-4">
           <div className="h-[72px] w-[72px] overflow-hidden rounded-xl border-[3px] border-white bg-white shadow-sm">
             {biz?.logoUrl ? (
               <img src={biz.logoUrl} alt="" className="h-full w-full object-cover" />
@@ -114,7 +104,17 @@ export default function SellerProfilePage() {
             )}
           </div>
         </div>
-        <h2 className="px-4 text-xl font-bold" style={{ color: "var(--color-heading)" }}>
+        <div className="relative mt-3 aspect-[16/9] bg-[#FDEDCC]">
+          {biz?.coverPhotoUrl ? (
+            <img src={biz.coverPhotoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-1 text-[var(--color-earth)]">
+              <IonIcon name="image-outline" size={36} />
+              <span className="text-sm font-semibold">Add a cover photo</span>
+            </div>
+          )}
+        </div>
+        <h2 className="mt-4 px-4 text-xl font-bold" style={{ color: "var(--color-heading)" }}>
           {biz?.name || "Your shop"}
         </h2>
         {biz?.fullDescription ? (

@@ -10,7 +10,7 @@ import {
   sellerOrderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
 import type { FulfillmentStoreOrder } from "./types";
-import { formatBuyerResponseLines } from "@/lib/buyer-response-lines";
+import { parseBuyerResponseViews } from "@/lib/buyer-response-lines";
 
 type OrderCardProps = {
   order: FulfillmentStoreOrder;
@@ -164,6 +164,127 @@ export function OrderCard({
   );
 }
 
+function orderDisplayNumber(order: { id: string; orderNumber?: string | null }) {
+  return order.orderNumber ?? order.id.slice(-8).toUpperCase();
+}
+
+export function CombinedOrderCard({
+  orders,
+  ordersBasePath,
+  selected,
+  onToggle,
+  onSeparate,
+}: {
+  orders: FulfillmentStoreOrder[];
+  ordersBasePath: string;
+  selected: boolean;
+  onToggle: () => void;
+  onSeparate: () => void;
+}) {
+  const label = orders.map((order) => `#${orderDisplayNumber(order)}`).join(", ");
+  const buyer = orders[0]?.buyer;
+  const address = formatShippingAddress(orders[0]?.shippingAddress) || "";
+
+  return (
+    <article
+      className={`rounded-xl border bg-white p-4 shadow-sm cursor-pointer ${
+        selected
+          ? "border-[var(--color-primary)] bg-[var(--color-section-alt)]"
+          : "border-[var(--color-primary)]"
+      }`}
+      onClick={onToggle}
+      role="checkbox"
+      aria-checked={selected}
+      aria-label={`Select combined orders ${label}`}
+    >
+      <div className="flex items-start gap-3">
+        <input type="checkbox" checked={selected} readOnly tabIndex={-1} aria-hidden className="pointer-events-none mt-1" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+            Order {label}
+          </p>
+          <p className="text-sm text-gray-600 mt-0.5">
+            {[buyer?.firstName, buyer?.lastName].filter(Boolean).join(" ") || "Customer"} · one shipment
+          </p>
+          {address ? <p className="text-sm text-gray-500 mt-1">{address}</p> : null}
+          <ul className="mt-3 space-y-2">
+            {orders.map((order) => (
+              <li key={order.id} className="text-sm text-gray-800">
+                <Link
+                  href={`${ordersBasePath}/${order.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="font-medium hover:underline"
+                  style={{ color: "var(--color-link)" }}
+                >
+                  #{orderDisplayNumber(order)}
+                </Link>
+                <span className="text-gray-600">
+                  {" "}
+                  {(order.items ?? [])
+                    .map((item) => `${item.storeItem?.title ?? "Item"} × ${item.quantity}`)
+                    .join(" · ") || "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="mt-3 text-sm underline"
+            style={{ color: "var(--color-earth, #5d4f40)" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSeparate();
+            }}
+          >
+            Separate
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function BuyerResponseDetails({ raw }: { raw: unknown }) {
+  const rows = parseBuyerResponseViews(raw);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-1 space-y-1">
+      {rows.map((row) => (
+        <div key={`${row.kind}-${row.title}`} className="text-xs text-gray-700">
+          <p className="font-medium text-gray-800">{row.title}</p>
+          {row.kind === "TEXT" && row.text ? <p className="break-words">{row.text}</p> : null}
+          {row.kind === "DROPDOWN" && row.optionLabel ? <p>{row.optionLabel}</p> : null}
+          {row.kind === "FILE"
+            ? row.files.map((file) => {
+                const name = file.label || "Download file";
+                const image = /\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(file.url);
+                return (
+                  <p key={file.url} className="mt-1">
+                    {image ? (
+                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="inline-block">
+                        <img src={file.url} alt={name} className="h-16 w-16 rounded object-cover" />
+                      </a>
+                    ) : null}
+                    <a
+                      href={file.url}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block underline"
+                      style={{ color: "var(--color-link)" }}
+                    >
+                      Download {name}
+                    </a>
+                  </p>
+                );
+              })
+            : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Compact item rows for order detail sidebar / two-column layout. */
 export function OrderCardItemRows({ order }: { order: FulfillmentStoreOrder }) {
   return (
@@ -183,11 +304,7 @@ export function OrderCardItemRows({ order }: { order: FulfillmentStoreOrder }) {
                 ? ` · $${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`
                 : ""}
             </p>
-            {formatBuyerResponseLines(oi.buyerResponses).map((line) => (
-              <p key={line} className="text-xs text-gray-700 break-all">
-                {line}
-              </p>
-            ))}
+            <BuyerResponseDetails raw={oi.buyerResponses} />
           </div>
         </li>
       ))}

@@ -13,8 +13,9 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { buildProductPath } from "@/lib/product-referrer";
+import { appsAirportLiveListingPath } from "@/lib/product-referrer";
 import { HubButton, airportStyles as styles } from "@/components/apps-airport/chrome";
+import { ChannelImportProgress } from "@/components/apps-airport/ChannelImportProgress";
 import { ListingPhotoCollage } from "@/components/apps-airport/ListingPhotoCollage";
 
 type Connection = {
@@ -344,10 +345,15 @@ export default function EtsyHubScreen() {
                 <MenuItem
                   label="View on INW"
                   onPress={() => {
-                    const slug = menuFor.slug?.trim();
+                    const row = menuFor;
                     setMenuFor(null);
-                    if (slug) router.push(buildProductPath(slug, { type: "storefront" }) as never);
-                    else router.push(`/seller-hub/store/new?edit=${menuFor.storeItemId}` as never);
+                    router.push(
+                      appsAirportLiveListingPath({
+                        slug: row.slug,
+                        storeItemId: row.storeItemId,
+                        from: "etsy-sync",
+                      }) as never
+                    );
                   }}
                 />
                 {etsyPublicUrl(menuFor) ? (

@@ -24,6 +24,8 @@ interface OrderItem {
   id: string;
   quantity: number;
   fulfillmentType?: string | null;
+  variant?: unknown;
+  stockReturnDecision?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
 }
 
@@ -40,6 +42,8 @@ interface StoreOrder {
   totalCents: number;
   taxCents?: number;
   status: string;
+  cancelReason?: string | null;
+  inventoryRestoredAt?: string | null;
   createdAt: string;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
@@ -47,8 +51,38 @@ interface StoreOrder {
   returnShipment?: { labelUrl?: string | null; labelCostCents?: number } | null;
 }
 
+const SOLD_BEFORE_CHECKOUT_REASON = "Item sold before checkout was complete";
+
+function isCanceledOrder(order: StoreOrder): boolean {
+  if (order.storeReturn) return false;
+  if (order.cancelReason === SOLD_BEFORE_CHECKOUT_REASON) return false;
+  return order.status === "canceled" || order.status === "cancelled" || order.status === "refunded";
+}
+
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatVariantLabel(variant: unknown): string | null {
+  if (variant == null || typeof variant !== "object" || Array.isArray(variant)) return null;
+  const parts = Object.entries(variant as Record<string, unknown>)
+    .filter(([, value]) => value != null && String(value).trim() !== "")
+    .map(([key, value]) => `${key.trim()}: ${String(value).trim()}`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function stockChoiceLabel(item: OrderItem): string {
+  const variant = formatVariantLabel(item.variant);
+  const name = variant ? `${item.storeItem.title} — ${variant}` : item.storeItem.title;
+  return `Return Stock Count for ${name}?`;
+}
+
+function stockChoiceResult(order: StoreOrder, item: OrderItem): string | null {
+  if (item.stockReturnDecision === "returned" || (order.inventoryRestoredAt && !item.stockReturnDecision)) {
+    return "Stock returned";
+  }
+  if (item.stockReturnDecision === "withheld") return "Stock not returned";
+  return null;
 }
 
 function statusCopy(status?: string): string {
@@ -70,8 +104,18 @@ export default function ReturnsScreen() {
   const [declineReason, setDeclineReason] = useState("");
 
   const load = useCallback(() => {
-    apiGet<StoreOrder[]>("/api/store-orders?mine=1&returns=1")
-      .then((data) => setOrders(Array.isArray(data) ? data : []))
+    Promise.all([
+      apiGet<StoreOrder[]>("/api/store-orders?mine=1&returns=1").catch(() => [] as StoreOrder[]),
+      apiGet<StoreOrder[]>("/api/store-orders?mine=1&canceled=1").catch(() => [] as StoreOrder[]),
+    ])
+      .then(([returns, canceled]) => {
+        const openReturns = Array.isArray(returns) ? returns : [];
+        const seen = new Set(openReturns.map((order) => order.id));
+        const canceledOrders = (Array.isArray(canceled) ? canceled : []).filter(
+          (order) => !seen.has(order.id) && isCanceledOrder(order)
+        );
+        setOrders([...openReturns, ...canceledOrders]);
+      })
       .catch(() => setOrders([]))
       .finally(() => {
         setLoading(false);
@@ -125,12 +169,12 @@ export default function ReturnsScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
     >
       <Text style={styles.intro}>
-        Approve a return, send a Shippo return label, then refund after you receive the item.
-        Courtesy refunds send money back now; the buyer keeps the item.
+        Refund requests arrive here after an item ships. Approve or decline each one. Canceled orders
+        are listed here too. Under those items, choose Return only when you have that variant back.
       </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {orders.length === 0 ? (
-        <Text style={styles.empty}>No open return requests.</Text>
+        <Text style={styles.empty}>No refunds yet.</Text>
       ) : (
         orders.map((order) => {
           const ret = order.storeReturn;
@@ -140,41 +184,102 @@ export default function ReturnsScreen() {
             returnStatus: ret?.status,
             orderStatus: order.status,
           });
+          const pendingRefund = ret?.status === "requested";
           return (
             <View key={order.id} style={styles.card}>
               <Text style={styles.buyer}>
                 {order.buyer.firstName} {order.buyer.lastName}
               </Text>
-              <Text style={styles.meta}>{statusCopy(ret?.status)}</Text>
+              <Text style={styles.meta}>{ret ? statusCopy(ret.status) : "Canceled"}</Text>
               {ret?.reason ? <Text style={styles.meta}>Reason: {ret.reason}</Text> : null}
+              {!ret && order.cancelReason ? (
+                <Text style={styles.meta}>{order.cancelReason}</Text>
+              ) : null}
               <Text style={styles.total}>{formatPrice(order.totalCents + (order.taxCents ?? 0))}</Text>
-              {order.items.map((oi) => (
-                <View key={oi.id} style={styles.itemRow}>
-                  {oi.storeItem.photos[0] ? (
-                    <Image source={{ uri: oi.storeItem.photos[0] }} style={styles.thumb} />
-                  ) : null}
-                  <Text style={styles.itemTitle}>
-                    {oi.storeItem.title} × {oi.quantity}
-                  </Text>
-                </View>
-              ))}
-              {ret?.status === "requested" ? (
-                <View style={styles.actions}>
-                  <Pressable style={styles.btn} disabled={busy} onPress={() => act(order.id, "/returns/approve")}>
-                    <Text style={styles.btnText}>{busy ? "Working…" : "Approve return"}</Text>
-                  </Pressable>
+              {order.items.map((oi) => {
+                const decided = stockChoiceResult(order, oi);
+                return (
+                  <View key={oi.id}>
+                    <View style={styles.itemRow}>
+                      {oi.storeItem.photos[0] ? (
+                        <Image source={{ uri: oi.storeItem.photos[0] }} style={styles.thumb} />
+                      ) : null}
+                      <View style={styles.itemBody}>
+                        <Text style={styles.itemTitle}>
+                          {oi.storeItem.title} × {oi.quantity}
+                        </Text>
+                        {formatVariantLabel(oi.variant) ? (
+                          <Text style={styles.variant}>{formatVariantLabel(oi.variant)}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    {pendingRefund ? null : (
+                      <View style={styles.stockSection}>
+                        {decided ? (
+                          <Text style={styles.stockResult}>{decided}</Text>
+                        ) : (
+                          <>
+                            <Text style={styles.stockLabel}>{stockChoiceLabel(oi)}</Text>
+                            <Text style={styles.stockNote}>
+                              If you&apos;re waiting for this item to be returned, ignore this. You can return the stock later.
+                            </Text>
+                            <View style={styles.stockActions}>
+                              <Pressable
+                                style={styles.stockBtn}
+                                disabled={busy}
+                                onPress={() =>
+                                  act(order.id, "/stock-return", {
+                                    orderItemId: oi.id,
+                                    decision: "return",
+                                  })
+                                }
+                              >
+                                <Text style={styles.stockBtnText}>Return</Text>
+                              </Pressable>
+                              <Pressable
+                                style={styles.stockBtnOutline}
+                                disabled={busy}
+                                onPress={() =>
+                                  act(order.id, "/stock-return", {
+                                    orderItemId: oi.id,
+                                    decision: "withhold",
+                                  })
+                                }
+                              >
+                                <Text style={styles.stockBtnOutlineText}>Don&apos;t Return</Text>
+                              </Pressable>
+                            </View>
+                          </>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+              {pendingRefund ? (
+                <View style={styles.stockSection}>
+                  <Text style={styles.stockLabel}>Approve this refund request?</Text>
+                  <View style={styles.stockActions}>
+                    <Pressable
+                      style={styles.stockBtn}
+                      disabled={busy}
+                      onPress={() => act(order.id, "/returns/approve")}
+                    >
+                      <Text style={styles.stockBtnText}>{busy ? "Working…" : "Approve"}</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.stockBtnOutline}
+                      disabled={busy}
+                      onPress={() => {
+                        setDeclineFor(order.id);
+                        setDeclineReason("");
+                      }}
+                    >
+                      <Text style={styles.stockBtnOutlineText}>Decline</Text>
+                    </Pressable>
+                  </View>
                   <Pressable
-                    style={styles.btnOutline}
-                    disabled={busy}
-                    onPress={() => {
-                      setDeclineFor(order.id);
-                      setDeclineReason("");
-                    }}
-                  >
-                    <Text style={styles.btnOutlineText}>Decline</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.btnOutline}
+                    style={[styles.btnOutline, { marginTop: 10 }]}
                     disabled={busy}
                     onPress={() =>
                       Alert.alert("Courtesy refund", "Refund now and let the buyer keep the item?", [
@@ -254,9 +359,41 @@ const styles = StyleSheet.create({
   buyer: { fontSize: 16, fontWeight: "700" },
   meta: { fontSize: 13, color: "#555", marginTop: 4 },
   total: { fontSize: 16, fontWeight: "700", marginTop: 8 },
-  itemRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  itemRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 },
   thumb: { width: 36, height: 36, borderRadius: 6 },
-  itemTitle: { flex: 1, fontSize: 13 },
+  itemBody: { flex: 1 },
+  itemTitle: { fontSize: 13 },
+  variant: { fontSize: 12, color: "#555", marginTop: 2 },
+  stockSection: {
+    marginTop: 12,
+    marginHorizontal: -14,
+    paddingTop: 12,
+    paddingHorizontal: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e5e5",
+  },
+  stockResult: { fontSize: 15, fontWeight: "700", color: theme.colors.earth },
+  stockLabel: { fontSize: 15, fontWeight: "700", color: theme.colors.heading },
+  stockNote: { marginTop: 6, fontSize: 13, lineHeight: 18, color: "#555" },
+  stockActions: { flexDirection: "row", gap: 10, marginTop: 10 },
+  stockBtn: {
+    flex: 1,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  stockBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  stockBtnOutline: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  stockBtnOutlineText: { color: theme.colors.primary, fontSize: 15, fontWeight: "700" },
   actions: { marginTop: 12, gap: 8 },
   btn: {
     backgroundColor: theme.colors.primary,

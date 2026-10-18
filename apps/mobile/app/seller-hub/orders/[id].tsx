@@ -10,6 +10,8 @@ import {
   Linking,
   Alert,
 } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,6 +32,7 @@ import {
   orderEligibleForAnotherShippoLabel,
   orderHasShippedLine,
 } from "@/lib/shippo-order-label-eligibility";
+import { parseBuyerResponseViews } from "@/lib/listing-buyer-fields";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -42,6 +45,7 @@ interface OrderItem {
   id: string;
   quantity: number;
   fulfillmentType?: string | null;
+  buyerResponses?: unknown;
   storeItem?: { id: string; title: string; slug: string; photos: string[]; listingType?: string };
 }
 
@@ -67,6 +71,51 @@ interface StoreOrder {
   buyer?: { firstName: string; lastName: string; email: string };
   items?: OrderItem[];
   shipment?: Shipment | null;
+}
+
+function BuyerAnswers({ raw }: { raw: unknown }) {
+  const rows = parseBuyerResponseViews(raw);
+  if (rows.length === 0) return null;
+  return (
+    <View style={{ marginTop: 6, gap: 6 }}>
+      {rows.map((row) => (
+        <View key={`${row.kind}-${row.title}`}>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: "#333" }}>{row.title}</Text>
+          {row.kind === "TEXT" && row.text ? <Text style={{ fontSize: 13, color: "#444" }}>{row.text}</Text> : null}
+          {row.kind === "DROPDOWN" && row.optionLabel ? (
+            <Text style={{ fontSize: 13, color: "#444" }}>{row.optionLabel}</Text>
+          ) : null}
+          {row.files.map((file) => (
+            <Pressable key={file.url} onPress={() => downloadBuyerFile(file.url, file.label || row.title)}>
+              <Text style={{ fontSize: 13, color: theme.colors.primary, textDecorationLine: "underline", marginTop: 2 }}>
+                Download {file.label || "file"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+async function downloadBuyerFile(url: string, label: string) {
+  try {
+    const safe = label.replace(/[^\w.-]+/g, "_").slice(0, 40) || "file";
+    const ext = url.split("?")[0]?.match(/\.([a-z0-9]+)$/i)?.[1] ?? "jpg";
+    const dest = `${FileSystem.cacheDirectory}${safe}.${ext}`;
+    const result = await FileSystem.downloadAsync(url, dest);
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(result.uri);
+      return;
+    }
+    await Linking.openURL(url);
+  } catch {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Download failed", "That file could not be opened.");
+    }
+  }
 }
 
 function formatDate(s: string): string {
@@ -311,21 +360,20 @@ export default function OrderDetailScreen() {
             const si = oi.storeItem;
             const photoUrl = si?.photos?.[0] ? resolvePhotoUrl(si.photos[0]) : undefined;
             return (
-              <Pressable
-                key={oi.id}
-                style={({ pressed }) => [styles.itemRow, pressed && { opacity: 0.8 }]}
-                onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}
-              >
+              <View key={oi.id} style={styles.itemRow}>
                 {photoUrl ? (
                   <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
                 ) : (
                   <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
                 )}
                 <View style={styles.itemBody}>
-                  <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
-                  <Text style={styles.linkBtnText}>View in-app listing</Text>
+                  <Pressable onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}>
+                    <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
+                    <Text style={styles.linkBtnText}>View in-app listing</Text>
+                  </Pressable>
+                  <BuyerAnswers raw={oi.buyerResponses} />
                 </View>
-              </Pressable>
+              </View>
             );
           })}
         </View>

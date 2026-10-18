@@ -122,7 +122,17 @@ function parseShippoReturnUrl(url: string): { connected: boolean; error: string 
   }
 }
 
-export default function ShippingScreen() {
+export function ShippingSetupPanel({
+  embedded = false,
+  onProgress,
+}: {
+  embedded?: boolean;
+  onProgress?: (progress: {
+    shippoConnected: boolean;
+    optionCount: number;
+    offerFreeShippingOnInw: boolean;
+  }) => void;
+} = {}) {
   const params = useLocalSearchParams<{ connected?: string; oauth_error?: string }>();
   const [oauthLoading, setOauthLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -171,6 +181,15 @@ export default function ShippingScreen() {
       );
     }, [refreshShippoStatus, loadOptions])
   );
+
+  React.useEffect(() => {
+    if (!onProgress || !data) return;
+    onProgress({
+      shippoConnected: connected,
+      optionCount: data.options.length,
+      offerFreeShippingOnInw: data.offerFreeShippingOnInw,
+    });
+  }, [connected, data, onProgress]);
 
   React.useEffect(() => {
     const c = params.connected;
@@ -303,13 +322,9 @@ export default function ShippingScreen() {
     Alert.alert(opt.name, undefined, buttons);
   }
 
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>Shipping</Text>
+  const body = (
+    <>
+      {embedded ? null : <Text style={styles.title}>Shipping</Text>}
       <Text style={styles.hint}>
         Connect Shippo for labels, then manage named packages (size, weight, and INW shipping price) used for
         checkout, labels, and listing sync. After connecting, add at least one address in Shippo&apos;s Address
@@ -349,6 +364,9 @@ export default function ShippingScreen() {
         </Text>
       ) : null}
       {shippoError ? <Text style={styles.err}>{shippoError}</Text> : null}
+      <Text style={styles.hint}>
+        Labels are paid by you, with a personal credit card or bank account in Shippo. The shipping price included on a listing is added to your payout.
+      </Text>
 
       <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Shipping Rules</Text>
       <Text style={styles.hint}>
@@ -382,45 +400,51 @@ export default function ShippingScreen() {
             }}
           />
           <Text style={styles.hint}>
-            When a buyer ships more than one item from your store, shipping will not exceed this amount. A single item still uses its own shipping price.
+            When a buyer ships more than one item from your storefront, including different listings, shipping will not exceed this amount. A single item still uses its own shipping price.
           </Text>
         </View>
       ) : null}
-      <Text style={styles.label}>Offer free shipping on purchases over</Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
-        placeholder="e.g. 50.00"
-        value={freeOverInput}
-        onChangeText={setFreeOverInput}
-        onBlur={() => {
-          try {
-            const cents = parseDollarInput(freeOverInput);
-            if (cents === 0) {
-              setError("Enter an amount greater than 0, or leave this blank.");
-              return;
-            }
-            setFreeOverInput(centsToDollarInput(cents));
-            void patchPrefs({ freeShippingMinimumCents: cents });
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
-          }
-        }}
-      />
-      {(() => {
-        const amount = freeOverInput.trim();
-        const n = Number(amount.replace(/[^0-9.]/g, ""));
-        if (!amount || !Number.isFinite(n) || n <= 0) return null;
-        return (
-          <Text style={styles.hint}>
-            Buyers will be notified that if they order ${n.toFixed(2)} from your store, they will receive free shipping.
-          </Text>
-        );
-      })()}
+      {data?.offerFreeShippingOnInw ? null : (
+        <>
+          <Text style={styles.label}>Offer free shipping on purchases over</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 50.00"
+            value={freeOverInput}
+            onChangeText={setFreeOverInput}
+            onBlur={() => {
+              try {
+                const cents = parseDollarInput(freeOverInput);
+                if (cents === 0) {
+                  setError("Enter an amount greater than 0, or leave this blank.");
+                  return;
+                }
+                setFreeOverInput(centsToDollarInput(cents));
+                void patchPrefs({ freeShippingMinimumCents: cents });
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
+              }
+            }}
+          />
+          {(() => {
+            const amount = freeOverInput.trim();
+            const n = Number(amount.replace(/[^0-9.]/g, ""));
+            if (!amount || !Number.isFinite(n) || n <= 0) return null;
+            return (
+              <Text style={styles.hint}>
+                Buyers will be notified that if they order ${n.toFixed(2)} from your store, they will receive free shipping.
+              </Text>
+            );
+          })()}
+        </>
+      )}
 
       <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Shipping options</Text>
       <Text style={styles.hint}>
-        Create shipping packages on INW. Shipping is set up here and is not imported from Etsy or Shopify.
+        {data?.offerFreeShippingOnInw
+          ? "Free shipping is on for every new listing, so a shipping option is not required. You can still add a package if you want one for labels."
+          : "Create shipping packages on INW. Shipping is set up here and is not imported from Etsy or Shopify."}
       </Text>
 
       {error ? <Text style={styles.err}>{error}</Text> : null}
@@ -428,7 +452,9 @@ export default function ShippingScreen() {
       <CheckboxRow
         label="Offer free shipping on INW (Recommended)"
         checked={Boolean(data?.offerFreeShippingOnInw)}
-        onToggle={(v) => void patchPrefs({ offerFreeShippingOnInw: v })}
+        onToggle={(v) => {
+          void patchPrefs({ offerFreeShippingOnInw: v });
+        }}
       />
 
       <Pressable style={styles.createHeader} onPress={() => setCreateOpen((v) => !v)}>
@@ -559,11 +585,26 @@ export default function ShippingScreen() {
           <Text style={styles.more}>⋯</Text>
         </Pressable>
       ))}
-      {data && data.options.length === 0 ? (
-        <Text style={styles.hint}>No shipping options yet. Create one above or import from Etsy/Shopify.</Text>
-      ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return <View style={styles.embedded}>{body}</View>;
+  }
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
+      {body}
     </ScrollView>
   );
+}
+
+export default function ShippingScreen() {
+  return <ShippingSetupPanel />;
 }
 
 function CheckboxRow({
@@ -595,6 +636,7 @@ function CheckboxRow({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  embedded: {},
   content: { padding: 20, paddingBottom: 48 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   sectionTitle: { fontSize: 17, fontWeight: "700", marginBottom: 6, color: theme.colors.heading },

@@ -40,7 +40,12 @@ import {
   getSkuPhotos,
   getSkuPriceCents,
 } from "@/lib/product-variants";
-import { sellerOrderShippingCents, sellerOrderShippingQuote } from "@/lib/seller-shipping-rules";
+import {
+  sellerOrderShippingCents,
+  sellerOrderShippingQuote,
+  storefrontGroupKey,
+  storefrontShipmentIsCombined,
+} from "@/lib/seller-shipping-rules";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -66,12 +71,14 @@ interface CartItemStoreItem {
   pickupTerms?: string | null;
   localDeliveryTerms?: string | null;
   memberId?: string;
+  businessId?: string | null;
   member?: {
     sellerLocalDeliveryPolicy?: string | null;
     sellerPickupPolicy?: string | null;
     combineShipping?: boolean;
     combinedShippingMaxCents?: number | null;
     freeShippingMinimumCents?: number | null;
+    offerFreeShippingOnInw?: boolean | null;
   };
 }
 
@@ -194,6 +201,7 @@ function sellerShippingArgs(group: CartItem[]) {
   const member = group[0]?.storeItem.member;
   return {
     lines: group.map((row) => ({
+      storeItemId: row.storeItemId,
       quantity: row.quantity,
       fulfillmentType: row.fulfillmentType,
       shippingCostCents: row.storeItem.shippingCostCents,
@@ -203,6 +211,7 @@ function sellerShippingArgs(group: CartItem[]) {
       combineShipping: Boolean(member?.combineShipping),
       combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
       freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+      offerFreeShippingOnInw: Boolean(member?.offerFreeShippingOnInw),
     },
   };
 }
@@ -225,7 +234,7 @@ function cartLineUnitPriceCents(item: CartItem): number {
 function cartShippingCents(list: CartItem[]): number {
   const groups = new Map<string, CartItem[]>();
   for (const item of list) {
-    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+    const sellerId = storefrontGroupKey(item.storeItem);
     const group = groups.get(sellerId) ?? [];
     group.push(item);
     groups.set(sellerId, group);
@@ -235,6 +244,7 @@ function cartShippingCents(list: CartItem[]): number {
     const member = group[0]?.storeItem.member;
     cents += sellerOrderShippingCents({
       lines: group.map((item) => ({
+        storeItemId: item.storeItemId,
         quantity: item.quantity,
         fulfillmentType: item.fulfillmentType,
         shippingCostCents: item.storeItem.shippingCostCents,
@@ -244,6 +254,7 @@ function cartShippingCents(list: CartItem[]): number {
         combineShipping: Boolean(member?.combineShipping),
         combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
         freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+        offerFreeShippingOnInw: Boolean(member?.offerFreeShippingOnInw),
       },
     });
   }
@@ -1110,14 +1121,19 @@ export default function CartScreen() {
                 const variantLabel = formatVariantLabel(item.variant);
                 const fulfillment = fulfillmentMeta(item.fulfillmentType);
                 const maxQty = cartLineMaxQuantity(item);
-                const sellerId = item.storeItem.memberId ?? item.storeItemId;
+                const sellerId = storefrontGroupKey(item.storeItem);
                 const sellerGroup = items.filter(
-                  (row) => (row.storeItem.memberId ?? row.storeItemId) === sellerId
+                  (row) => storefrontGroupKey(row.storeItem) === sellerId
                 );
                 const shippingArgs = sellerShippingArgs(sellerGroup);
                 const shippingQuote = sellerOrderShippingQuote(shippingArgs);
+                const combinedShipment =
+                  Boolean(shippingArgs.rules.combineShipping) &&
+                  storefrontShipmentIsCombined(shippingArgs.lines);
                 const isSellerLead = sellerGroup[0]?.id === item.id;
-                const freeShippingMinimumCents = shippingArgs.rules.freeShippingMinimumCents ?? 0;
+                const freeShippingMinimumCents = shippingArgs.rules.offerFreeShippingOnInw
+                  ? 0
+                  : shippingArgs.rules.freeShippingMinimumCents ?? 0;
                 const freeShippingReached =
                   freeShippingMinimumCents > 0 && shippingArgs.merchandiseCents >= freeShippingMinimumCents;
                 return (
@@ -1150,7 +1166,7 @@ export default function CartScreen() {
                         </View>
                         <Text style={styles.itemLineTotal}>
                           {formatPrice(lineCents)}
-                          {isSellerLead && shippingQuote.combinedCapApplied ? (
+                          {isSellerLead && combinedShipment && shippingQuote.cents > 0 ? (
                             <Text style={styles.itemShipAdd}>
                               {" "}
                               + {formatPrice(shippingQuote.cents)} combined shipping

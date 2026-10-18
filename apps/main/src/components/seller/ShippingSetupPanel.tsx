@@ -78,7 +78,11 @@ export function ShippingSetupPanel({
   onProgress,
 }: {
   variant?: "hub" | "onboarding";
-  onProgress?: (progress: { shippoConnected: boolean; optionCount: number }) => void;
+  onProgress?: (progress: {
+    shippoConnected: boolean;
+    optionCount: number;
+    offerFreeShippingOnInw: boolean;
+  }) => void;
 }) {
   const searchParams = useSearchParams();
   const shippoStartHref =
@@ -266,10 +270,11 @@ export function ShippingSetupPanel({
 
   const showConnected = shippoSuccess || shippoConnected === true;
   const optionCount = data?.options.length ?? 0;
+  const offerFreeShippingOnInw = Boolean(data?.offerFreeShippingOnInw);
 
   useEffect(() => {
-    onProgress?.({ shippoConnected: showConnected, optionCount });
-  }, [onProgress, showConnected, optionCount]);
+    onProgress?.({ shippoConnected: showConnected, optionCount, offerFreeShippingOnInw });
+  }, [onProgress, showConnected, optionCount, offerFreeShippingOnInw]);
 
   return (
     <section className={variant === "hub" ? "py-6 w-full max-md:px-4" : "w-full"}>
@@ -291,7 +296,9 @@ export function ShippingSetupPanel({
             <p className="text-green-800 font-medium">Shippo is connected.</p>
             {variant === "onboarding" ? (
               <p className="text-green-700 text-sm mt-1">
-                Add at least one shipping option below, then continue.
+                {offerFreeShippingOnInw
+                  ? "Free shipping is on, so a shipping option is not required. Continue when you are ready."
+                  : "Add at least one shipping option below, then continue."}
               </p>
             ) : (
               <p className="text-green-700 text-sm mt-1">
@@ -303,6 +310,9 @@ export function ShippingSetupPanel({
                 Go to My Orders
               </Link>
             ) : null}
+            <p className="text-sm text-gray-600 mt-4">
+              Labels are paid by you, with a personal credit card or bank account in Shippo. The shipping price included on a listing is added to your payout.
+            </p>
             <p className="text-sm text-gray-500 mt-4">
               Need to use a different Shippo account?{" "}
               <Link href={shippoStartHref} className="underline">
@@ -323,6 +333,9 @@ export function ShippingSetupPanel({
                 Connect with Shippo
               </Link>
             ) : null}
+            <p className="text-sm text-gray-600 mt-4">
+              Labels are paid by you, with a personal credit card or bank account in Shippo. The shipping price included on a listing is added to your payout.
+            </p>
           </div>
         )}
 
@@ -374,54 +387,60 @@ export function ShippingSetupPanel({
                 }}
               />
               <span className="block text-xs text-gray-500 mt-1">
-                When a buyer ships more than one item from your store, shipping will not exceed this amount. A single item still uses its own shipping price.
+                When a buyer ships more than one item from your storefront, including different listings, shipping will not exceed this amount. A single item still uses its own shipping price.
               </span>
             </label>
           ) : null}
-          <label className="block mt-6">
-            <span className="text-sm font-medium">Offer free shipping on purchases over</span>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="text-sm">$</span>
-              <input
-                className="w-full border rounded px-3 py-2"
-                inputMode="decimal"
-                placeholder="e.g. 50.00"
-                value={freeOverInput}
-                onChange={(e) => setFreeOverInput(e.target.value)}
-                onBlur={() => {
-                  try {
-                    const cents = parseDollarInput(freeOverInput);
-                    if (cents === 0) {
-                      setError("Enter an amount greater than 0, or leave this blank.");
-                      return;
-                    }
-                    setFreeOverInput(centsToDollarInput(cents));
-                    void patchPrefs({ freeShippingMinimumCents: cents });
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
-                  }
-                }}
-              />
-              <span className="text-sm whitespace-nowrap">dollars</span>
-            </div>
-          </label>
-          {(() => {
-            const amount = freeOverInput.trim();
-            const n = Number(amount.replace(/[^0-9.]/g, ""));
-            if (!amount || !Number.isFinite(n) || n <= 0) return null;
-            return (
-              <p className="text-sm text-gray-600 mt-3">
-                Buyers will be notified that if they order ${n.toFixed(2)} from your store, they will receive free shipping.
-              </p>
-            );
-          })()}
+          {offerFreeShippingOnInw ? null : (
+            <>
+              <label className="block mt-6">
+                <span className="text-sm font-medium">Offer free shipping on purchases over</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-sm">$</span>
+                  <input
+                    className="w-full border rounded px-3 py-2"
+                    inputMode="decimal"
+                    placeholder="e.g. 50.00"
+                    value={freeOverInput}
+                    onChange={(e) => setFreeOverInput(e.target.value)}
+                    onBlur={() => {
+                      try {
+                        const cents = parseDollarInput(freeOverInput);
+                        if (cents === 0) {
+                          setError("Enter an amount greater than 0, or leave this blank.");
+                          return;
+                        }
+                        setFreeOverInput(centsToDollarInput(cents));
+                        void patchPrefs({ freeShippingMinimumCents: cents });
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Enter a valid dollar amount");
+                      }
+                    }}
+                  />
+                  <span className="text-sm whitespace-nowrap">dollars</span>
+                </div>
+              </label>
+              {(() => {
+                const amount = freeOverInput.trim();
+                const n = Number(amount.replace(/[^0-9.]/g, ""));
+                if (!amount || !Number.isFinite(n) || n <= 0) return null;
+                return (
+                  <p className="text-sm text-gray-600 mt-3">
+                    Buyers will be notified that if they order ${n.toFixed(2)} from your store, they will receive free shipping.
+                  </p>
+                );
+              })()}
+            </>
+          )}
         </div>
 
         <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--color-heading)" }}>
           Shipping options
         </h2>
         <p className="text-gray-600 mb-6">
-          Create shipping packages on INW. Shipping is set up here and is not imported from Etsy or Shopify.
+          {offerFreeShippingOnInw
+            ? "Free shipping is on for every new listing, so a shipping option is not required. You can still add a package if you want one for labels."
+            : "Create shipping packages on INW. Shipping is set up here and is not imported from Etsy or Shopify."}
         </p>
 
         {error ? (
@@ -435,8 +454,10 @@ export function ShippingSetupPanel({
             <input
               type="checkbox"
               className="rounded"
-              checked={Boolean(data?.offerFreeShippingOnInw)}
-              onChange={(e) => void patchPrefs({ offerFreeShippingOnInw: e.target.checked })}
+              checked={offerFreeShippingOnInw}
+              onChange={(e) => {
+                void patchPrefs({ offerFreeShippingOnInw: e.target.checked });
+              }}
             />
             <span>Offer free shipping on INW (Recommended)</span>
           </label>

@@ -30,6 +30,9 @@ import {
   isOrderEligibleForToShipQueue,
   filterOrdersForPickupTab,
   filterOrdersForDeliveryTab,
+  ordersCanCombineShipping,
+  clusterOrdersForCombinedShipping,
+  labelGroupsForSelection,
 } from "@/lib/store-order-fulfillment";
 import {
   BUYER_REFUND_POLICY_CONTINUE_LABEL,
@@ -154,6 +157,7 @@ function ToShipFlowView({
   const [error, setError] = useState<string | null>(null);
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
+  const [combinedGroups, setCombinedGroups] = useState<string[][]>([]);
   const [shipMenuOrderId, setShipMenuOrderId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [messagingBuyerId, setMessagingBuyerId] = useState<string | null>(null);
@@ -182,6 +186,51 @@ function ToShipFlowView({
     setSelectedOrderIds(new Set(orders.map((o) => o.id)));
   }
 
+  const sameIdSet = (left: string[], right: string[]) => {
+    if (left.length !== right.length) return false;
+    const ids = new Set(left);
+    return right.every((id) => ids.has(id));
+  };
+
+  const selectedOrders = orders.filter((order) => selectedOrderIds.has(order.id));
+  const canCombineSelection = ordersCanCombineShipping(selectedOrders);
+  const selectionAlreadyGrouped =
+    canCombineSelection &&
+    combinedGroups.some((group) => sameIdSet(group, selectedOrders.map((order) => order.id)));
+  const eligibleClusters = clusterOrdersForCombinedShipping(orders).map((group) => group.map((order) => order.id));
+  const canCombineAll = eligibleClusters.some(
+    (cluster) => !combinedGroups.some((group) => sameIdSet(group, cluster))
+  );
+
+  function combineSelectedOrders() {
+    if (!ordersCanCombineShipping(selectedOrders)) return;
+    const ids = selectedOrders.map((order) => order.id);
+    setCombinedGroups((prev) => {
+      const without = prev
+        .map((group) => group.filter((id) => !ids.includes(id)))
+        .filter((group) => group.length >= 2);
+      return [...without, ids];
+    });
+  }
+
+  function combineAllEligible() {
+    setCombinedGroups(eligibleClusters);
+  }
+
+  function separateGroup(ids: string[]) {
+    setCombinedGroups((prev) => prev.filter((group) => !sameIdSet(group, ids)));
+  }
+
+  function toggleGroupSelection(ids: string[]) {
+    setSelectedOrderIds((prev) => {
+      const allOn = ids.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allOn) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
   const openPurchaseLabelsWeb = () => {
     if (!connected) {
       Alert.alert(
@@ -194,10 +243,17 @@ function ToShipFlowView({
       Alert.alert("Select orders", "Choose at least one order to buy labels for.");
       return;
     }
+    const grouped = combinedGroups.filter(
+      (group) => group.length >= 2 && group.every((id) => selectedOrderIds.has(id))
+    );
+    const selectionIsOneBox =
+      grouped.length === 1 && grouped[0].length === selectedIdList.length;
     const hubUrl = buildHubWebUrl(siteBase, "/seller-hub/orders/shippo-bulk", {
       nwAppChrome: true,
       returnTo: "/seller-hub/orders",
       bulkOrderIds: selectedIdList,
+      combine: selectionIsOneBox,
+      combinedGroups: grouped,
     });
     const url = `/web?url=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent("Shipping Labels")}`;
     (router.push as (href: string) => void)(url);
@@ -221,18 +277,13 @@ function ToShipFlowView({
         Alert.alert("Sign in required", "Please sign in to save packing slips.");
         return;
       }
-      const sameBuyer =
-        selectedOrders.length <= 1 ||
-        selectedOrders.every(
-          (o) => (o.buyer?.email ?? "").trim().toLowerCase() ===
-            (selectedOrders[0].buyer?.email ?? "").trim().toLowerCase()
-        );
       const orderIds = selectedOrders.map((o) => o.id);
+      const groups = labelGroupsForSelection(orderIds, combinedGroups);
       const url = `${API_BASE}/api/seller-hub/packing-slip`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderIds, combined: selectedOrders.length > 1 && sameBuyer }),
+        body: JSON.stringify({ orderIds, groups }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -363,6 +414,33 @@ function ToShipFlowView({
     );
   }
 
+  const memberOf = new Map<string, string[]>();
+  for (const group of combinedGroups) {
+    if (group.length < 2) continue;
+    for (const id of group) memberOf.set(id, group);
+  }
+  const seen = new Set<string>();
+  const shipRows: Array<
+    | { type: "single"; order: StoreOrder }
+    | { type: "group"; orders: StoreOrder[]; ids: string[] }
+  > = [];
+  for (const order of orders) {
+    if (seen.has(order.id)) continue;
+    const group = memberOf.get(order.id);
+    if (group) {
+      const members = group
+        .map((id) => orders.find((candidate) => candidate.id === id))
+        .filter((candidate): candidate is StoreOrder => Boolean(candidate));
+      if (members.length >= 2) {
+        members.forEach((member) => seen.add(member.id));
+        shipRows.push({ type: "group", orders: members, ids: members.map((member) => member.id) });
+        continue;
+      }
+    }
+    seen.add(order.id);
+    shipRows.push({ type: "single", order });
+  }
+
   return (
     <>
     <ScrollView
@@ -373,9 +451,14 @@ function ToShipFlowView({
       <Text style={styles.shipTitle}>Ship Items</Text>
       <Text style={styles.shipHint}>
         {connected
-          ? "Select orders, then purchase labels. Same-buyer orders combine into one purchase per buyer."
+          ? "Select orders and combine them into one box, then purchase one label for that box."
           : "Connect Shippo below to buy labels and print packing slips in the browser."}
       </Text>
+      {connected && canCombineAll ? (
+        <Pressable onPress={combineAllEligible} style={({ pressed }) => [styles.shipBtnOutline, { marginBottom: 10 }, pressed && { opacity: 0.85 }]}>
+          <Text style={styles.shipBtnOutlineText}>Combine eligible orders</Text>
+        </Pressable>
+      ) : null}
       {connected ? (
         <Pressable onPress={selectAllToShip} style={({ pressed }) => [styles.selectAllBtn, pressed && { opacity: 0.7 }]}>
           <Text style={styles.selectAllText}>Select all to ship</Text>
@@ -393,7 +476,34 @@ function ToShipFlowView({
           <Text style={styles.shipErr}>{error}</Text>
         </View>
       )}
-      {orders.map((order) => {
+      {shipRows.map((row) => {
+        if (row.type === "group") {
+          const first = row.orders[0];
+          const label = `Order ${row.orders
+            .map((order) => `#${order.orderNumber ?? order.id.slice(-8).toUpperCase()}`)
+            .join(", ")}`;
+          const merged = {
+            ...first,
+            totalCents: row.orders.reduce((sum, order) => sum + order.totalCents, 0),
+            taxCents: row.orders.reduce((sum, order) => sum + (order.taxCents ?? 0), 0),
+            items: row.orders.flatMap((order) => order.items ?? []),
+          };
+          return (
+            <FulfillmentOrderCard
+              key={row.ids.join("-")}
+              order={merged}
+              title={label}
+              onPress={() => toggleGroupSelection(row.ids)}
+              showStatus={false}
+              selectable={connected}
+              selected={row.ids.every((id) => selectedOrderIds.has(id))}
+              onToggleSelect={() => toggleGroupSelection(row.ids)}
+              onSeparate={() => separateGroup(row.ids)}
+              address={formatShippingAddress(first.shippingAddress) || null}
+            />
+          );
+        }
+        const order = row.order;
         const itemBusy = cancelingId === order.id || messagingBuyerId === order.id;
         return (
           <FulfillmentOrderCard
@@ -433,6 +543,7 @@ function ToShipFlowView({
       savingSlips={savingPackingSlip}
       connected={connected}
       onPurchaseLabels={openPurchaseLabelsWeb}
+      onCombineShipping={canCombineSelection && !selectionAlreadyGrouped ? combineSelectedOrders : undefined}
       onPrintSlips={() => void handleSavePackingSlips()}
       onSelectAll={selectAllToShip}
       onClearSelection={() => setSelectedOrderIds(new Set())}

@@ -3,8 +3,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { flushSync } from "react-dom";
 import {
+  buildCombinedOrderDetails,
   buildOrderDetailsFromOrder,
   collectLabelUrlsFromTransactions,
+  ordersCanCombineShipping,
   openLabelPdfUrls,
   parcelFromOrderItems,
   resolvePostalShipToAddress,
@@ -107,20 +109,55 @@ export interface StoreOrderForBulkLabel {
   shippedWithOrderId?: string;
 }
 
+export type BulkShipGroup = { orderIds: string[]; combine: boolean };
+
 /**
- * Partition to-ship orders so each group shares one buyer email (API requirement for combined save).
- * Orders with no email never merge with others.
+ * One label per explicit box, then one label per order that was left out.
+ * An order is combined only when it sits in a box the seller created. Sharing a buyer is not enough.
  */
-export function groupToShipOrdersByBuyer<T extends { id: string; buyer: { email?: string } }>(orders: T[]): T[][] {
-  const map = new Map<string, T[]>();
-  for (const o of orders) {
-    const email = o.buyer?.email?.trim().toLowerCase();
-    const key = email && email.length > 0 ? email : `__anon__:${o.id}`;
-    const list = map.get(key);
-    if (list) list.push(o);
-    else map.set(key, [o]);
+export function purchaseGroupsForSelection(selectedIds: string[], combinedGroups: string[][]): BulkShipGroup[] {
+  const selected = new Set(selectedIds);
+  const consumed = new Set<string>();
+  const groups: BulkShipGroup[] = [];
+  for (const group of combinedGroups) {
+    const ids = [...new Set(group.filter((id) => selected.has(id)))];
+    if (ids.length >= 2 && ids.length === group.length) {
+      groups.push({ orderIds: ids, combine: true });
+      ids.forEach((id) => consumed.add(id));
+    }
   }
-  return Array.from(map.values());
+  for (const id of selectedIds) {
+    if (!consumed.has(id)) groups.push({ orderIds: [id], combine: false });
+  }
+  return groups;
+}
+
+/** Same batches as labels: one packing slip for each combined box, and one for each order left out. */
+export function packingSlipGroupsForSelection(selectedIds: string[], combinedGroups: string[][]): string[][] {
+  return purchaseGroupsForSelection(selectedIds, combinedGroups).map((group) => group.orderIds);
+}
+
+/** Decode a combined-group query that may still contain `%7C` / `%7c` after one URL decode. */
+function decodeCombinedParam(raw: string): string {
+  let value = raw.trim();
+  for (let i = 0; i < 2 && value.includes("%"); i++) {
+    try {
+      const next = decodeURIComponent(value);
+      if (next === value) break;
+      value = next;
+    } catch {
+      break;
+    }
+  }
+  return value;
+}
+
+export function parseCombinedOrderGroups(raw: string | null): string[][] {
+  if (!raw?.trim()) return [];
+  return decodeCombinedParam(raw)
+    .split(",")
+    .map((part) => part.split(/[|~]/).map((id) => id.trim()).filter(Boolean))
+    .filter((group) => group.length >= 2);
 }
 
 export function isOrderEligibleForBulkShip(o: StoreOrderForBulkLabel): boolean {
@@ -132,22 +169,240 @@ export function isOrderEligibleForBulkShip(o: StoreOrderForBulkLabel): boolean {
   );
 }
 
-function buildBulkOrderDetails(selectedOrders: StoreOrderForBulkLabel[]) {
-  const orderDetailsArray: NonNullable<ReturnType<typeof buildOrderDetailsFromOrder>>[] = [];
-  for (const o of selectedOrders) {
-    const one = buildOrderDetailsFromOrder(o, undefined, {
-      freshShippoOrder: Boolean(o.shipment),
-    });
-    if (!one) return null;
-    orderDetailsArray.push(one);
+/**
+ * One Shippo order. An array argument to labelPurchase is bulk mode: one package per order.
+ * A combined box is a single object with one line item. Anything else is one order at a time.
+ */
+function buildBulkOrderDetails(selectedOrders: StoreOrderForBulkLabel[], combine: boolean) {
+  if (selectedOrders.length > 1) {
+    if (!combine) return null;
+    const combined = buildCombinedOrderDetails(selectedOrders);
+    if (!combined || Array.isArray(combined) || combined.line_items.length !== 1) return null;
+    return combined;
   }
-  return orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
+  const order = selectedOrders[0];
+  if (!order) return null;
+  return buildOrderDetailsFromOrder(order, undefined, {
+    freshShippoOrder: Boolean(order.shipment),
+  });
+}
+
+function singleShippoOrder(details: ReturnType<typeof buildBulkOrderDetails>) {
+  if (!details || Array.isArray(details)) return null;
+  return details;
+}
+
+export type LabelPurchasePayload = {
+  address_to: unknown;
+  line_items: Array<{
+    title?: string;
+    quantity?: number;
+    currency?: string;
+    unit_amount?: string;
+    unit_weight?: string;
+    weight_unit?: string;
+    country_of_origin?: string;
+  }>;
+  order_number?: string;
+};
+
+function oneLineItemPayload(
+  details: NonNullable<ReturnType<typeof buildOrderDetailsFromOrder>>,
+  title: string
+): LabelPurchasePayload {
+  let amountCents = 0;
+  let weightOz = 0;
+  for (const item of details.line_items) {
+    const qty = Math.max(1, Number(item.quantity) || 1);
+    amountCents += Math.round(parseFloat(item.unit_amount || "0") * 100) * qty;
+    weightOz += (parseFloat(item.unit_weight || "16") || 16) * qty;
+  }
+  if (weightOz <= 0) weightOz = 16;
+  return {
+    address_to: details.address_to,
+    line_items: [
+      {
+        title,
+        quantity: 1,
+        currency: "USD",
+        unit_amount: (amountCents / 100).toFixed(2),
+        unit_weight: String(Math.round(weightOz)),
+        weight_unit: "oz",
+        country_of_origin: "US",
+      },
+    ],
+    ...(details.order_number ? { order_number: details.order_number } : {}),
+  };
+}
+
+/**
+ * Payload for one label.
+ * A combined box is one new order with one line item and no previously saved Shippo id.
+ * When several labels are purchased together, a leftover order is also one line item under a
+ * new order number so Shippo cannot resume an older order or split that order into extra packages.
+ */
+function payloadForLabelPurchase(
+  orders: StoreOrderForBulkLabel[],
+  combine: boolean,
+  collapseSingle: boolean
+): LabelPurchasePayload | null {
+  if (!combine && collapseSingle && orders.length === 1) {
+    const details = buildOrderDetailsFromOrder(orders[0], undefined, { freshShippoOrder: true });
+    if (!details || Array.isArray(details) || details.line_items.length === 0) return null;
+    const title = details.line_items.length === 1 ? details.line_items[0]?.title ?? "Shipment" : "Shipment";
+    return oneLineItemPayload(details, title);
+  }
+  const details = singleShippoOrder(buildBulkOrderDetails(orders, combine));
+  if (!details || details.line_items.length === 0) return null;
+  if (combine && (orders.length < 2 || details.line_items.length !== 1)) return null;
+  return {
+    address_to: details.address_to,
+    line_items: details.line_items.slice(0, combine ? 1 : details.line_items.length),
+    ...(details.order_number ? { order_number: details.order_number } : {}),
+  };
+}
+
+/**
+ * One Shippo order per selected box. Passing this array to labelPurchase is bulk mode:
+ * one label card per box, not one shipment that contains every selected order.
+ */
+export function labelPayloadsForBatches(
+  batches: { orders: StoreOrderForBulkLabel[]; combine: boolean }[]
+): LabelPurchasePayload[] | null {
+  if (batches.length === 0) return null;
+  const collapseSingles = batches.length > 1;
+  const payloads: LabelPurchasePayload[] = [];
+  for (const batch of batches) {
+    const payload = payloadForLabelPurchase(batch.orders, batch.combine, collapseSingles);
+    if (!payload) return null;
+    if (batches.length > 1 && payload.line_items.length !== 1) return null;
+    payloads.push(payload);
+  }
+  const numbers = payloads.map((payload) => payload.order_number).filter(Boolean);
+  if (new Set(numbers).size !== numbers.length) return null;
+  return payloads;
+}
+
+type MatchableLabelTransaction = { order_id?: string; order_number?: string; object_id?: string };
+
+/**
+ * Match each purchased Shippo transaction to one box. Never assigns one transaction to every box.
+ */
+export function assignTransactionsToBatches<T extends MatchableLabelTransaction>(
+  transactions: T[],
+  args: {
+    batchCount: number;
+    batchOrderNumbers: string[];
+    createdOrderIds: string[];
+    savedIndexes: number[];
+  }
+): { assignments: { batchIndex: number; transaction: T }[]; createdOrderIds: string[] } {
+  const saved = new Set(args.savedIndexes);
+  const used = new Set<number>();
+  const created = [...args.createdOrderIds];
+  const assignments: { batchIndex: number; transaction: T }[] = [];
+
+  const unsaved = () => {
+    const left: number[] = [];
+    for (let i = 0; i < args.batchCount; i++) {
+      if (!saved.has(i) && !used.has(i)) left.push(i);
+    }
+    return left;
+  };
+
+  const claim = (index: number, transaction: T) => {
+    if (index < 0 || index >= args.batchCount || saved.has(index) || used.has(index)) return false;
+    used.add(index);
+    assignments.push({ batchIndex: index, transaction });
+    const orderId = transaction.order_id?.trim();
+    if (orderId && !created.includes(orderId)) created[index] = orderId;
+    return true;
+  };
+
+  const unmatched: T[] = [];
+  for (const transaction of transactions) {
+    const orderNumber = transaction.order_number?.trim();
+    if (orderNumber) {
+      const found = args.batchOrderNumbers.findIndex((number) => number === orderNumber);
+      if (claim(found, transaction)) continue;
+    }
+    const orderId = transaction.order_id?.trim();
+    if (orderId) {
+      const known = created.indexOf(orderId);
+      if (known >= 0 && claim(known, transaction)) continue;
+      const next = created.findIndex((id) => !id);
+      const slot = next >= 0 ? next : created.length;
+      if (slot < args.batchCount && claim(slot, transaction)) continue;
+    }
+    unmatched.push(transaction);
+  }
+
+  const left = unsaved();
+  if (assignments.length === 0 && unmatched.length > 0 && unmatched.length === left.length) {
+    unmatched.forEach((transaction, index) => {
+      claim(left[index] ?? -1, transaction);
+    });
+  } else if (assignments.length === 0 && unmatched.length === 1 && left.length === 1) {
+    claim(left[0] ?? -1, unmatched[0]);
+  }
+
+  return { assignments, createdOrderIds: created };
 }
 
 export type ShippoLabelSessionResult = {
   orderIds: string[];
   labelUrls: string[];
 };
+
+async function saveLabelToOrders(
+  tx: ElementsTransactionPayload,
+  orders: StoreOrderForBulkLabel[],
+  shippoOrderId: string | null
+): Promise<{ ok: boolean; error?: string; labelUrl?: string | null }> {
+  const parcel = combinedParcelForOrders(orders);
+  const payload = transactionToLabelFromElementsPayload(tx, {
+    weightOz: parcel?.weightOz ?? DEFAULT_WEIGHT_OZ,
+    lengthIn: parcel?.lengthIn ?? DEFAULT_LENGTH_IN,
+    widthIn: parcel?.widthIn ?? DEFAULT_WIDTH_IN,
+    heightIn: parcel?.heightIn ?? DEFAULT_HEIGHT_IN,
+  });
+  const snap = orders[0] ? resolvePostalShipToAddress(orders[0]) : null;
+  const res = await fetch("/api/shipping/label-from-elements", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      orderIds: orders.map((order) => order.id),
+      ...payload,
+      ...(shippoOrderId ? { shippoOrderId } : {}),
+      ...(snap
+        ? {
+            shipToSnapshot: {
+              street: snap.street,
+              city: snap.city,
+              state: snap.state,
+              zip: snap.zip,
+              ...(snap.aptOrSuite?.trim() ? { aptOrSuite: snap.aptOrSuite.trim() } : {}),
+            },
+          }
+        : {}),
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error:
+        typeof (data as { error?: string }).error === "string"
+          ? (data as { error: string }).error
+          : "Could not save label to your order. If you were charged, contact support with your order number.",
+    };
+  }
+  const labelUrl =
+    typeof (data as { shipment?: { labelUrl?: string | null } }).shipment?.labelUrl === "string"
+      ? (data as { shipment: { labelUrl: string } }).shipment.labelUrl
+      : null;
+  return { ok: true, labelUrl };
+}
 
 export function useShippoBulkLabelFlow(options: {
   containerId: string;
@@ -167,12 +422,15 @@ export function useShippoBulkLabelFlow(options: {
   const [purchasedLabelUrls, setPurchasedLabelUrls] = useState<string[]>([]);
 
   const elementsListenersRef = useRef(false);
-  const currentElementsOrderIdsRef = useRef<string[]>([]);
-  const currentShipToSnapshotRef = useRef<ReturnType<typeof resolvePostalShipToAddress>>(null);
-  const currentParcelRef = useRef<ReturnType<typeof parcelFromOrderItems>>(null);
   const shippoOrderIdsRef = useRef<string[]>([]);
   const buyerGroupsRef = useRef<StoreOrderForBulkLabel[][]>([]);
+  const combineFlagsRef = useRef<boolean[]>([]);
   const groupIndexRef = useRef(0);
+  const labelBatchesRef = useRef<
+    { orderIds: string[]; orderNumber: string; orders: StoreOrderForBulkLabel[] }[]
+  >([]);
+  const savedBatchIndexesRef = useRef<Set<number>>(new Set());
+  const savedTransactionIdsRef = useRef<Set<string>>(new Set());
   const sessionLabeledOrderIdsRef = useRef<string[]>([]);
   const labelSuccessHandlingRef = useRef(false);
   /** Ignores stale `LABEL_PURCHASED_SUCCESS` when another flow/hook also registered on `window.shippo`. */
@@ -198,72 +456,24 @@ export function useShippoBulkLabelFlow(options: {
     };
   }, []);
 
-  const advanceOrFinish = useCallback(async (shippo: ShippoElementsAPI, afterSaveOrderIds: string[]) => {
-    const cid = containerIdRef.current;
-    sessionLabeledOrderIdsRef.current = [...sessionLabeledOrderIdsRef.current, ...afterSaveOrderIds];
-    onAfterSaveRef.current();
-
-    const groups = buyerGroupsRef.current;
-    const nextIdx = groupIndexRef.current + 1;
-    if (nextIdx >= groups.length) {
-      sessionCompleteRef.current = true;
-      bulkFlowActiveRef.current = false;
-      setProgressSubtitle(
-        purchasedLabelUrlsRef.current.length > 0
-          ? "Label purchased — print it now, then close."
-          : "Label purchased. Close when you are done."
-      );
-      onSessionCompleteRef.current?.({
-        orderIds: sessionLabeledOrderIdsRef.current,
-        labelUrls: purchasedLabelUrlsRef.current,
-      });
-      return;
-    }
-
-    const nextGroup = groups[nextIdx];
-    const orderDetails = buildBulkOrderDetails(nextGroup);
-    if (!orderDetails) {
-      sessionCompleteRef.current = true;
-      bulkFlowActiveRef.current = false;
-      setElementsError("Some labels were purchased, but the next buyer is missing a checkout shipping address.");
-      setProgressSubtitle(
-        purchasedLabelUrlsRef.current.length > 0
-          ? "Print the labels you bought, then close. Remaining orders need a shipping address."
-          : null
-      );
-      onSessionCompleteRef.current?.({
-        orderIds: sessionLabeledOrderIdsRef.current,
-        labelUrls: purchasedLabelUrlsRef.current,
-      });
-      return;
-    }
-
-    groupIndexRef.current = nextIdx;
-    setProgressSubtitle(groups.length > 1 ? `Buyer ${nextIdx + 1} of ${groups.length}` : null);
-    currentElementsOrderIdsRef.current = nextGroup.map((o) => o.id);
-    shippoOrderIdsRef.current = [];
-    clearShippoElementsMount(cid);
-    flushSync(() => {
-      setShippoSurfaceOpen(true);
+  const finishLabelSession = useCallback(() => {
+    sessionCompleteRef.current = true;
+    bulkFlowActiveRef.current = false;
+    setProgressSubtitle(
+      purchasedLabelUrlsRef.current.length > 0
+        ? "Labels purchased — print them now, then close."
+        : "Labels purchased. Close when you are done."
+    );
+    onSessionCompleteRef.current?.({
+      orderIds: sessionLabeledOrderIdsRef.current,
+      labelUrls: purchasedLabelUrlsRef.current,
     });
-    await afterNextPaint();
-    const mount = document.getElementById(cid);
-    if (!mount) {
-      setElementsError("Label tool could not open. Close and try again.");
-      bulkFlowActiveRef.current = false;
-      setShippoSurfaceOpen(false);
-      return;
-    }
-    bulkFlowActiveRef.current = true;
-    currentShipToSnapshotRef.current = resolvePostalShipToAddress(nextGroup[0]);
-    currentParcelRef.current = combinedParcelForOrders(nextGroup);
-    shippo.labelPurchase(`#${cid}`, orderDetails);
   }, []);
 
-  const advanceOrFinishRef = useRef(advanceOrFinish);
-  advanceOrFinishRef.current = advanceOrFinish;
-
-  const runBulkFlow = useCallback(async (orderIds: string[]) => {
+  const runBulkFlow = useCallback(async (
+    orderIds: string[],
+    options?: { combine?: boolean; groups?: BulkShipGroup[] }
+  ) => {
     const idSet = new Set(orderIds.map((id) => id.trim()).filter(Boolean));
     if (idSet.size === 0) {
       setElementsError("Select at least one order.");
@@ -282,7 +492,52 @@ export function useShippoBulkLabelFlow(options: {
       selected.push(o);
     }
 
-    const groups = groupToShipOrdersByBuyer(selected);
+    const explicitGroups =
+      options?.groups && options.groups.length > 0
+        ? options.groups
+        : options?.combine === true
+          ? [{ orderIds: selected.map((order) => order.id), combine: true }]
+          : selected.map((order) => ({ orderIds: [order.id], combine: false }));
+    const resolved: { orders: StoreOrderForBulkLabel[]; combine: boolean }[] = [];
+    const byId = new Map(selected.map((order) => [order.id, order]));
+    const used = new Set<string>();
+    for (const group of explicitGroups) {
+      const members: StoreOrderForBulkLabel[] = [];
+      for (const id of group.orderIds) {
+        if (used.has(id)) continue;
+        const order = byId.get(id);
+        if (!order) continue;
+        members.push(order);
+        used.add(id);
+      }
+      if (members.length === 0) continue;
+      if (group.combine && members.length > 1) {
+        if (!ordersCanCombineShipping(members)) {
+          setElementsError("Combined orders must be from the same person and the same address.");
+          return;
+        }
+        resolved.push({ orders: members, combine: true });
+      } else {
+        for (const order of members) resolved.push({ orders: [order], combine: false });
+      }
+    }
+    for (const order of selected) {
+      if (!used.has(order.id)) resolved.push({ orders: [order], combine: false });
+    }
+    if (resolved.length === 0) {
+      setElementsError("Select at least one order.");
+      return;
+    }
+    const opened: { orders: StoreOrderForBulkLabel[]; combine: boolean }[] = [];
+    for (const group of resolved) {
+      if (group.combine && group.orders.length > 1) {
+        opened.push(group);
+        continue;
+      }
+      for (const order of group.orders) opened.push({ orders: [order], combine: false });
+    }
+    const groups = opened.map((group) => group.orders);
+    combineFlagsRef.current = opened.map((group) => group.combine);
     buyerGroupsRef.current = groups;
     groupIndexRef.current = 0;
     sessionLabeledOrderIdsRef.current = [];
@@ -290,12 +545,18 @@ export function useShippoBulkLabelFlow(options: {
     purchasedLabelUrlsRef.current = [];
     setPurchasedLabelUrls([]);
 
-    const first = groups[0];
-    const orderDetails = buildBulkOrderDetails(first);
-    if (!orderDetails) {
+    const payloads = labelPayloadsForBatches(opened);
+    if (!payloads) {
       setElementsError("Selected order(s) have no checkout shipping address for Shippo.");
       return;
     }
+    labelBatchesRef.current = opened.map((group, index) => ({
+      orderIds: group.orders.map((order) => order.id),
+      orderNumber: payloads[index]?.order_number ?? "",
+      orders: group.orders,
+    }));
+    savedBatchIndexesRef.current = new Set();
+    savedTransactionIdsRef.current = new Set();
 
     setElementsError(null);
     setElementsLoading(true);
@@ -329,7 +590,6 @@ export function useShippoBulkLabelFlow(options: {
       }
 
       shippo.init({ token, org: SHIPPO_BULK_ORG, theme: NWC_SHIPPO_ELEMENTS_THEME });
-      currentElementsOrderIdsRef.current = first.map((o) => o.id);
       shippoOrderIdsRef.current = [];
 
       if (!elementsListenersRef.current) {
@@ -342,87 +602,72 @@ export function useShippoBulkLabelFlow(options: {
         shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
           if (!bulkFlowActiveRef.current) return;
           if (labelSuccessHandlingRef.current) return;
-          const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
-          const labeledOrderIds = currentElementsOrderIdsRef.current;
-          if (labeledOrderIds.length === 0 || txs.length === 0) return;
+          const txs = Array.isArray(transactions)
+            ? (transactions as Array<ElementsTransactionPayload & { order_number?: string }>)
+            : [];
+          const batches = labelBatchesRef.current;
+          if (batches.length === 0 || txs.length === 0) return;
+          const fresh = txs.filter((tx) => {
+            const id = tx.object_id?.trim();
+            return !id || !savedTransactionIdsRef.current.has(id);
+          });
+          if (fresh.length === 0) return;
+          const matched = assignTransactionsToBatches(fresh, {
+            batchCount: batches.length,
+            batchOrderNumbers: batches.map((batch) => batch.orderNumber),
+            createdOrderIds: shippoOrderIdsRef.current,
+            savedIndexes: [...savedBatchIndexesRef.current],
+          });
+          shippoOrderIdsRef.current = matched.createdOrderIds;
+          if (matched.assignments.length === 0) {
+            setElementsError(
+              "A label was purchased, but it could not be matched to one box. If you were charged, contact support before buying another."
+            );
+            return;
+          }
           labelSuccessHandlingRef.current = true;
-          const urlsFromTx = collectLabelUrlsFromTransactions(txs);
+          const urlsFromTx = collectLabelUrlsFromTransactions(
+            matched.assignments.map((row) => row.transaction)
+          );
           if (urlsFromTx.length > 0) {
             const nextUrls = uniqueHttpUrls([...purchasedLabelUrlsRef.current, ...urlsFromTx]);
             purchasedLabelUrlsRef.current = nextUrls;
             setPurchasedLabelUrls(nextUrls);
           }
-          const firstTx = txs[0] as ElementsTransactionPayload;
-          const parcel = currentParcelRef.current;
-          const payload = transactionToLabelFromElementsPayload(firstTx, {
-            weightOz: parcel?.weightOz ?? DEFAULT_WEIGHT_OZ,
-            lengthIn: parcel?.lengthIn ?? DEFAULT_LENGTH_IN,
-            widthIn: parcel?.widthIn ?? DEFAULT_WIDTH_IN,
-            heightIn: parcel?.heightIn ?? DEFAULT_HEIGHT_IN,
-          });
-          const shippoOrderId =
-            firstTx.order_id?.trim() || shippoOrderIdsRef.current[0]?.trim() || null;
-          const snap = currentShipToSnapshotRef.current;
           try {
-            const res = await fetch("/api/shipping/label-from-elements", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                orderIds: labeledOrderIds,
-                ...payload,
-                ...(shippoOrderId ? { shippoOrderId } : {}),
-                ...(snap
-                  ? {
-                      shipToSnapshot: {
-                        street: snap.street,
-                        city: snap.city,
-                        state: snap.state,
-                        zip: snap.zip,
-                        ...(snap.aptOrSuite?.trim() ? { aptOrSuite: snap.aptOrSuite.trim() } : {}),
-                      },
-                    }
-                  : {}),
-              }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-              const savedUrl =
-                typeof (data as { shipment?: { labelUrl?: string | null } }).shipment?.labelUrl === "string"
-                  ? (data as { shipment: { labelUrl: string } }).shipment.labelUrl
-                  : null;
-              if (savedUrl) {
-                const nextUrls = uniqueHttpUrls([...purchasedLabelUrlsRef.current, savedUrl]);
+            for (const { batchIndex, transaction } of matched.assignments) {
+              const batch = batches[batchIndex];
+              if (!batch) continue;
+              const shippoOrderId =
+                transaction.order_id?.trim() ||
+                (batches.length === 1 ? shippoOrderIdsRef.current[batchIndex]?.trim() : null) ||
+                null;
+              const saved = await saveLabelToOrders(transaction, batch.orders, shippoOrderId);
+              if (!saved.ok) {
+                setElementsError(saved.error ?? "Could not save label to your order.");
+                return;
+              }
+              savedBatchIndexesRef.current.add(batchIndex);
+              const txId = transaction.object_id?.trim();
+              if (txId) savedTransactionIdsRef.current.add(txId);
+              sessionLabeledOrderIdsRef.current = [
+                ...sessionLabeledOrderIdsRef.current,
+                ...batch.orderIds,
+              ];
+              if (saved.labelUrl) {
+                const nextUrls = uniqueHttpUrls([...purchasedLabelUrlsRef.current, saved.labelUrl]);
                 if (nextUrls.length !== purchasedLabelUrlsRef.current.length) {
                   purchasedLabelUrlsRef.current = nextUrls;
                   setPurchasedLabelUrls(nextUrls);
                 }
               }
-              let shippoNow =
-                typeof window !== "undefined" ? (window as { shippo?: ShippoElementsAPI }).shippo : null;
-              shippoNow = shippoNow && isShippoReady(shippoNow) ? shippoNow : null;
-              if (!shippoNow) {
-                shippoNow = await waitForShippo();
-              }
-              if (shippoNow && isShippoReady(shippoNow)) {
-                await advanceOrFinishRef.current(shippoNow, labeledOrderIds);
-              } else {
-                sessionCompleteRef.current = true;
-                setProgressSubtitle(
-                  purchasedLabelUrlsRef.current.length > 0
-                    ? "Label purchased — print it now, then close."
-                    : "Label saved. Refresh this page if the next step did not open."
-                );
-                onSessionCompleteRef.current?.({
-                  orderIds: [...sessionLabeledOrderIdsRef.current, ...labeledOrderIds],
-                  labelUrls: purchasedLabelUrlsRef.current,
-                });
-                bulkFlowActiveRef.current = false;
-              }
+            }
+            onAfterSaveRef.current();
+            if (savedBatchIndexesRef.current.size >= batches.length) {
+              finishLabelSession();
             } else {
-              setElementsError(
-                typeof (data as { error?: string }).error === "string"
-                  ? (data as { error: string }).error
-                  : "Could not save label to your order. If you were charged, contact support with your order number."
+              setProgressSubtitle(
+                `${savedBatchIndexesRef.current.size} of ${batches.length} labels saved. Each remaining box is its own label in this window.`
               );
             }
           } catch {
@@ -444,7 +689,13 @@ export function useShippoBulkLabelFlow(options: {
         });
       }
 
-      setProgressSubtitle(groups.length > 1 ? `Buyer 1 of ${groups.length}` : null);
+      setProgressSubtitle(
+        payloads.length > 1
+          ? `${payloads.length} separate labels — one for each box you selected`
+          : opened[0]?.combine
+            ? `One shipment ${payloads[0]?.order_number ?? ""} for ${opened[0]?.orders.length ?? 0} orders`
+            : null
+      );
       clearShippoElementsMount(containerIdRef.current);
       flushSync(() => {
         setShippoSurfaceOpen(true);
@@ -458,15 +709,16 @@ export function useShippoBulkLabelFlow(options: {
         return;
       }
       bulkFlowActiveRef.current = true;
-      currentShipToSnapshotRef.current = resolvePostalShipToAddress(first[0]);
-      currentParcelRef.current = combinedParcelForOrders(first);
-      shippo.labelPurchase(`#${containerIdRef.current}`, orderDetails);
+      shippo.labelPurchase(
+        `#${containerIdRef.current}`,
+        payloads.length === 1 ? payloads[0] : payloads
+      );
     } catch {
       setElementsError("Connection failed.");
     } finally {
       setElementsLoading(false);
     }
-  }, [orders]);
+  }, [finishLabelSession, orders]);
 
   const closeShippoSurface = useCallback(() => {
     if (sessionCompleteRef.current && sessionLabeledOrderIdsRef.current.length > 0) {
@@ -479,7 +731,11 @@ export function useShippoBulkLabelFlow(options: {
     setShippoSurfaceOpen(false);
     setProgressSubtitle(null);
     buyerGroupsRef.current = [];
+    combineFlagsRef.current = [];
     groupIndexRef.current = 0;
+    labelBatchesRef.current = [];
+    savedBatchIndexesRef.current = new Set();
+    savedTransactionIdsRef.current = new Set();
     sessionLabeledOrderIdsRef.current = [];
     onDismissRef.current?.();
   }, []);

@@ -11,17 +11,20 @@ import { DeliveryQueueSection, countPendingDeliveryOrders } from "@/components/f
 import { FulfillmentActionBar } from "@/components/fulfillment/FulfillmentActionBar";
 import { FulfillmentTabBar } from "@/components/fulfillment/FulfillmentTabBar";
 import { HistoryOrderSection, ShippedOrderSection } from "@/components/fulfillment/HistoryOrderSection";
-import { OrderCard } from "@/components/fulfillment/OrderCard";
+import { CombinedOrderCard, OrderCard } from "@/components/fulfillment/OrderCard";
 import { EtsyPersonalizationNotes } from "@/components/EtsyPersonalizationNotes";
 import { OrderEmptyState } from "@/components/fulfillment/OrderEmptyState";
 import { ShippoConnectionBanner } from "@/components/fulfillment/ShippoConnectionBanner";
 import type { FulfillmentStoreOrder, SellerProfileForSlips } from "@/components/fulfillment/types";
 import {
+  packingSlipGroupsForSelection,
+  purchaseGroupsForSelection,
   useShippoBulkLabelFlow,
   SHIPPO_BULK_EMBEDDABLE_URL,
   type StoreOrderForBulkLabel,
 } from "@/hooks/use-shippo-bulk-label-flow";
 import { getErrorMessage } from "@/lib/api-error";
+import { clusterOrdersForCombinedShipping, ordersCanCombineShipping } from "@/lib/shippo-elements";
 import {
   isOrderEligibleForToShipQueue,
   type FulfillmentTabKey,
@@ -82,6 +85,7 @@ export function FulfillmentHubContent(props: {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [combinedGroups, setCombinedGroups] = useState<string[][]>([]);
   const [sellerProfile, setSellerProfile] = useState<SellerProfileForSlips | null>(null);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
@@ -367,9 +371,98 @@ export function FulfillmentHubContent(props: {
 
   const selectedIdsArray = useMemo(() => Array.from(selectedOrderIds), [selectedOrderIds]);
   const selectedOrders = toShipOrders.filter((o) => selectedOrderIds.has(o.id));
-  const sameBuyer =
-    selectedOrders.length <= 1 ||
-    selectedOrders.every((o) => o.buyer?.email === selectedOrders[0]?.buyer?.email);
+  const labelGroups = useMemo(
+    () => purchaseGroupsForSelection(selectedIdsArray, combinedGroups),
+    [selectedIdsArray, combinedGroups]
+  );
+  const slipGroups = useMemo(
+    () => packingSlipGroupsForSelection(selectedIdsArray, combinedGroups),
+    [selectedIdsArray, combinedGroups]
+  );
+  const canCombineShipping = ordersCanCombineShipping(selectedOrders);
+  const eligibleClusters = useMemo(
+    () => clusterOrdersForCombinedShipping(toShipOrders).map((group) => group.map((order) => order.id)),
+    [toShipOrders]
+  );
+  const sameIdSet = (left: string[], right: string[]) => {
+    if (left.length !== right.length) return false;
+    const ids = new Set(left);
+    return right.every((id) => ids.has(id));
+  };
+  const canCombineAll = eligibleClusters.some(
+    (cluster) => !combinedGroups.some((group) => sameIdSet(group, cluster))
+  );
+  const selectionAlreadyGrouped =
+    canCombineShipping &&
+    combinedGroups.some((group) => sameIdSet(group, selectedOrders.map((order) => order.id)));
+
+  useEffect(() => {
+    const live = new Set(toShipOrders.map((order) => order.id));
+    setCombinedGroups((prev) =>
+      prev
+        .map((group) => group.filter((id) => live.has(id)))
+        .filter((group) => group.length >= 2)
+    );
+  }, [toShipOrders]);
+
+  function combineSelectedOrders() {
+    if (!ordersCanCombineShipping(selectedOrders)) return;
+    const ids = selectedOrders.map((order) => order.id);
+    setCombinedGroups((prev) => {
+      const without = prev
+        .map((group) => group.filter((id) => !ids.includes(id)))
+        .filter((group) => group.length >= 2);
+      return [...without, ids];
+    });
+  }
+
+  function combineAllEligible() {
+    setCombinedGroups(eligibleClusters);
+  }
+
+  function separateGroup(ids: string[]) {
+    setCombinedGroups((prev) => prev.filter((group) => !sameIdSet(group, ids)));
+  }
+
+  function toggleGroupSelection(ids: string[]) {
+    setSelectedOrderIds((prev) => {
+      const allOn = ids.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allOn) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  const shipRows = useMemo(() => {
+    const memberOf = new Map<string, string[]>();
+    for (const group of combinedGroups) {
+      if (group.length < 2) continue;
+      for (const id of group) memberOf.set(id, group);
+    }
+    const seen = new Set<string>();
+    const rows: Array<
+      | { type: "single"; order: FulfillmentStoreOrder }
+      | { type: "group"; orders: FulfillmentStoreOrder[]; ids: string[] }
+    > = [];
+    for (const order of toShipOrders) {
+      if (seen.has(order.id)) continue;
+      const group = memberOf.get(order.id);
+      if (group) {
+        const members = group
+          .map((id) => toShipOrders.find((candidate) => candidate.id === id))
+          .filter((candidate): candidate is FulfillmentStoreOrder => Boolean(candidate));
+        if (members.length >= 2) {
+          members.forEach((member) => seen.add(member.id));
+          rows.push({ type: "group", orders: members, ids: members.map((member) => member.id) });
+          continue;
+        }
+      }
+      seen.add(order.id);
+      rows.push({ type: "single", order });
+    }
+    return rows;
+  }, [combinedGroups, toShipOrders]);
 
   const printSlips = () => {
     window.print();
@@ -476,17 +569,36 @@ export function FulfillmentHubContent(props: {
               orderCount={toShipOrders.length}
             />
 
+            {canCombineAll ? (
+              <div className="mb-4">
+                <button type="button" className="btn-outline" onClick={combineAllEligible}>
+                  Combine eligible orders
+                </button>
+              </div>
+            ) : null}
+
             {toShipOrders.length === 0 ? (
               <OrderEmptyState tab="ship" />
             ) : (
               <ul className="space-y-3 mb-8">
-                {toShipOrders.map((order) => (
-                  <li key={order.id}>
+                {shipRows.map((row) =>
+                  row.type === "group" ? (
+                    <li key={row.ids.join("-")}>
+                      <CombinedOrderCard
+                        orders={row.orders}
+                        ordersBasePath={props.ordersBasePath}
+                        selected={row.ids.every((id) => selectedOrderIds.has(id))}
+                        onToggle={() => toggleGroupSelection(row.ids)}
+                        onSeparate={() => separateGroup(row.ids)}
+                      />
+                    </li>
+                  ) : (
+                  <li key={row.order.id}>
                     <OrderCard
-                      order={order}
+                      order={row.order}
                       ordersBasePath={props.ordersBasePath}
                       selectable={shippingConnected === true}
-                      selected={selectedOrderIds.has(order.id)}
+                      selected={selectedOrderIds.has(row.order.id)}
                       onToggleSelect={toggleOrderSelection}
                       menu={
                         <div className="relative">
@@ -494,12 +606,12 @@ export function FulfillmentHubContent(props: {
                             type="button"
                             className="w-9 h-9 rounded border border-gray-300 text-lg leading-none text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                             aria-label="Order options"
-                            disabled={cancelingId === order.id}
-                            onClick={() => setMenuOpenId((id) => (id === order.id ? null : order.id))}
+                            disabled={cancelingId === row.order.id}
+                            onClick={() => setMenuOpenId((id) => (id === row.order.id ? null : row.order.id))}
                           >
                             ⋮
                           </button>
-                          {menuOpenId === order.id ? (
+                          {menuOpenId === row.order.id ? (
                             <>
                               <button
                                 type="button"
@@ -509,7 +621,7 @@ export function FulfillmentHubContent(props: {
                               />
                               <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-52 text-sm">
                                 <Link
-                                  href={`${props.ordersBasePath}/${order.id}`}
+                                  href={`${props.ordersBasePath}/${row.order.id}`}
                                   className="block px-3 py-2 hover:bg-gray-50"
                                   style={{ color: "var(--color-link)" }}
                                   onClick={() => setMenuOpenId(null)}
@@ -519,12 +631,12 @@ export function FulfillmentHubContent(props: {
                                 <button
                                   type="button"
                                   className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 font-medium disabled:opacity-50"
-                                  disabled={cancelingId === order.id}
-                                  onClick={() => requestCancelAndRefund(order)}
+                                  disabled={cancelingId === row.order.id}
+                                  onClick={() => requestCancelAndRefund(row.order)}
                                 >
-                                  {cancelingId === order.id
+                                  {cancelingId === row.order.id
                                     ? "Canceling…"
-                                    : order.stripePaymentIntentId
+                                    : row.order.stripePaymentIntentId
                                       ? "Cancel & refund"
                                       : "Cancel order"}
                                 </button>
@@ -535,7 +647,8 @@ export function FulfillmentHubContent(props: {
                       }
                     />
                   </li>
-                ))}
+                  )
+                )}
               </ul>
             )}
 
@@ -553,7 +666,7 @@ export function FulfillmentHubContent(props: {
                     })),
                   }))}
                   sellerProfile={sellerProfile}
-                  combined={selectedOrders.length > 1 && sameBuyer}
+                  slipGroups={slipGroups}
                 />
               </div>
             ) : null}
@@ -568,7 +681,14 @@ export function FulfillmentHubContent(props: {
               elementsLoading={elementsLoading}
               shippoSurfaceOpen={shippoSurfaceOpen}
               shippingConnected={shippingConnected}
-              onPurchaseLabels={() => void runBulkFlow(selectedIdsArray)}
+              onPurchaseLabels={() =>
+                void runBulkFlow(selectedIdsArray, {
+                  groups: labelGroups,
+                })
+              }
+              onCombineShipping={
+                canCombineShipping && !selectionAlreadyGrouped ? combineSelectedOrders : undefined
+              }
               onPrintSlips={printSlips}
               onSelectAll={selectAllToShip}
               onClearSelection={clearSelection}

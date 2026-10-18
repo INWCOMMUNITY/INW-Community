@@ -39,6 +39,19 @@ function isItemActive(pathname: string, item: NavItem): boolean {
   );
 }
 
+function submenuLabel(label: string) {
+  if (label === "Refunds & Cancellations") {
+    return (
+      <span className="leading-tight">
+        Refunds &
+        <br />
+        Cancellations
+      </span>
+    );
+  }
+  return label;
+}
+
 function dropdownLandingHref(item: Extract<NavItem, { children: Child[] }>): string {
   if (item.label === "Listings") return "/seller-hub/store/items";
   if (item.label === "Orders") return "/seller-hub/orders";
@@ -56,6 +69,7 @@ export function SellerHubTopNav() {
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
+  const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
   const [etsyConnected, setEtsyConnected] = useState(false);
   const [shopifyConnected, setShopifyConnected] = useState(false);
@@ -84,8 +98,9 @@ export function SellerHubTopNav() {
   useEffect(() => {
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { hasLocalDelivery?: boolean; payoutReady?: boolean }) => {
+      .then((d: { hasLocalDelivery?: boolean; pendingReturns?: number; payoutReady?: boolean }) => {
         setHasLocalDelivery(Boolean(d?.hasLocalDelivery));
+        setPendingReturns(Number(d?.pendingReturns) || 0);
         setPayoutReady(Boolean(d?.payoutReady));
       })
       .catch(() => {});
@@ -138,6 +153,12 @@ export function SellerHubTopNav() {
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
+    {
+      href: "/seller-hub/store/returns",
+      label: "Refunds & Cancellations",
+      icon: "arrow-undo-outline",
+      alert: pendingReturns > 0,
+    },
   ];
 
   const storeChildren: Child[] = [
@@ -317,8 +338,8 @@ export function SellerHubTopNav() {
                             }
                             style={childActive ? { backgroundColor: SEGMENT_COLOR } : undefined}
                           >
-                            <IonIcon name={c.icon} size={18} className="text-current" />
-                            {c.label}
+                            <IonIcon name={c.icon} size={18} className="text-current shrink-0" />
+                            {submenuLabel(c.label)}
                             {c.alert ? (
                               <span
                                 className="ml-auto inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"

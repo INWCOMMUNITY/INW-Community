@@ -11,7 +11,12 @@ import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { buildProductHref } from "@/lib/product-referrer";
 import { IonIcon } from "@/components/IonIcon";
-import { sellerOrderShippingCents, sellerOrderShippingQuote } from "@/lib/checkout-shipping-cost";
+import {
+  sellerOrderShippingCents,
+  sellerOrderShippingQuote,
+  storefrontGroupKey,
+  storefrontShipmentIsCombined,
+} from "@/lib/checkout-shipping-cost";
 
 interface CartItemStoreItem {
   id: string;
@@ -23,6 +28,7 @@ interface CartItemStoreItem {
   status: string;
   variants: unknown;
   memberId?: string;
+  businessId?: string | null;
   listingType?: "new" | "resale";
   shippingCostCents?: number | null;
   localDeliveryFeeCents?: number | null;
@@ -36,6 +42,7 @@ interface CartItemStoreItem {
     combineShipping?: boolean;
     combinedShippingMaxCents?: number | null;
     freeShippingMinimumCents?: number | null;
+    offerFreeShippingOnInw?: boolean | null;
   } | null;
 }
 
@@ -62,7 +69,7 @@ function cartLineUnitPriceCents(item: CartItem): number {
 function cartShippingCents(list: CartItem[]): number {
   const groups = new Map<string, CartItem[]>();
   for (const item of list) {
-    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+    const sellerId = storefrontGroupKey(item.storeItem);
     const group = groups.get(sellerId) ?? [];
     group.push(item);
     groups.set(sellerId, group);
@@ -72,6 +79,7 @@ function cartShippingCents(list: CartItem[]): number {
     const member = group[0]?.storeItem.member;
     cents += sellerOrderShippingCents({
       lines: group.map((item) => ({
+        storeItemId: item.storeItemId,
         quantity: item.quantity,
         fulfillmentType: item.fulfillmentType === "pickup" ? "ship" : item.fulfillmentType,
         shippingCostCents: item.storeItem.shippingCostCents,
@@ -81,6 +89,7 @@ function cartShippingCents(list: CartItem[]): number {
         combineShipping: Boolean(member?.combineShipping),
         combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
         freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+        offerFreeShippingOnInw: Boolean(member?.offerFreeShippingOnInw),
       },
     });
   }
@@ -91,6 +100,7 @@ function sellerShippingArgs(group: CartItem[]) {
   const member = group[0]?.storeItem.member;
   return {
     lines: group.map((item) => ({
+      storeItemId: item.storeItemId,
       quantity: item.quantity,
       fulfillmentType: item.fulfillmentType === "pickup" ? "ship" : item.fulfillmentType,
       shippingCostCents: item.storeItem.shippingCostCents,
@@ -100,6 +110,7 @@ function sellerShippingArgs(group: CartItem[]) {
       combineShipping: Boolean(member?.combineShipping),
       combinedShippingMaxCents: member?.combinedShippingMaxCents ?? null,
       freeShippingMinimumCents: member?.freeShippingMinimumCents ?? null,
+      offerFreeShippingOnInw: Boolean(member?.offerFreeShippingOnInw),
     },
   };
 }
@@ -389,14 +400,16 @@ export default function CartPage() {
                 <div className="space-y-4">
                   {items.map((item) => {
                     const variantLabel = formatCartVariantLabel(item.variant);
-                    const sellerId = item.storeItem.memberId ?? item.storeItemId;
+                    const sellerId = storefrontGroupKey(item.storeItem);
                     const sellerGroup = items.filter(
-                      (row) => (row.storeItem.memberId ?? row.storeItemId) === sellerId
+                      (row) => storefrontGroupKey(row.storeItem) === sellerId
                     );
                     const shippingArgs = sellerShippingArgs(sellerGroup);
                     const shippingQuote = sellerOrderShippingQuote(shippingArgs);
                     const isSellerLead = sellerGroup[0]?.id === item.id;
-                    const freeShippingMinimumCents = shippingArgs.rules.freeShippingMinimumCents ?? 0;
+                    const freeShippingMinimumCents = shippingArgs.rules.offerFreeShippingOnInw
+                      ? 0
+                      : shippingArgs.rules.freeShippingMinimumCents ?? 0;
                     const freeShippingReached =
                       freeShippingMinimumCents > 0 &&
                       shippingArgs.merchandiseCents >= freeShippingMinimumCents;
@@ -404,6 +417,9 @@ export default function CartPage() {
                       const type = row.fulfillmentType ?? "ship";
                       return type === "ship" || type === "pickup";
                     });
+                    const combinedShipment =
+                      Boolean(shippingArgs.rules.combineShipping) &&
+                      storefrontShipmentIsCombined(shippingArgs.lines);
                     return (
                         <div
                           key={item.id}
@@ -462,12 +478,12 @@ export default function CartPage() {
                           ) : null}
                           {(item.fulfillmentType === "ship" || item.fulfillmentType === "pickup") &&
                             shippingQuote.cents > 0 &&
-                            (shippedLines.length === 1
-                              ? shippedLines[0]?.id === item.id
-                              : isSellerLead && shippingQuote.combinedCapApplied) && (
+                            (combinedShipment
+                              ? isSellerLead
+                              : shippedLines.length === 1 && shippedLines[0]?.id === item.id) && (
                               <span className="text-sm font-normal ml-1" style={{ color: "var(--color-text)" }}>
                                 + ${(shippingQuote.cents / 100).toFixed(2)}{" "}
-                                {shippingQuote.combinedCapApplied ? "combined shipping" : "shipping"}
+                                {combinedShipment ? "combined shipping" : "shipping"}
                               </span>
                             )}
                           {item.fulfillmentType === "local_delivery" &&

@@ -123,6 +123,8 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
       return data.conversationId ? `/messages/group/${data.conversationId}` : "/messages";
     case "seller-hub/orders":
       return data.orderId ? `/seller-hub/orders/${data.orderId}` : "/seller-hub/orders";
+    case "seller-returns":
+      return "/seller-hub/store/returns";
     case "my-orders":
       return data.orderId ? `/community/my-orders/${data.orderId}` : "/community/my-orders";
     case "cart":

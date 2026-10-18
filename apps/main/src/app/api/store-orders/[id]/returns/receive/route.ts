@@ -166,9 +166,7 @@ export async function POST(
     reason: current.reason ?? "return_received",
     note: current.note,
     ...claim.refundArgs,
-    restock: true,
-    restockOperationId: current.id,
-    restockKind: "PHYSICAL_RECEIPT",
+    restock: false,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

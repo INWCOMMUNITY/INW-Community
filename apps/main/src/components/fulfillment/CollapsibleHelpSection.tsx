@@ -19,8 +19,9 @@ export function CollapsibleHelpSection({ shippingSetupHref }: CollapsibleHelpSec
         <li>Select orders on the Ship tab, then purchase labels in the full-screen Shippo tool.</li>
         <li>After you buy a label, stay on the Shippo print screen and use Print Shipping Label. Closing takes you to Shipped orders.</li>
         <li>Reprint Label opens the saved PDF. Repurchase Label starts a new purchase.</li>
-        <li>Orders from the same buyer are combined into one Shippo checkout per buyer.</li>
-        <li>Print packing slips from the action bar using the same selection.</li>
+        <li>Combine, or Combine eligible orders at the top, groups the orders you choose into one box on this page. An order you leave out stays on its own.</li>
+        <li>Purchase Labels buys one Shippo label for each box, and one label for each order left out. Tracking for a box is saved on every order in that box.</li>
+        <li>Print packing slips from the action bar. Each label gets one packing slip, including a box of several orders.</li>
       </ul>
       <Link href={shippingSetupHref} className="text-sm font-medium hover:underline inline-block mt-3" style={{ color: "var(--color-link)" }}>
         Shipping setup →

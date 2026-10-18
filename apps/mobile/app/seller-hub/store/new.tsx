@@ -70,6 +70,33 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 const TITLE_MAX = 80;
 
+const ETSY_WHO = [
+  { id: "i_did", label: "I did" },
+  { id: "collective", label: "A member of my shop" },
+  { id: "someone_else", label: "Another company or person" },
+] as const;
+
+const ETSY_WHEN = [
+  { id: "2020_2026", label: "2020–2026" },
+  { id: "2010_2019", label: "2010–2019" },
+  { id: "2007_2009", label: "2007–2009" },
+  { id: "before_2007", label: "Before 2007" },
+  { id: "2000_2006", label: "2000–2006" },
+  { id: "1990s", label: "1990s" },
+  { id: "1980s", label: "1980s" },
+  { id: "1970s", label: "1970s" },
+  { id: "1960s", label: "1960s" },
+  { id: "1950s", label: "1950s" },
+  { id: "1940s", label: "1940s" },
+  { id: "1930s", label: "1930s" },
+  { id: "1920s", label: "1920s" },
+  { id: "1910s", label: "1910s" },
+  { id: "1900s", label: "1900s" },
+  { id: "1800s", label: "1800s" },
+  { id: "1700s", label: "1700s" },
+  { id: "before_1700", label: "Before 1700" },
+] as const;
+
 function toFullUrl(url: string): string {
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
 }
@@ -203,7 +230,18 @@ export default function ListItemScreen() {
   const [shopifyBusy, setShopifyBusy] = useState(false);
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
   const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
-  const isExitingRef = useRef(false);
+  const [listOnShopifyAfterSave, setListOnShopifyAfterSave] = useState(false);
+  const [etsyConnected, setEtsyConnected] = useState(false);
+  const [etsyShippingReady, setEtsyShippingReady] = useState(false);
+  const [etsyMappedListingId, setEtsyMappedListingId] = useState<string | null>(null);
+  const [etsyMappedLive, setEtsyMappedLive] = useState(false);
+  const [listOnEtsy, setListOnEtsy] = useState(false);
+  const [etsyWhoMade, setEtsyWhoMade] = useState("");
+  const [etsyWhenMade, setEtsyWhenMade] = useState("");
+  const [etsyIsSupply, setEtsyIsSupply] = useState<boolean | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [allowLeave, setAllowLeave] = useState(false);
+  const pendingLeaveRef = useRef<(() => void) | null>(null);
   const submittedRef = useRef(false);
 
   const effectiveStoreItemId = editId ?? createdItemId ?? null;
@@ -260,11 +298,66 @@ export default function ListItemScreen() {
         .catch(() => {
           if (!cancelled) setShopifyConn(null);
         });
+      apiGet<{ connections?: Array<{ status?: string }> }>("/api/etsy/connection")
+        .then((res) => {
+          if (cancelled) return;
+          setEtsyConnected(Boolean(res.connections?.some((c) => c.status === "ACTIVE")));
+        })
+        .catch(() => {
+          if (!cancelled) setEtsyConnected(false);
+        });
       return () => {
         cancelled = true;
       };
     }, [])
   );
+
+  useEffect(() => {
+    if (!etsyConnected) {
+      setEtsyShippingReady(false);
+      return;
+    }
+    let cancelled = false;
+    apiGet<{ defaultShippingProfileId?: string | null }>("/api/etsy/shipping-profiles")
+      .then((data) => {
+        if (!cancelled) setEtsyShippingReady(Boolean(data?.defaultShippingProfileId?.trim()));
+      })
+      .catch(() => {
+        if (!cancelled) setEtsyShippingReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [etsyConnected]);
+
+  useEffect(() => {
+    if (!editId || !etsyConnected) {
+      setEtsyMappedListingId(null);
+      setEtsyMappedLive(false);
+      return;
+    }
+    let cancelled = false;
+    apiGet<{
+      listing?: { etsyListingId?: string | null; remoteListingState?: string | null } | null;
+    }>(`/api/etsy/listings/create-status?storeItemId=${encodeURIComponent(editId)}`)
+      .then((data) => {
+        if (cancelled) return;
+        const mappedId = data.listing?.etsyListingId?.trim() || null;
+        const live = String(data.listing?.remoteListingState ?? "").toLowerCase() === "active";
+        setEtsyMappedListingId(mappedId);
+        setEtsyMappedLive(Boolean(mappedId && live));
+        if (mappedId && live) setListOnEtsy(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEtsyMappedListingId(null);
+          setEtsyMappedLive(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editId, etsyConnected]);
 
   useEffect(() => {
     if (!shopifyConnected) return;
@@ -360,8 +453,19 @@ export default function ListItemScreen() {
     !!category.trim() ||
     !!priceCents;
 
-  const saveDraftAndExit = useCallback(async () => {
-    isExitingRef.current = true;
+  const finishLeave = useCallback((go: () => void) => {
+    pendingLeaveRef.current = go;
+    setAllowLeave(true);
+  }, []);
+
+  useEffect(() => {
+    if (!allowLeave || !pendingLeaveRef.current) return;
+    const go = pendingLeaveRef.current;
+    pendingLeaveRef.current = null;
+    go();
+  }, [allowLeave]);
+
+  const saveDraftAndExit = useCallback(async (exitAction?: Parameters<typeof navigation.dispatch>[0]) => {
     await saveDraft({
       title,
       sku,
@@ -396,7 +500,10 @@ export default function ListItemScreen() {
       inventoryTracking,
     });
     if (draftId) await deleteDraft(draftId);
-    router.back();
+    finishLeave(() => {
+      if (exitAction) navigation.dispatch(exitAction);
+      else router.back();
+    });
   }, [
     title, sku, description, photos, category, secondaryCategory, subcategory,
     priceCents, quantity, condition, shippingDisabled, shippingCostDollars,
@@ -404,7 +511,7 @@ export default function ListItemScreen() {
     localDeliveryAvailable, localDeliveryFeeDollars, localDeliveryTerms,
     useSellerProfileLocalDelivery, inStorePickupAvailable, pickupTerms,
     useSellerProfilePickup, businessId, inventoryMode, variantAxes, variantSkus,
-    inventoryTracking, quantitiesVary, pricesVary, draftId, router,
+    inventoryTracking, quantitiesVary, pricesVary, draftId, router, navigation, finishLeave,
   ]);
 
   useEffect(() => {
@@ -633,7 +740,7 @@ export default function ListItemScreen() {
       .catch(() => {});
   }, [editId]);
 
-  const shouldPreventRemove = hasContent && !submitting && !isExitingRef.current;
+  const shouldPreventRemove = hasContent && !submitting && !allowLeave;
   usePreventRemove(shouldPreventRemove, ({ data }) => {
     Alert.alert(
       "Are you sure you want to exit item listing?",
@@ -643,12 +750,9 @@ export default function ListItemScreen() {
         {
           text: "Yes",
           style: "destructive",
-          onPress: () => {
-            isExitingRef.current = true;
-            navigation.dispatch(data.action);
-          },
+          onPress: () => finishLeave(() => navigation.dispatch(data.action)),
         },
-        { text: "Save draft", onPress: () => saveDraftAndExit() },
+        { text: "Save Draft", onPress: () => void saveDraftAndExit(data.action) },
       ]
     );
   });
@@ -680,7 +784,7 @@ export default function ListItemScreen() {
         if (pol.offerShipping !== undefined) setOfferShipping(pol.offerShipping);
         if (pol.offerLocalDelivery !== undefined) setOfferLocalDelivery(pol.offerLocalDelivery);
         if (pol.offerLocalPickup !== undefined) setOfferLocalPickup(pol.offerLocalPickup);
-        if (pol.offerShipping === false) setShippingDisabled(true);
+        if (pol.offerShipping === false) setShippingDisabled(false);
         if (pol.offerLocalDelivery === false) setLocalDeliveryAvailable(false);
         if (pol.offerLocalPickup === false) setInStorePickupAvailable(false);
       })
@@ -693,10 +797,12 @@ export default function ListItemScreen() {
         const offerFree = Boolean(data.offerFreeShippingOnInw);
         setOfferFreeShippingOnInw(offerFree);
         if (!editId && !draftId) {
-          if (offerFree) setShippingFree(true);
-          if (options.length === 1 && options[0]) {
+          if (offerFree) {
+            setShippingFree(true);
+            setShippingCostDollars("0.00");
+          } else if (options.length === 1 && options[0]) {
             setShippingOptionId(options[0].id);
-            if (!offerFree && options[0].shippingCostCents != null) {
+            if (options[0].shippingCostCents != null) {
               setShippingCostDollars((options[0].shippingCostCents / 100).toFixed(2));
               setShippingFree(options[0].shippingCostCents === 0);
             }
@@ -769,7 +875,7 @@ export default function ListItemScreen() {
 
   const effectiveShippingPolicy = useSellerProfileShipping ? sellerProfileShippingPolicy : shippingPolicy;
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (asDraft = false) => {
     const enabledSkus = variantSkus.filter((s) => s.enabled);
     const sharedPool =
       hasVariantsWithOptions && !quantitiesVary && enabledSkus.length > 1;
@@ -779,26 +885,30 @@ export default function ListItemScreen() {
             .map((s) => s.priceCents)
             .filter((cents): cents is number => typeof cents === "number" && cents > 0)
         : [];
-    const price =
+    const parsedPrice =
       pricesVary && hasVariantsWithOptions
         ? variantPrices.length
           ? Math.min(...variantPrices)
           : 0
         : Math.round(parseFloat(priceCents) * 100);
+    const price = asDraft && (!parsedPrice || parsedPrice < 1) ? 0 : parsedPrice;
     const qty = parseInt(quantity, 10);
     const shipCost = shippingFree || !shippingCostDollars.trim() ? 0 : Math.round(parseFloat(shippingCostDollars) * 100);
     const localFee = localDeliveryFeeDollars.trim() ? Math.round(parseFloat(localDeliveryFeeDollars) * 100) : null;
 
-    if (!title.trim()) { setError("Title is required"); return; }
-    if (pricesVary && hasVariantsWithOptions && variantPrices.length < 1) {
+    if (!title.trim()) {
+      setError(asDraft ? "Add a title to save this draft." : "Title is required");
+      return;
+    }
+    if (!asDraft && pricesVary && hasVariantsWithOptions && variantPrices.length < 1) {
       setError("Set a price on at least one enabled combination (Prices vary is on).");
       return;
     }
-    if (!price || price < 1) { setError("Price must be at least $0.01"); return; }
-    if (!hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
+    if (!asDraft && (!price || price < 1)) { setError("Price must be at least $0.01"); return; }
+    if (!asDraft && !hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
       setError("Quantity must be at least 1"); return;
     }
-    if (hasVariantsWithOptions) {
+    if (!asDraft && hasVariantsWithOptions) {
       if (variantAxes.some((a) => !a.name.trim() || a.values.length === 0)) {
         setError("Each option type needs a name and at least one value."); return;
       }
@@ -814,11 +924,36 @@ export default function ListItemScreen() {
         }
       }
     }
-    if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
-      setError("You must offer at least one form of delivery."); return;
+    if (!asDraft && !shippingFree && !shippingOptionId) {
+      setError("Choose a shipping option, or turn on Offer free shipping.");
+      return;
     }
-    if (!editId && !shippingDisabled && !shippingOptionId) {
-      setError("Choose a shipping option."); return;
+    if (!asDraft && listOnEtsy && !etsyMappedLive) {
+      if (!etsyShippingReady) {
+        setError("Etsy: set a default shipping profile in Connection Settings before listing.");
+        return;
+      }
+      if (photos.length < 1) {
+        setError("Etsy: add at least one photo before listing on Etsy.");
+        return;
+      }
+      if (!etsyWhoMade) {
+        setError("Etsy: choose who made it.");
+        return;
+      }
+      if (etsyIsSupply !== true && etsyIsSupply !== false) {
+        setError("Etsy: choose whether this is a finished product or a supply.");
+        return;
+      }
+      if (inventoryTracking !== "made_to_order" && !etsyWhenMade) {
+        setError("Etsy: choose when it was made.");
+        return;
+      }
+    }
+    if (!asDraft && listOnShopifyAfterSave && sharedPool) {
+      setListOnShopifyAfterSave(false);
+      setError("Shared quantity pools are not compatible with Shopify.");
+      return;
     }
 
     const variantPayload = buildVariantsPayload(inventoryMode, variantAxes, variantSkus, {
@@ -853,13 +988,14 @@ export default function ListItemScreen() {
       inventoryTracking,
       variants: variantPayload,
       condition,
-      shippingDisabled,
+      status: asDraft ? "draft" : "active",
+      shippingDisabled: false,
       localDeliveryAvailable,
       inStorePickupAvailable,
       businessId: businessId || null,
-      shippingCostCents: !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
-      shippingOptionId: shippingOptionId || null,
-      shippingPolicy: shippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
+      shippingCostCents: shippingFree ? 0 : shipCost > 0 ? shipCost : null,
+      shippingOptionId: shippingFree ? null : shippingOptionId || null,
+      shippingPolicy: useSellerProfileShipping ? null : shippingPolicy.trim() || null,
       localDeliveryTerms: localDeliveryAvailable && !useSellerProfileLocalDelivery ? localDeliveryTerms.trim() || null : null,
       pickupTerms: inStorePickupAvailable && !useSellerProfilePickup ? pickupTerms.trim() || null : null,
       localDeliveryFeeCents: localFee,
@@ -867,26 +1003,44 @@ export default function ListItemScreen() {
       buyerFields: buyerFieldsToPayload(buyerFields),
     };
 
-    setSubmitting(true);
+    if (asDraft) setSavingDraft(true);
+    else setSubmitting(true);
     submittedRef.current = true;
     try {
-      isExitingRef.current = true;
+      let savedId = editId ?? null;
       if (editId) {
         await apiPatch(`/api/store-items/${editId}`, basePayload);
-        setEditSuccess(true);
-        setShowListingSuccessModal(true);
       } else {
         const res = await apiPost<{ id?: string }>("/api/store-items", basePayload);
-        setCreatedItemId(res.id ?? null);
+        savedId = res.id ?? null;
+        setCreatedItemId(savedId);
         setFeedShareDone(false);
-        setShowListingSuccessModal(true);
       }
+      if (asDraft) {
+        finishLeave(() => router.replace("/seller-hub/store/items" as never));
+        return;
+      }
+      if (savedId && listOnEtsy && !etsyMappedLive) {
+        await apiPatch(`/api/store-items/${savedId}/etsy-attributes`, {
+          etsyWhoMade: etsyWhoMade || null,
+          etsyWhenMade: inventoryTracking === "made_to_order" ? "made_to_order" : etsyWhenMade || null,
+          etsyIsSupply,
+        });
+        await apiPost("/api/etsy/listings/create", { storeItemId: savedId });
+      }
+      if (savedId && listOnShopifyAfterSave && !shopifyMappedProductId) {
+        await apiPost("/api/shopify/listings/create", { storeItemId: savedId });
+      }
+      setEditSuccess(Boolean(editId));
+      setAllowLeave(true);
+      setShowListingSuccessModal(true);
     } catch (e) {
-      setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
+      setError((e as { error?: string })?.error ?? (asDraft ? "Failed to save draft" : editId ? "Failed to update listing" : "Failed to create listing"));
       submittedRef.current = false;
-      isExitingRef.current = false;
+      setAllowLeave(false);
     } finally {
       setSubmitting(false);
+      setSavingDraft(false);
     }
   };
 
@@ -1012,6 +1166,8 @@ export default function ListItemScreen() {
             <TemplateSelector onSelectTemplate={handleSelectTemplate} disabled={submitting || editLoading} />
           )}
 
+          <View style={styles.formBox}>
+            <Text style={styles.sectionTitle}>Listing details</Text>
           <View style={styles.typeRow}>
             <Text style={styles.label}>Condition</Text>
             <View style={styles.typeBtns}>
@@ -1128,8 +1284,10 @@ export default function ListItemScreen() {
               />
             </>
           )}
+          </View>
 
           <View style={styles.formBox}>
+            <Text style={styles.sectionTitle}>Pricing and inventory</Text>
             <ListingOptionsEditor
               mode={inventoryMode}
               onModeChange={setInventoryMode}
@@ -1160,64 +1318,151 @@ export default function ListItemScreen() {
             <ListingBuyerFieldsEditor fields={buyerFields} onChange={setBuyerFields} />
           </View>
 
-          {shopifyConnected && (
-            <View style={styles.channelSection}>
-              <Text style={styles.sectionTitle}>Channels</Text>
-              {!effectiveStoreItemId ? (
-                <Text style={styles.hint}>Save the listing first to list it on Shopify.</Text>
-              ) : shopifyConn?.locationSelectionRequired || !shopifyConn?.inventoryReady ? (
-                <>
-                  <Text style={styles.hint}>
-                    Select a primary Shopify location before listing.
-                  </Text>
-                  <Pressable
-                    style={({ pressed }) => [styles.channelSecondaryBtn, pressed && { opacity: 0.8 }]}
-                    onPress={() => router.push("/seller-hub/shopify" as never)}
-                  >
-                    <Text style={styles.channelSecondaryBtnText}>Open Shopify settings</Text>
-                  </Pressable>
-                </>
-              ) : shopifyMappedProductId ? (
-                <>
-                  <Text style={styles.hint}>This listing is linked to Shopify.</Text>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.channelPrimaryBtn,
-                      pressed && { opacity: 0.8 },
-                      shopifyBusy && styles.submitDisabled,
-                    ]}
-                    onPress={() => void handleViewOnShopify()}
-                    disabled={shopifyBusy}
-                  >
-                    {shopifyBusy ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={styles.channelPrimaryBtnText}>View on Shopify</Text>
-                    )}
-                  </Pressable>
-                </>
-              ) : (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.channelPrimaryBtn,
-                    pressed && { opacity: 0.8 },
-                    shopifyBusy && styles.submitDisabled,
-                  ]}
-                  onPress={() => void handleListOnShopify()}
-                  disabled={shopifyBusy}
-                >
-                  {shopifyBusy ? (
-                    <ActivityIndicator color="#fff" size="small" />
+          {(etsyConnected || shopifyConnected) && (
+            <View style={styles.formBox}>
+              <Text style={styles.sectionTitle}>3rd Party Syncing</Text>
+              <Text style={styles.hint}>
+                Optional. Check a shop to publish this listing there when you list it on INW.
+              </Text>
+              {etsyConnected ? (
+                <View style={styles.channelBlock}>
+                  <Text style={styles.channelName}>Etsy</Text>
+                  {etsyMappedLive ? (
+                    <Text style={styles.hint}>
+                      Linked to Etsy listing #{etsyMappedListingId}. Updates sync from this listing.
+                    </Text>
                   ) : (
-                    <Text style={styles.channelPrimaryBtnText}>List on Shopify</Text>
+                    <>
+                      {etsyMappedListingId ? (
+                        <Text style={styles.hint}>
+                          Linked to Etsy, but it is not live yet. Check List on Etsy to finish publishing.
+                        </Text>
+                      ) : null}
+                      <Pressable style={styles.checkRow} onPress={() => setListOnEtsy((on) => !on)}>
+                        <View style={[styles.checkBox, listOnEtsy && styles.checkBoxOn]}>
+                          {listOnEtsy ? <Text style={styles.checkMark}>✓</Text> : null}
+                        </View>
+                        <Text style={styles.checkLabel}>List on Etsy</Text>
+                      </Pressable>
+                      {listOnEtsy ? (
+                        <View style={styles.etsyFields}>
+                          <Text style={styles.hint}>
+                            {etsyShippingReady ? "✓" : "○"} Default Etsy shipping profile
+                            {etsyShippingReady ? "" : " — set it in Etsy connection settings."}
+                          </Text>
+                          <Text style={styles.label}>Who made it?</Text>
+                          <ScrollView
+                            horizontal
+                            nestedScrollEnabled
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.choiceScroll}
+                            contentContainerStyle={styles.choiceRow}
+                          >
+                            {ETSY_WHO.map((who) => (
+                              <Pressable
+                                key={who.id}
+                                style={[styles.typeBtn, etsyWhoMade === who.id && styles.typeBtnActive]}
+                                onPress={() => setEtsyWhoMade(who.id)}
+                              >
+                                <Text style={etsyWhoMade === who.id ? styles.typeBtnTextActive : styles.typeBtnText}>
+                                  {who.label}
+                                </Text>
+                              </Pressable>
+                            ))}
+                          </ScrollView>
+                          <Text style={styles.label}>What is it?</Text>
+                          <ScrollView
+                            horizontal
+                            nestedScrollEnabled
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.choiceScroll}
+                            contentContainerStyle={styles.choiceRow}
+                          >
+                            <Pressable
+                              style={[styles.typeBtn, etsyIsSupply === false && styles.typeBtnActive]}
+                              onPress={() => setEtsyIsSupply(false)}
+                            >
+                              <Text style={etsyIsSupply === false ? styles.typeBtnTextActive : styles.typeBtnText}>
+                                Finished product
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              style={[styles.typeBtn, etsyIsSupply === true && styles.typeBtnActive]}
+                              onPress={() => setEtsyIsSupply(true)}
+                            >
+                              <Text style={etsyIsSupply === true ? styles.typeBtnTextActive : styles.typeBtnText}>
+                                Supply or tool
+                              </Text>
+                            </Pressable>
+                          </ScrollView>
+                          {inventoryTracking === "made_to_order" ? (
+                            <Text style={styles.hint}>When it was made: made to order.</Text>
+                          ) : (
+                            <SelectField
+                              label="When was it made?"
+                              value={etsyWhenMade}
+                              placeholder="When was it made?"
+                              options={ETSY_WHEN.map((when) => ({ value: when.id, label: when.label }))}
+                              onChange={setEtsyWhenMade}
+                            />
+                          )}
+                        </View>
+                      ) : null}
+                    </>
                   )}
-                </Pressable>
-              )}
-              {shopifyMessage ? <Text style={styles.channelMessage}>{shopifyMessage}</Text> : null}
+                </View>
+              ) : null}
+              {shopifyConnected ? (
+                <View style={styles.channelBlock}>
+                  <Text style={styles.channelName}>Shopify</Text>
+                  {shopifyConn?.locationSelectionRequired || !shopifyConn?.inventoryReady ? (
+                    <>
+                      <Text style={styles.hint}>Select a primary Shopify location before listing.</Text>
+                      <Pressable
+                        style={({ pressed }) => [styles.channelSecondaryBtn, pressed && { opacity: 0.8 }]}
+                        onPress={() => router.push("/seller-hub/shopify/settings" as never)}
+                      >
+                        <Text style={styles.channelSecondaryBtnText}>Open Shopify settings</Text>
+                      </Pressable>
+                    </>
+                  ) : shopifyMappedProductId ? (
+                    <>
+                      <Text style={styles.hint}>This listing is linked to Shopify.</Text>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.channelPrimaryBtn,
+                          pressed && { opacity: 0.8 },
+                          shopifyBusy && styles.submitDisabled,
+                        ]}
+                        onPress={() => void handleViewOnShopify()}
+                        disabled={shopifyBusy}
+                      >
+                        {shopifyBusy ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={styles.channelPrimaryBtnText}>View on Shopify</Text>
+                        )}
+                      </Pressable>
+                    </>
+                  ) : (
+                    <Pressable
+                      style={styles.checkRow}
+                      onPress={() => setListOnShopifyAfterSave((on) => !on)}
+                    >
+                      <View style={[styles.checkBox, listOnShopifyAfterSave && styles.checkBoxOn]}>
+                        {listOnShopifyAfterSave ? <Text style={styles.checkMark}>✓</Text> : null}
+                      </View>
+                      <Text style={styles.checkLabel}>List on Shopify</Text>
+                    </Pressable>
+                  )}
+                  {shopifyMessage ? <Text style={styles.channelMessage}>{shopifyMessage}</Text> : null}
+                </View>
+              ) : null}
             </View>
           )}
 
-          <Text style={styles.label}>Category</Text>
+          <View style={styles.formBox}>
+          <Text style={styles.sectionTitle}>Category</Text>
           {storeCategories.length > 0 && (
             <>
               <TextInput
@@ -1261,58 +1506,65 @@ export default function ListItemScreen() {
               )}
             </>
           )}
+          </View>
 
-          {policiesLoaded && offerShipping && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Shipping</Text>
-              <View style={styles.switchRow}>
-                <Text style={styles.switchLabel}>Offer Shipping</Text>
-                <Switch
-                  value={!shippingDisabled}
-                  onValueChange={(v) => setShippingDisabled(!v)}
-                  trackColor={switchTrackColor()}
-                  thumbColor={switchThumbColor(!shippingDisabled)}
-                  ios_backgroundColor={switchIosBackgroundColor}
-                />
-              </View>
-              {!shippingDisabled && (
-                <>
-                  <Text style={styles.label}>Shipping price ($)</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. 5.99"
-                    placeholderTextColor={placeholderColor}
-                    value={shippingCostDollars}
-                    onChangeText={(v) => { setShippingCostDollars(v); if (v.trim()) setShippingFree(false); }}
-                    keyboardType="decimal-pad"
-                    editable={!shippingFree}
-                    autoCorrect={true}
-                  />
-                  <SelectField
-                    label="Shipping option (package)"
-                    value={shippingOptionId}
-                    placeholder="Select a shipping option"
-                    options={shippingOptions.map((opt) => ({
-                      value: opt.id,
-                      label: `${opt.name}${opt.shippingCostCents != null ? ` · $${(opt.shippingCostCents / 100).toFixed(2)}` : ""}`,
-                    }))}
-                    onChange={(id) => {
-                      setShippingOptionId(id);
-                      const opt = shippingOptions.find((o) => o.id === id);
-                      if (opt?.shippingCostCents != null) {
-                        setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
-                        setShippingFree(opt.shippingCostCents === 0);
-                      }
-                    }}
-                  />
-                </>
-              )}
+          <View style={styles.formBox}>
+            <Text style={styles.sectionTitle}>Shipping</Text>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Offer free shipping</Text>
+              <Switch
+                value={shippingFree}
+                onValueChange={(on) => {
+                  setShippingFree(on);
+                  if (on) {
+                    setShippingCostDollars("0.00");
+                    setShippingOptionId("");
+                  }
+                }}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(shippingFree)}
+                ios_backgroundColor={switchIosBackgroundColor}
+              />
             </View>
-          )}
+            {shippingFree ? (
+              <Text style={styles.hint}>
+                This listing ships free. A shipping option is not required.
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.label}>Shipping price ($)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 5.99"
+                  placeholderTextColor={placeholderColor}
+                  value={shippingCostDollars}
+                  onChangeText={(v) => setShippingCostDollars(v)}
+                  keyboardType="decimal-pad"
+                  autoCorrect={false}
+                />
+                <SelectField
+                  label="Shipping option (package)"
+                  value={shippingOptionId}
+                  placeholder="Select a shipping option"
+                  options={shippingOptions.map((opt) => ({
+                    value: opt.id,
+                    label: `${opt.name}${opt.shippingCostCents != null ? ` · $${(opt.shippingCostCents / 100).toFixed(2)}` : ""}`,
+                  }))}
+                  onChange={(id) => {
+                    setShippingOptionId(id);
+                    const opt = shippingOptions.find((o) => o.id === id);
+                    if (opt?.shippingCostCents != null) {
+                      setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
+                    }
+                  }}
+                />
+              </>
+            )}
+          </View>
 
           {businesses.length >= 2 && (
-            <>
-              <Text style={styles.label}>Which business is this item posted under?</Text>
+            <View style={styles.formBox}>
+              <Text style={styles.sectionTitle}>Which business is this item posted under?</Text>
               <View style={styles.bizRow}>
                 <Pressable
                   style={({ pressed }) => [styles.bizBtn, !businessId && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
@@ -1330,7 +1582,7 @@ export default function ListItemScreen() {
                   </Pressable>
                 ))}
               </View>
-            </>
+            </View>
           )}
 
           {error && (
@@ -1340,14 +1592,32 @@ export default function ListItemScreen() {
           )}
 
           <Pressable
-            style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.8 }, submitting && styles.submitDisabled]}
-            onPress={handleSubmit}
-            disabled={submitting}
+            style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => router.back()}
+            disabled={submitting || savingDraft}
+          >
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.draftBtn, pressed && { opacity: 0.8 }, (submitting || savingDraft) && styles.submitDisabled]}
+            onPress={() => void handleSubmit(true)}
+            disabled={submitting || savingDraft}
+          >
+            {savingDraft ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.submitBtnText}>Save Draft</Text>
+            )}
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.8 }, (submitting || savingDraft) && styles.submitDisabled]}
+            onPress={() => void handleSubmit(false)}
+            disabled={submitting || savingDraft}
           >
             {submitting ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List an Item"}</Text>
+              <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List Item"}</Text>
             )}
           </Pressable>
         </ScrollView>
@@ -1357,9 +1627,9 @@ export default function ListItemScreen() {
 }
 
 const styles = StyleSheet.create({
-  screenWrapper: { flex: 1, backgroundColor: "#fff" },
-  keyboardAvoid: { flex: 1 },
-  container: { flex: 1, backgroundColor: "#fff" },
+  screenWrapper: { flex: 1, backgroundColor: "#f7f3ee" },
+  keyboardAvoid: { flex: 1, backgroundColor: "#f7f3ee" },
+  container: { flex: 1, backgroundColor: "#f7f3ee" },
   content: { padding: 20, paddingBottom: 40 },
   successModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
   successModalCard: { backgroundColor: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 340, borderWidth: 2, borderColor: defaultTheme.colors.primary },
@@ -1398,6 +1668,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: "#fff",
   },
+  channelBlock: { marginTop: 8, gap: 8 },
+  channelName: { fontSize: 14, fontWeight: "700", color: "#111" },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
+  checkBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: defaultTheme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  checkBoxOn: { backgroundColor: defaultTheme.colors.primary },
+  checkMark: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  checkLabel: { fontSize: 15, fontWeight: "600", color: "#111", flex: 1 },
+  etsyFields: { marginTop: 8, gap: 8, overflow: "hidden" },
+  choiceScroll: { flexGrow: 0, marginHorizontal: -2 },
+  choiceRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 8 },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: "#000", marginBottom: 12 },
   channelSection: {
     marginTop: 8,
@@ -1431,7 +1720,24 @@ const styles = StyleSheet.create({
   bizBtnActive: { backgroundColor: defaultTheme.colors.creamAlt, borderColor: defaultTheme.colors.primary },
   bizBtnText: { color: defaultTheme.colors.labelMuted },
   bizBtnTextActive: { color: defaultTheme.colors.primary, fontWeight: "600" },
-  submitBtn: { marginTop: 24, backgroundColor: defaultTheme.colors.primary, paddingVertical: 14, borderRadius: 8, alignItems: "center" },
+  cancelBtn: {
+    marginTop: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: defaultTheme.colors.primary,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  cancelBtnText: { color: defaultTheme.colors.primary, fontWeight: "700", fontSize: 16 },
+  draftBtn: {
+    marginTop: 10,
+    backgroundColor: defaultTheme.colors.earth,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  submitBtn: { marginTop: 10, backgroundColor: defaultTheme.colors.primary, paddingVertical: 14, borderRadius: 8, alignItems: "center" },
   submitDisabled: { opacity: 0.7 },
   submitBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
 });

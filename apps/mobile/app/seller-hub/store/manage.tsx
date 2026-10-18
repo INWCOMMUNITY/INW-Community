@@ -55,7 +55,7 @@ export default function ManageStoreScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Manage Store</Text>
-      <Text style={styles.subtitle}>View your listings, offers, and refund requests.</Text>
+      <Text style={styles.subtitle}>View your listings, offers, and refunds and cancellations.</Text>
 
       <Pressable
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -109,8 +109,8 @@ export default function ManageStoreScreen() {
         )}
         <Ionicons name="return-down-back" size={28} color={theme.colors.primary} />
         <View style={styles.cardText}>
-          <Text style={styles.cardTitle}>Refund Requests</Text>
-          <Text style={styles.cardDesc}>Review and process return requests</Text>
+          <Text style={styles.cardTitle}>Refunds & Cancellations</Text>
+          <Text style={styles.cardDesc}>Canceled orders, returns, and stock</Text>
         </View>
         <Ionicons name="chevron-forward" size={22} color="#999" />
       </Pressable>

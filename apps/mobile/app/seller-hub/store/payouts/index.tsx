@@ -227,15 +227,6 @@ export default function PayoutsScreen() {
               <Text style={styles.balance}>{formatPrice(availableCents)}</Text>
               <Text style={styles.cardHint}>Ready to Send to Your Bank</Text>
             </View>
-            {(data?.pendingCents ?? 0) > 0 ? (
-              <View style={styles.balanceCard}>
-                <Text style={styles.cardLabel}>Pending</Text>
-                <Text style={styles.balance}>{formatPrice(data?.pendingCents ?? 0)}</Text>
-                {data?.payoutScheduleDescription ? (
-                  <Text style={styles.cardHint}>{data.payoutScheduleDescription}</Text>
-                ) : null}
-              </View>
-            ) : null}
             <View style={styles.balanceCard}>
               <Text style={styles.cardLabel}>Total Earned</Text>
               <Text style={styles.balance}>{formatPrice(data?.totalEarnedCents ?? 0)}</Text>
@@ -245,6 +236,15 @@ export default function PayoutsScreen() {
               <Text style={styles.balance}>{formatPrice(data?.totalPaidOutCents ?? 0)}</Text>
             </View>
           </View>
+          {(data?.pendingCents ?? 0) > 0 ? (
+            <View style={styles.pendingCard}>
+              <Text style={styles.cardLabel}>Pending</Text>
+              <Text style={styles.balance}>{formatPrice(data?.pendingCents ?? 0)}</Text>
+              {data?.payoutScheduleDescription ? (
+                <Text style={styles.cardHint}>{data.payoutScheduleDescription}</Text>
+              ) : null}
+            </View>
+          ) : null}
 
           <Pressable
             style={styles.infoToggle}
@@ -439,17 +439,31 @@ const styles = StyleSheet.create({
     borderColor: "#fde68a",
   },
   setupText: { fontSize: 15, color: "#333", marginBottom: 12 },
-  cards: { gap: 12, marginBottom: 16 },
+  cards: { flexDirection: "row", alignItems: "stretch", gap: 8, marginBottom: 12 },
   balanceCard: {
+    flex: 1,
+    aspectRatio: 1,
     backgroundColor: "#f9fafb",
-    padding: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#e5e7eb",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
   },
-  cardLabel: { fontSize: 13, color: "#6b7280", marginBottom: 4 },
-  balance: { fontSize: 24, fontWeight: "700", color: "#111" },
-  cardHint: { fontSize: 12, color: "#6b7280", marginTop: 4 },
+  pendingCard: {
+    backgroundColor: "#f9fafb",
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    marginBottom: 12,
+  },
+  cardLabel: { fontSize: 11, lineHeight: 14, color: "#6b7280", marginBottom: 4, textAlign: "center" },
+  balance: { fontSize: 16, fontWeight: "700", color: "#111", textAlign: "center" },
+  cardHint: { fontSize: 10, lineHeight: 13, color: "#6b7280", marginTop: 4, textAlign: "center" },
   infoToggle: {
     flexDirection: "row",
     alignItems: "center",
@@ -468,9 +482,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   infoBullet: { fontSize: 14, color: "#4b5563", lineHeight: 20 },
-  actions: { gap: 12, marginTop: 8, marginBottom: 8 },
-  accountCol: { alignSelf: "flex-start", gap: 8 },
+  actions: { gap: 12, marginTop: 8, marginBottom: 8, alignSelf: "stretch" },
+  accountCol: { alignSelf: "stretch", width: "100%", gap: 8 },
   outlineBtn: {
+    alignSelf: "stretch",
+    width: "100%",
     borderWidth: 1,
     borderColor: "#d1d5db",
     backgroundColor: "#fff",
@@ -484,13 +500,14 @@ const styles = StyleSheet.create({
   outlineBtnTextPressed: { color: "#fff" },
   disconnectBtn: {
     alignSelf: "stretch",
+    width: "100%",
     backgroundColor: "#800020",
-    borderRadius: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     alignItems: "center",
   },
-  disconnectBtnText: { color: "#fff", fontSize: 12, fontWeight: "500" },
+  disconnectBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   btn: {
     backgroundColor: theme.colors.primary,
     paddingVertical: 12,
@@ -498,7 +515,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  sendBtn: { alignSelf: "flex-start" },
+  sendBtn: { alignSelf: "stretch", width: "100%" },
   moreBtn: { alignSelf: "center", borderRadius: 999, paddingHorizontal: 22 },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: "#fff", fontWeight: "600", fontSize: 16 },

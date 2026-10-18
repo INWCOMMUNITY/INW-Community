@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Switch,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
@@ -33,6 +34,8 @@ import {
 } from "@/lib/business-category-presets";
 import type { CategoryPreset } from "@/lib/business-category-suggest";
 import { BusinessCategoryPrimaryPicker } from "@/components/BusinessCategoryPrimaryPicker";
+import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
+import { sellerSignupCategories } from "@/lib/business-category-presets";
 
 /** Visible tan accent for gallery upload progress on light backgrounds (cream token is too low-contrast). */
 const GALLERY_UPLOAD_SPINNER = "#C4956A";
@@ -125,6 +128,7 @@ export interface BusinessFormData {
   phone: string | null;
   email: string | null;
   logoUrl: string | null;
+  coverPhotoUrl?: string | null;
   address: string | null;
   city: string | null;
   categories: string[];
@@ -143,9 +147,35 @@ interface BusinessFormProps {
   draftButtonLabel?: string;
   /** Content rendered at the top of the scroll area, before the form fields */
   headerContent?: React.ReactNode;
+  /** Content rendered after the form buttons, still inside the scroll area */
+  footerContent?: React.ReactNode;
+  /** Seller signup leads with retail categories and storefront fields. Business signup stays on the directory form. */
+  categoryCatalog?: "directory" | "seller";
+  onBack?: () => void;
 }
 
-export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, draftButtonLabel, headerContent }: BusinessFormProps) {
+function emptyAddress(): AddressValue {
+  return { street: "", city: "", state: "", zip: "" };
+}
+
+function formatStorefrontAddress(addr: AddressValue): string {
+  const street = [addr.street, addr.aptOrSuite].filter((part) => part?.trim()).join(", ");
+  const cityLine = [addr.city, [addr.state, addr.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [street, cityLine].filter(Boolean).join(", ");
+}
+
+export function BusinessForm({
+  existing,
+  onSuccess,
+  onDelete,
+  onDraftSubmit,
+  draftButtonLabel,
+  headerContent,
+  footerContent,
+  categoryCatalog = "directory",
+  onBack,
+}: BusinessFormProps) {
+  const sellerMode = categoryCatalog === "seller";
   const [name, setName] = useState(existing?.name ?? "");
   const [shortDescription, setShortDescription] = useState(
     existing?.shortDescription ?? ""
@@ -157,7 +187,12 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
   const [phone, setPhone] = useState(existing?.phone ?? "");
   const [email, setEmail] = useState(existing?.email ?? "");
   const [logoUrl, setLogoUrl] = useState(existing?.logoUrl ?? "");
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState(existing?.coverPhotoUrl ?? "");
   const [address, setAddress] = useState(existing?.address ?? "");
+  const [addressNotApplicable, setAddressNotApplicable] = useState(false);
+  const [storefrontAddress, setStorefrontAddress] = useState<AddressValue>(emptyAddress);
+  const [hoursNotApplicable, setHoursNotApplicable] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const existingCity = existing?.city ?? "";
   const isPrebuiltCity = existingCity && PREBUILT_CITIES.includes(existingCity as (typeof PREBUILT_CITIES)[number]);
   const [city, setCity] = useState(isPrebuiltCity ? existingCity : (existingCity ? "Other" : ""));
@@ -268,6 +303,48 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
       setError(uploadErrorMessage(e, "Logo upload failed. Try again.", !!onDraftSubmit, err.status));
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  const pickCover = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow access to photos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (asset.fileSize != null && asset.fileSize > MAX_UPLOAD_FILE_BYTES) {
+      setError(`Image is too large (max ${formatMaxUploadSizeLabel()}).`);
+      return;
+    }
+    setUploadingCover(true);
+    setError("");
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Sign in to upload photos.");
+        return;
+      }
+      const prepared = await prepareBusinessImage(asset.uri);
+      const formData = new FormData();
+      formData.append("file", {
+        uri: prepared.uri,
+        type: prepared.type,
+        name: "cover.jpg",
+      } as unknown as Blob);
+      const signupHeaders = onDraftSubmit ? { "x-signup-flow": "true" } : undefined;
+      const { url } = await apiUploadFile("/api/upload", formData, signupHeaders);
+      setCoverPhotoUrl(toFullUrl(url));
+    } catch (e) {
+      const err = e as { status?: number };
+      setError(uploadErrorMessage(e, "Cover upload failed. Try again.", !!onDraftSubmit, err.status));
+    } finally {
+      setUploadingCover(false);
     }
   };
 
@@ -411,19 +488,22 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         phone: phone.trim() || null,
         email: email.trim() || null,
         logoUrl: logoUrl.trim() || null,
-        address: address.trim() || null,
+        ...(sellerMode ? { coverPhotoUrl: coverPhotoUrl.trim() || null } : {}),
+        address: sellerMode && addressNotApplicable ? null : address.trim() || null,
         city: effectiveCity || null,
         categories: cats,
         subcategoriesByPrimary: normalizeSubcategoriesByPrimary(cats, map),
         photos: photos.slice(0, MAX_BUSINESS_GALLERY_PHOTOS),
-        hoursOfOperation: (() => {
-          const filtered = Object.fromEntries(
-            Object.entries(hours).filter(
-              ([, v]) => typeof v === "string" && v.trim() !== ""
-            )
-          );
-          return Object.keys(filtered).length ? filtered : null;
-        })(),
+        hoursOfOperation: sellerMode && hoursNotApplicable
+          ? null
+          : (() => {
+              const filtered = Object.fromEntries(
+                Object.entries(hours).filter(
+                  ([, v]) => typeof v === "string" && v.trim() !== ""
+                )
+              );
+              return Object.keys(filtered).length ? filtered : null;
+            })(),
       };
 
       if (onDraftSubmit) {
@@ -447,7 +527,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
   return (
     <>
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, sellerMode ? styles.sellerPage : null]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
@@ -457,6 +537,59 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
         keyboardShouldPersistTaps="handled"
       >
         {headerContent}
+        {sellerMode ? (
+          <View style={styles.sellerCard}>
+            <Text style={styles.sellerCardTitle}>Photos</Text>
+            <Text style={styles.sellerCardDesc}>Logo, cover, and shop photos. The first shop photo is the main image.</Text>
+            <Text style={styles.label}>Logo</Text>
+            <Pressable style={styles.photoBox} onPress={pickLogo} disabled={uploadingLogo}>
+              {logoUrl ? (
+                <Image source={{ uri: logoUrl }} style={styles.photoBoxImage} contentFit="cover" />
+              ) : (
+                <Text style={styles.photoBoxText}>{uploadingLogo ? "Uploading…" : "Add Logo"}</Text>
+              )}
+              {error && !logoUrl ? <Text style={styles.photoBoxError}>{error}</Text> : null}
+            </Pressable>
+            <Text style={[styles.label, { marginTop: 12 }]}>Cover Photo</Text>
+            <Pressable style={styles.photoBox} onPress={pickCover} disabled={uploadingCover}>
+              {coverPhotoUrl ? (
+                <Image source={{ uri: coverPhotoUrl }} style={styles.photoBoxImage} contentFit="cover" />
+              ) : (
+                <Text style={styles.photoBoxText}>{uploadingCover ? "Uploading…" : "Add Cover Photo"}</Text>
+              )}
+            </Pressable>
+            <Text style={[styles.label, { marginTop: 12 }]}>Business Photos</Text>
+            <Pressable style={styles.photoBox} onPress={pickPhotos} disabled={uploadingPhotos}>
+              <Text style={styles.photoBoxText}>
+                {photos.length > 0 ? "Add More Business Photos" : "Add Business Photos"}
+              </Text>
+              {uploadingPhotos && uploadPhotoProgress ? (
+                <Text style={styles.photoBoxError}>
+                  Uploading {uploadPhotoProgress.done}/{uploadPhotoProgress.total}…
+                </Text>
+              ) : null}
+            </Pressable>
+            {photos.length > 0 ? (
+              <View style={styles.photosRow}>
+                {photos.map((url, i) => (
+                  <View key={`${i}-${url}`} style={styles.photoWrap}>
+                    <Image source={{ uri: url }} style={styles.photo} contentFit="cover" />
+                    <Pressable style={styles.removePhotoBtn} onPress={() => removePhoto(i)}>
+                      <Text style={styles.removePhotoText}>×</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+        <View style={sellerMode ? styles.sellerCard : undefined}>
+        {sellerMode ? (
+          <>
+            <Text style={styles.sellerCardTitle}>Business details</Text>
+            <Text style={styles.sellerCardDesc}>The name and story shoppers see on your storefront.</Text>
+          </>
+        ) : null}
         <View style={styles.field}>
           <Text style={styles.label}>Company name *</Text>
           <TextInput
@@ -535,6 +668,8 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             autoCapitalize="none"
           />
         </View>
+        </View>
+        {sellerMode ? null : (
         <View style={styles.field}>
           <Text style={styles.label}>Logo *</Text>
           {logoUrl ? (
@@ -571,6 +706,47 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             </View>
           </Pressable>
         </View>
+        )}
+        <View style={sellerMode ? styles.sellerCard : undefined}>
+        {sellerMode ? (
+          <>
+            <Text style={styles.sellerCardTitle}>Location</Text>
+            <Text style={styles.sellerCardDesc}>City is required. A storefront address is optional.</Text>
+            <View style={styles.checkRow}>
+              <Text style={styles.label}>Storefront Address</Text>
+              <View style={styles.checkInline}>
+                <Switch
+                  value={addressNotApplicable}
+                  onValueChange={setAddressNotApplicable}
+                  trackColor={{ false: "#e5e7eb", true: theme.colors.primary }}
+                  thumbColor="#fff"
+                />
+                <Text style={styles.checkLabel}>Not applicable</Text>
+              </View>
+            </View>
+            <Text style={styles.hint}>Don't put a personal address here. Add this only if you have a storefront.</Text>
+            {addressNotApplicable ? null : (
+              <AddressSearchInput
+                value={storefrontAddress}
+                placeholder="Search for your storefront address"
+                onChange={(addr) => {
+                  setStorefrontAddress(addr);
+                  setAddress(formatStorefrontAddress(addr));
+                  if (addr.city.trim()) {
+                    const normalized = normalizeResidentCity(addr.city);
+                    if (PREBUILT_CITIES.includes(normalized as (typeof PREBUILT_CITIES)[number])) {
+                      setCity(normalized);
+                      setCustomCity("");
+                    } else {
+                      setCity("Other");
+                      setCustomCity(normalized);
+                    }
+                  }
+                }}
+              />
+            )}
+          </>
+        ) : (
         <View style={styles.field}>
           <Text style={styles.label}>Address (optional)</Text>
           <TextInput
@@ -581,6 +757,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             placeholderTextColor={theme.colors.placeholder}
           />
         </View>
+        )}
         <View style={styles.field}>
           <Text style={styles.label}>City *</Text>
           <ScrollView
@@ -620,8 +797,18 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             />
           )}
         </View>
+        </View>
+        <View style={sellerMode ? styles.sellerCard : undefined}>
+        {sellerMode ? (
+          <>
+            <Text style={styles.sellerCardTitle}>Categories</Text>
+            <Text style={styles.sellerCardDesc}>Pick up to two. Use the list or add your own.</Text>
+          </>
+        ) : null}
         <View style={styles.field}>
-          <Text style={styles.label}>Business categories (up to 2) *</Text>
+          <Text style={styles.label}>
+            {sellerMode ? "Business categories (up to two) *" : "Business categories (up to 2) *"}
+          </Text>
           <Text style={styles.hint}>
             Primary categories (from our list or custom). Tap multiple subs per primary or add your own.
           </Text>
@@ -653,7 +840,13 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
                   }}
                   shortDescription={shortDescription}
                   fullDescription={fullDescription}
-                  presets={categoryPresets.length > 0 ? categoryPresets : BUSINESS_CATEGORIES}
+                  presets={
+                    sellerMode
+                      ? sellerSignupCategories()
+                      : categoryPresets.length > 0
+                        ? categoryPresets
+                        : BUSINESS_CATEGORIES
+                  }
                   required={i === 0}
                 />
                 {primaryTrim ? (
@@ -694,6 +887,24 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             );
           })}
         </View>
+        </View>
+        <View style={sellerMode ? styles.sellerCard : undefined}>
+        {sellerMode ? (
+          <>
+            <Text style={styles.sellerCardTitle}>Hours</Text>
+            <Text style={styles.sellerCardDesc}>Add your open hours, or mark them not applicable.</Text>
+            <View style={styles.checkInline}>
+              <Switch
+                value={hoursNotApplicable}
+                onValueChange={setHoursNotApplicable}
+                trackColor={{ false: "#e5e7eb", true: theme.colors.primary }}
+                thumbColor="#fff"
+              />
+              <Text style={styles.checkLabel}>Not applicable</Text>
+            </View>
+          </>
+        ) : null}
+        {sellerMode && hoursNotApplicable ? null : (
         <View style={styles.field}>
           <Text style={styles.label}>Hours of operation</Text>
           <Text style={styles.hint}>
@@ -714,6 +925,9 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             </View>
           ))}
         </View>
+        )}
+        </View>
+        {sellerMode ? null : (
         <View style={styles.field}>
           <Text style={styles.label}>Photos for Gallery (Recommended)</Text>
           <Text style={styles.hint}>
@@ -769,14 +983,23 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             </View>
           )}
         </View>
+        )}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        <View style={onBack ? styles.buttonRow : undefined}>
+        {onBack ? (
+          <Pressable style={styles.backBtn} onPress={onBack} disabled={submitting}>
+            <Text style={styles.backBtnText}>Back</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={[
             styles.submitBtn,
-            (submitting || uploadingLogo || (!onDraftSubmit && uploadingPhotos)) && styles.submitBtnDisabled,
+            sellerMode ? styles.sellerSubmitBtn : null,
+            onBack ? styles.submitBtnFlex : null,
+            (submitting || uploadingLogo || uploadingCover || (!onDraftSubmit && uploadingPhotos)) && styles.submitBtnDisabled,
           ]}
           onPress={handleSubmit}
-          disabled={submitting || uploadingLogo || (!onDraftSubmit && uploadingPhotos)}
+          disabled={submitting || uploadingLogo || uploadingCover || (!onDraftSubmit && uploadingPhotos)}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
@@ -791,6 +1014,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             </Text>
           )}
         </Pressable>
+        </View>
         {existing && onDelete ? (
           <Pressable
             style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.8 }]}
@@ -800,6 +1024,7 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
             <Text style={styles.deleteBtnText}>Delete business</Text>
           </Pressable>
         ) : null}
+        {footerContent}
       </ScrollView>
     </KeyboardAvoidingView>
     </>
@@ -808,6 +1033,56 @@ export function BusinessForm({ existing, onSuccess, onDelete, onDraftSubmit, dra
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  sellerPage: { backgroundColor: "transparent" },
+  sellerCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    padding: 16,
+    marginBottom: 16,
+  },
+  sellerCardTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 4,
+  },
+  sellerCardDesc: {
+    fontSize: 13,
+    color: "#6b7280",
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  photoBox: {
+    minHeight: 112,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: theme.colors.primary,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    overflow: "hidden",
+  },
+  photoBoxImage: { width: "100%", height: 140 },
+  photoBoxText: { fontSize: 15, fontWeight: "600", color: theme.colors.earth },
+  photoBoxError: { marginTop: 6, color: "#c00", fontSize: 12, textAlign: "center", paddingHorizontal: 8 },
+  checkRow: { marginBottom: 8 },
+  checkInline: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  checkLabel: { fontSize: 14, color: theme.colors.text },
+  buttonRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  backBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: theme.colors.earth,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  backBtnText: { color: theme.colors.earth, fontSize: 16, fontWeight: "700" },
+  submitBtnFlex: { flex: 1, marginTop: 0 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   field: { marginBottom: 16 },
@@ -927,6 +1202,7 @@ const styles = StyleSheet.create({
   pickerOptionSelected: { backgroundColor: theme.colors.primary },
   pickerOptionText: { fontSize: 13, color: theme.colors.heading },
   pickerOptionTextSelected: { color: theme.colors.buttonText },
+  sellerSubmitBtn: { backgroundColor: theme.colors.earth },
   submitBtn: {
     backgroundColor: theme.colors.primary,
     paddingVertical: 16,

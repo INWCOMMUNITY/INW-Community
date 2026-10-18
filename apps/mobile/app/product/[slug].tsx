@@ -506,18 +506,19 @@ export default function ProductScreen() {
         const labeledFiles = labeled
           ? field.options.slice(0, 10).flatMap((option, index) => {
               const file = draft?.files?.[index];
-              return file?.url ? [{ url: file.url, label: option.label }] : [];
+              return file?.url ? [{ url: file.url, label: option.label, slot: index }] : [];
             })
           : [];
         return {
           fieldId: field.id,
+          title: field.title,
           text: draft?.text ?? "",
           optionLabel: draft?.optionLabel ?? "",
           files: labeled
-            ? labeledFiles.length === Math.min(10, field.options.length)
-              ? labeledFiles
-              : []
-            : (draft?.files ?? []).filter((file) => file?.url),
+            ? labeledFiles
+            : (draft?.files ?? [])
+                .filter((file) => file?.url)
+                .map((file, index) => ({ url: file.url, label: file.label, slot: index })),
         };
       }),
     };
@@ -970,7 +971,10 @@ export default function ProductScreen() {
                             }}
                           >
                             <Text style={{ fontSize: 18, color: "#444" }}>{saved?.url ? "✓" : "+"}</Text>
-                            <Text style={{ flex: 1 }}>{slot.label}</Text>
+                            <Text style={{ flex: 1 }}>
+                              {slot.label}
+                              {"required" in slot && slot.required === false ? " (optional)" : ""}
+                            </Text>
                           </Pressable>
                         );
                       })

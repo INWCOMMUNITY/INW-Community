@@ -14,7 +14,7 @@ export type ListingBuyerFieldPublic = {
   maxCharacters: number | null;
   maxFiles: number | null;
   labelEachFile: boolean;
-  options: Array<{ id: string; label: string }>;
+  options: Array<{ id: string; label: string; required: boolean }>;
 };
 
 export type ListingBuyerFieldRow = {
@@ -27,7 +27,13 @@ export type ListingBuyerFieldRow = {
   maxFiles: number | null;
   labelEachFile: boolean;
   etsyQuestionId?: string | null;
-  options: Array<{ id: string; label: string; etsyOptionId?: string | null; position?: number }>;
+  options: Array<{
+    id: string;
+    label: string;
+    required?: boolean;
+    etsyOptionId?: string | null;
+    position?: number;
+  }>;
 };
 
 function sortFields<T extends { position?: number }>(rows: T[]): T[] {
@@ -48,6 +54,10 @@ export function publicBuyerFieldsFromRows(
     labelEachFile: row.labelEachFile,
     options: [...row.options]
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-      .map((option) => ({ id: option.id, label: option.label })),
+      .map((option) => ({
+        id: option.id,
+        label: option.label,
+        required: option.required !== false,
+      })),
   }));
 }

@@ -472,7 +472,7 @@ export async function updateShippingOptionPrefs(
   if (patch.combinedShippingMaxCents !== undefined) {
     data.combinedShippingMaxCents = patch.combinedShippingMaxCents;
   }
-  if (patch.freeShippingMinimumCents !== undefined) {
+  if (patch.freeShippingMinimumCents !== undefined && patch.offerFreeShippingOnInw !== true) {
     data.freeShippingMinimumCents = patch.freeShippingMinimumCents;
   }
   if (Object.keys(data).length > 0) {

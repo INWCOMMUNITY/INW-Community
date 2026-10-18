@@ -6,9 +6,12 @@ import Script from "next/script";
 import { useRouter } from "next/navigation";
 import { ShippoElementsSurface, ShippoPrintLabelActions } from "@/components/ShippoElementsModal";
 import {
+  parseCombinedOrderGroups,
+  purchaseGroupsForSelection,
   useShippoBulkLabelFlow,
   SHIPPO_BULK_EMBEDDABLE_URL,
   isOrderEligibleForBulkShip,
+  type BulkShipGroup,
   type StoreOrderForBulkLabel,
 } from "@/hooks/use-shippo-bulk-label-flow";
 
@@ -23,7 +26,9 @@ export default function ShippoBulkDirectPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const autoStartedRef = useRef(false);
-  const runBulkFlowRef = useRef<(ids: string[]) => void>(() => {});
+  const runBulkFlowRef = useRef<
+    (ids: string[], options?: { combine?: boolean; groups?: BulkShipGroup[] }) => void
+  >(() => {});
   const sessionCompleteRef = useRef(false);
 
   const refetchSilent = useCallback(() => {
@@ -92,14 +97,18 @@ export default function ShippoBulkDirectPage() {
     autoStartedRef.current = true;
 
     const sp = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const combine = sp.get("combine") === "1";
+    const combinedSets = parseCombinedOrderGroups(sp.get("combined"));
     const raw = sp.get("bulkOrderIds");
     const requestedSet =
       raw && raw.trim().length > 0
         ? new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))
         : null;
 
-    if (requestedSet && typeof window !== "undefined") {
+    if ((requestedSet || combine || combinedSets.length > 0) && typeof window !== "undefined") {
       sp.delete("bulkOrderIds");
+      sp.delete("combine");
+      sp.delete("combined");
       const qs = sp.toString();
       window.history.replaceState(
         {},
@@ -120,7 +129,15 @@ export default function ShippoBulkDirectPage() {
       setElementsError(null);
       return;
     }
-    void runBulkFlowRef.current(eligibleIds);
+    if ((combine || combinedSets.length > 0) && (!requestedSet || requestedSet.size === 0)) {
+      setElementsError("Choose the orders to ship, then purchase labels again.");
+      return;
+    }
+    const groups = purchaseGroupsForSelection(
+      eligibleIds,
+      combinedSets.length > 0 ? combinedSets : combine ? [eligibleIds] : []
+    );
+    void runBulkFlowRef.current(eligibleIds, { groups });
   }, [loading, fetchError, orders, setElementsError]);
 
   const showIdleHint =

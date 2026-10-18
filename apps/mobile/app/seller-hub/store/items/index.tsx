@@ -57,6 +57,7 @@ interface StoreItem {
   views30d?: number;
   soldOrderId?: string;
   soldAt?: string;
+  canceled?: boolean;
   channels?: ListingChannelId[];
 }
 
@@ -762,7 +763,12 @@ export default function MyItemsScreen() {
                     )}
                     {itemsTab === "sold" && (
                       <View style={styles.soldStamp}>
-                        <Text style={styles.soldStampText}>Sold</Text>
+                        <Text
+                          style={[styles.soldStampText, item.canceled && styles.canceledStampText]}
+                          numberOfLines={1}
+                        >
+                          {item.canceled ? "Canceled" : "Sold"}
+                        </Text>
                       </View>
                     )}
                   </View>
@@ -773,7 +779,7 @@ export default function MyItemsScreen() {
                     <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
                     {itemsTab === "sold" && item.soldAt ? (
                       <Text style={styles.cardMeta}>
-                        Sold{" "}
+                        {item.canceled ? "Canceled" : "Sold"}{" "}
                         {new Date(item.soldAt).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
@@ -1217,6 +1223,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.8,
     textTransform: "uppercase",
+  },
+  canceledStampText: {
+    fontSize: 10,
+    letterSpacing: 0.2,
+    paddingHorizontal: 4,
+    textAlign: "center",
   },
   cardBody: { flex: 1, minWidth: 0 },
   cardTitle: { fontSize: 15, fontWeight: "700", color: theme.colors.heading, lineHeight: 20 },

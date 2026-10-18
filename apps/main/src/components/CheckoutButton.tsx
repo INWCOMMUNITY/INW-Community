@@ -5,6 +5,16 @@ import { useSession } from "next-auth/react";
 
 type BillingInterval = "monthly" | "yearly";
 
+/** Seller and business plans finish signup before payment. Residents still check out here. */
+export function planOnboardingHref(planId: string, interval: BillingInterval = "monthly"): string | null {
+  if (planId !== "seller" && planId !== "sponsor") return null;
+  const params = new URLSearchParams();
+  params.set("enter", planId === "seller" ? "seller" : "business");
+  if (interval === "yearly") params.set("billing", "yearly");
+  const base = planId === "seller" ? "/signup/seller" : "/signup/business";
+  return `${base}?${params.toString()}`;
+}
+
 interface CheckoutButtonProps {
   planId: string;
   /** Billing interval (default: monthly) */
@@ -27,6 +37,11 @@ export function CheckoutButton({
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
+    const onboardingHref = planOnboardingHref(planId, interval);
+    if (onboardingHref) {
+      window.location.href = onboardingHref;
+      return;
+    }
     if (status !== "authenticated" || !session) {
       window.location.href = `/login?callbackUrl=${encodeURIComponent(
         typeof window !== "undefined"

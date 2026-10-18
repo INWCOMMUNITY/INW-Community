@@ -527,7 +527,7 @@ describe("completeReceivedStoreReturnSettlement", () => {
     const result = await settle(sale5(), ret5());
     expect(result.kind).toBe("SETTLED");
     expect(persistLocalStorefrontRefundCompletion).toHaveBeenCalledWith(
-      expect.objectContaining({ locallyComplete: true, stripeRefund: null, restockOperationId: "ret-1" })
+      expect.objectContaining({ locallyComplete: true, stripeRefund: null, restock: false })
     );
   });
 
@@ -566,8 +566,8 @@ describe("completeReceivedStoreReturnSettlement", () => {
     expect(ensureStorefrontTransferReversal).toHaveBeenCalledTimes(2);
     expect(executeStorefrontBuyerRefund).toHaveBeenCalledTimes(2);
     expect(persistLocalStorefrontRefundCompletion).toHaveBeenCalledTimes(2);
-    expect(persistLocalStorefrontRefundCompletion.mock.calls[0][0].restockOperationId).toBe("ret-1");
-    expect(persistLocalStorefrontRefundCompletion.mock.calls[1][0].restockOperationId).toBe("ret-1");
+    expect(persistLocalStorefrontRefundCompletion.mock.calls[0][0].restock).toBe(false);
+    expect(persistLocalStorefrontRefundCompletion.mock.calls[1][0].restock).toBe(false);
     expect(markStoreReturnRefundedOnce).toHaveBeenCalledTimes(1);
   });
 
@@ -591,7 +591,7 @@ describe("completeReceivedStoreReturnSettlement", () => {
     expect(result.kind).toBe("SETTLED");
     expect(prepareFoundationReturnSellerSettlement).toHaveBeenCalled();
     expect(persistLocalStorefrontRefundCompletion).toHaveBeenCalledWith(
-      expect.objectContaining({ skipSellerLedgerDebit: false, restockOperationId: "ret-1" })
+      expect.objectContaining({ skipSellerLedgerDebit: false, restock: false })
     );
     expect(markStoreReturnRefundedOnce).toHaveBeenCalled();
   });

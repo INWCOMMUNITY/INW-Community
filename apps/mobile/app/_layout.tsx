@@ -360,6 +360,7 @@ function RootLayoutNav() {
         <Stack.Screen name="messages" options={{ headerShown: false }} />
         <Stack.Screen name="my-sellers" />
         <Stack.Screen name="saved-posts" />
+        <Stack.Screen name="collections" options={{ headerShown: false }} />
         <Stack.Screen name="blocked-members" options={{ headerShown: false }} />
         <Stack.Screen name="subscribe" />
         <Stack.Screen name="manage-subscription" options={{ headerShown: false }} />

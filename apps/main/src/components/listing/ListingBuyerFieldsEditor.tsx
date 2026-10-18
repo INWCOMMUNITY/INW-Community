@@ -4,6 +4,7 @@ import { useState } from "react";
 
 const LISTING_BUYER_FIELD_MAX = 5;
 const OPTION_LABEL_MAX = 20;
+const FILE_LABEL_MAX = 45;
 const DROPDOWN_OPTIONS_MAX = 30;
 
 export type BuyerFieldDraft = {
@@ -15,6 +16,8 @@ export type BuyerFieldDraft = {
   maxFiles: string;
   labelEachFile: boolean;
   options: string[];
+  /** Aligned with `options`. Missing entries are required. Used for labeled file uploads. */
+  optionRequired?: boolean[];
   etsyQuestionId?: string | null;
   optionMeta?: Array<{ label: string; etsyOptionId?: string | null }>;
 };
@@ -36,14 +39,19 @@ function optionsWithIds(field: BuyerFieldDraft) {
   const meta = field.optionMeta ?? [];
   const used = new Set<number>();
   return field.options
-    .map((label) => label.trim())
-    .filter(Boolean)
-    .map((label) => {
-      const index = meta.findIndex((option, i) => !used.has(i) && option.label === label);
-      if (index >= 0) used.add(index);
+    .map((label, index) => ({
+      label: label.trim(),
+      required: field.optionRequired?.[index] !== false,
+      index,
+    }))
+    .filter((option) => option.label)
+    .map((option) => {
+      const metaIndex = meta.findIndex((row, i) => !used.has(i) && row.label === option.label);
+      if (metaIndex >= 0) used.add(metaIndex);
       return {
-        label,
-        etsyOptionId: index >= 0 ? meta[index]?.etsyOptionId ?? null : null,
+        label: option.label,
+        required: option.required,
+        etsyOptionId: metaIndex >= 0 ? meta[metaIndex]?.etsyOptionId ?? null : null,
       };
     });
 }
@@ -75,7 +83,7 @@ export function buyerFieldsFromExisting(
     maxFiles?: number | null;
     labelEachFile?: boolean;
     etsyQuestionId?: string | null;
-    options?: Array<{ label: string; etsyOptionId?: string | null }>;
+    options?: Array<{ label: string; required?: boolean; etsyOptionId?: string | null }>;
   }> | null | undefined
 ): BuyerFieldDraft[] {
   return (rows ?? []).map((row) => ({
@@ -87,6 +95,9 @@ export function buyerFieldsFromExisting(
     maxFiles: row.maxFiles != null ? String(row.maxFiles) : "1",
     labelEachFile: row.labelEachFile === true,
     options: (row.options ?? []).map((option) => option.label).filter(Boolean),
+    optionRequired: (row.options ?? [])
+      .filter((option) => option.label)
+      .map((option) => option.required !== false),
     optionMeta: (row.options ?? []).map((option) => ({
       label: option.label,
       etsyOptionId: option.etsyOptionId ?? null,
@@ -173,6 +184,92 @@ function OptionChipsEditor({
   );
 }
 
+function FileLabelEditor({
+  labels,
+  requiredFlags,
+  onChange,
+}: {
+  labels: string[];
+  requiredFlags: boolean[];
+  onChange: (labels: string[], requiredFlags: boolean[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function addValue() {
+    const val = draft.trim().slice(0, FILE_LABEL_MAX);
+    if (!val || labels.length >= 10) return;
+    onChange([...labels, val], [...requiredFlags, true]);
+    setDraft("");
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-600">
+        Name each file. Uncheck Required when that photo is optional, such as a second or third dog.
+      </p>
+      {labels.map((value, index) => (
+        <div key={`${value}-${index}`} className="flex flex-wrap items-center gap-2">
+          <input
+            className="min-w-[8rem] flex-1 border rounded px-2 py-1.5 text-sm"
+            maxLength={FILE_LABEL_MAX}
+            value={value}
+            aria-label={`File ${index + 1} name`}
+            onChange={(e) => {
+              const next = [...labels];
+              next[index] = e.target.value.slice(0, FILE_LABEL_MAX);
+              onChange(next, requiredFlags);
+            }}
+          />
+          <label className="flex items-center gap-1.5 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={requiredFlags[index] !== false}
+              onChange={(e) => {
+                const next = labels.map((_, i) => requiredFlags[i] !== false);
+                next[index] = e.target.checked;
+                onChange(labels, next);
+              }}
+            />
+            Required
+          </label>
+          <button
+            type="button"
+            className="text-sm text-red-600"
+            onClick={() =>
+              onChange(
+                labels.filter((_, i) => i !== index),
+                requiredFlags.filter((_, i) => i !== index)
+              )
+            }
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      {labels.length < 10 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={draft}
+            maxLength={FILE_LABEL_MAX}
+            onChange={(e) => setDraft(e.target.value.slice(0, FILE_LABEL_MAX))}
+            placeholder="Dog #1"
+            className="w-40 border rounded px-2 py-1 text-sm"
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              addValue();
+            }}
+          />
+          <button type="button" className="text-sm font-semibold text-[var(--color-primary)]" onClick={addValue}>
+            Add file name
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ListingBuyerFieldsEditor({
   fields,
   onChange,
@@ -255,20 +352,28 @@ export function ListingBuyerFieldsEditor({
               />
             </div>
           ) : null}
-          {field.kind === "DROPDOWN" || (field.kind === "FILE" && field.labelEachFile) ? (
+          {field.kind === "DROPDOWN" ? (
             <OptionChipsEditor
               labels={field.options}
-              maxCount={field.kind === "DROPDOWN" ? DROPDOWN_OPTIONS_MAX : 10}
+              maxCount={DROPDOWN_OPTIONS_MAX}
               onChange={(options) => {
                 const next = [...fields];
-                const maxFiles =
-                  field.kind === "FILE" && field.labelEachFile
-                    ? String(Math.min(10, Math.max(1, options.length || Number(field.maxFiles) || 1)))
-                    : field.maxFiles;
+                next[index] = { ...field, options };
+                onChange(next);
+              }}
+            />
+          ) : null}
+          {field.kind === "FILE" && field.labelEachFile ? (
+            <FileLabelEditor
+              labels={field.options}
+              requiredFlags={field.optionRequired ?? []}
+              onChange={(options, optionRequired) => {
+                const next = [...fields];
                 next[index] = {
                   ...field,
                   options,
-                  ...(field.kind === "FILE" ? { maxFiles } : {}),
+                  optionRequired,
+                  maxFiles: String(Math.min(10, Math.max(1, options.length || 1))),
                 };
                 onChange(next);
               }}
@@ -302,12 +407,14 @@ export function ListingBuyerFieldsEditor({
                   onChange={(e) => {
                     const labelEachFile = e.target.checked;
                     const next = [...fields];
+                    const count = Math.min(10, Math.max(1, field.options.length || Number(field.maxFiles) || 1));
                     next[index] = {
                       ...field,
                       labelEachFile,
-                      maxFiles: labelEachFile
-                        ? String(Math.min(10, Math.max(1, field.options.length || Number(field.maxFiles) || 1)))
-                        : field.maxFiles,
+                      maxFiles: labelEachFile ? String(count) : field.maxFiles,
+                      optionRequired: labelEachFile
+                        ? field.options.map((_, i) => field.optionRequired?.[i] !== false)
+                        : field.optionRequired,
                     };
                     onChange(next);
                   }}

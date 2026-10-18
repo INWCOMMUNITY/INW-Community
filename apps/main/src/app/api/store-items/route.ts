@@ -37,6 +37,7 @@ import {
 import { shopifyListedOnMyItems } from "@/lib/shopify/apps-airport";
 import { etsyListedOnMyItems } from "@/lib/etsy/apps-airport";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
+import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -166,7 +167,23 @@ async function loadMineSoldSales(userId: string) {
     prisma.orderItem.findMany({
       where: {
         storeItem: { memberId: userId },
-        order: { status: { in: ["paid", "shipped", "delivered"] } },
+        order: {
+          AND: [
+            {
+              OR: [
+                { cancelReason: null },
+                { cancelReason: { not: SOLD_BEFORE_CHECKOUT_REASON } },
+              ],
+            },
+            {
+              OR: [
+                { status: { in: ["paid", "shipped", "delivered"] } },
+                { status: { in: ["canceled", "cancelled"] } },
+                { status: "refunded", storeReturns: { none: {} } },
+              ],
+            },
+          ],
+        },
       },
       select: {
         id: true,
@@ -186,7 +203,7 @@ async function loadMineSoldSales(userId: string) {
           },
         },
         storeVariant: { select: { options: true, sku: true } },
-        order: { select: { id: true, updatedAt: true, createdAt: true } },
+        order: { select: { id: true, status: true, updatedAt: true, createdAt: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 300,
@@ -294,6 +311,7 @@ async function loadMineSoldSales(userId: string) {
     soldQty: number;
     soldChannel: "inw" | "etsy";
     canRelist: boolean;
+    canceled: boolean;
   };
 
   const rows: SoldRow[] = [];
@@ -321,6 +339,10 @@ async function loadMineSoldSales(userId: string) {
       soldQty: oi.quantity,
       soldChannel: "inw",
       canRelist: item.status === "sold_out",
+      canceled:
+        oi.order.status === "canceled" ||
+        oi.order.status === "cancelled" ||
+        oi.order.status === "refunded",
     });
   }
 
@@ -349,6 +371,7 @@ async function loadMineSoldSales(userId: string) {
       soldQty: fact.paidQuantity,
       soldChannel: "etsy",
       canRelist: item.status === "sold_out",
+      canceled: false,
     });
   }
 
@@ -372,6 +395,7 @@ async function loadMineSoldSales(userId: string) {
       soldQty: 0,
       soldChannel: "inw",
       canRelist: true,
+      canceled: false,
     });
   }
 
@@ -881,6 +905,9 @@ export async function POST(req: NextRequest) {
       } else {
         shippingCostCents = await getShippingOptionCostCents(userId, shippingOptionId);
       }
+    }
+    if (!data.shippingDisabled && member?.offerFreeShippingOnInw) {
+      shippingCostCents = 0;
     }
     const createData = {
         memberId: userId,

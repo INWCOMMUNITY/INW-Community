@@ -339,6 +339,102 @@ export function buildOrderDetailsFromOrder(
   };
 }
 
+function postalAddressKey(raw: unknown): string | null {
+  const addr = normalizeLooseAddressSnapshot(raw);
+  if (!addr) return null;
+  const norm = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  return [addr.street, addr.aptOrSuite, addr.city, addr.state, addr.zip].map(norm).join("|");
+}
+
+/** Two or more paid ship orders for one buyer, going to the same checkout address. */
+export function ordersCanCombineShipping(
+  orders: Array<{ buyer?: { email?: string | null }; shippingAddress?: unknown }>
+): boolean {
+  if (orders.length < 2) return false;
+  const emails = orders.map((order) => order.buyer?.email?.trim().toLowerCase() ?? "");
+  if (emails.some((email) => !email) || new Set(emails).size !== 1) return false;
+  const keys = orders.map((order) => postalAddressKey(order.shippingAddress));
+  if (keys.some((key) => !key) || new Set(keys).size !== 1) return false;
+  return true;
+}
+
+function postalLineItems(order: OrderForElements): OrderForElements["items"] {
+  const shipped = order.items.filter((item) => (item.fulfillmentType ?? "ship") === "ship");
+  return shipped.length > 0 ? shipped : order.items;
+}
+
+/** Groups of two or more orders that share a buyer email and checkout address. */
+export function clusterOrdersForCombinedShipping<
+  T extends { id: string; buyer?: { email?: string | null }; shippingAddress?: unknown },
+>(orders: T[]): T[][] {
+  const buckets = new Map<string, T[]>();
+  for (const order of orders) {
+    const email = order.buyer?.email?.trim().toLowerCase() ?? "";
+    const address = postalAddressKey(order.shippingAddress);
+    if (!email || !address) continue;
+    const key = `${email}|${address}`;
+    const list = buckets.get(key);
+    if (list) list.push(order);
+    else buckets.set(key, [order]);
+  }
+  return [...buckets.values()].filter((group) => group.length >= 2);
+}
+
+/**
+ * Shippo matches and can split on `order_number`. A combined box gets a new number that
+ * does not contain any INW order number. Those numbers stay on the INW orders.
+ */
+export function combinedShippoOrderNumber(): string {
+  const rand =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID().replace(/-/g, "")
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  return `CMB${rand}`.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 32);
+}
+
+/**
+ * One Shippo order and one package, assembled before label purchase.
+ * Shipping Elements builds a package per line item and resumes orders whose
+ * `order_number` it already knows, so this is a single line item under a new number.
+ */
+export function buildCombinedOrderDetails(
+  orders: OrderForElements[]
+): ShippoElementsOrderDetails | null {
+  if (!ordersCanCombineShipping(orders)) return null;
+  const items = orders.flatMap((order) => postalLineItems(order));
+  const shell = buildOrderDetailsFromOrder({
+    ...orders[0],
+    orderNumber: undefined,
+    items: items.length > 0 ? items : orders[0].items,
+  });
+  if (!shell) return null;
+  const packedItems = items.length > 0 ? items : orders[0].items;
+  const parcel = parcelFromOrderItems({ ...orders[0], items: packedItems });
+  const weightOz =
+    parcel?.weightOz ??
+    packedItems.reduce((sum, item) => sum + 16 * Math.max(1, item.quantity), 0);
+  const amountCents = packedItems.reduce(
+    (sum, item) => sum + item.priceCentsAtPurchase * Math.max(1, item.quantity),
+    0
+  );
+  const orderNumber = combinedShippoOrderNumber();
+  return {
+    address_to: shell.address_to,
+    line_items: [
+      {
+        title: "Combined shipment",
+        quantity: 1,
+        currency: "USD",
+        unit_amount: (amountCents / 100).toFixed(2),
+        unit_weight: String(weightOz),
+        weight_unit: "oz",
+        country_of_origin: "US",
+      },
+    ],
+    order_number: orderNumber,
+  };
+}
+
 /**
  * Build OrderDetails array for multiple orders (same buyer); returns null if any order has invalid address.
  */

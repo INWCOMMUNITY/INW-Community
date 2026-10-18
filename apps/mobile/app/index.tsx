@@ -3,6 +3,7 @@ import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
+import { apiGet } from "@/lib/api";
 
 export default function IndexScreen() {
   const router = useRouter();
@@ -18,16 +19,34 @@ export default function IndexScreen() {
     const intent = member.signupIntent;
     const hasSub = (member.subscriptions ?? []).length > 0;
 
-    if ((intent === "business" || intent === "seller") && !hasSub) {
-      const route =
-        intent === "business"
-          ? "/(auth)/signup-business"
-          : "/(auth)/signup-seller";
-      router.replace(route as never);
+    if (intent === "business" && !hasSub) {
+      router.replace("/(auth)/signup-business" as never);
       return;
     }
 
-    router.replace("/(tabs)/home");
+    if (intent !== "seller") {
+      router.replace("/(tabs)/home");
+      return;
+    }
+
+    let cancelled = false;
+    apiGet<{ onboardingStep?: string | null }>("/api/signup/seller/status")
+      .then((status) => {
+        if (cancelled) return;
+        const step = status.onboardingStep;
+        if (step === "business" || step === "subscribe" || step === "shipping" || step === "payouts") {
+          router.replace(`/(auth)/signup-seller?start=${step}` as never);
+          return;
+        }
+        router.replace("/(tabs)/home");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        router.replace((hasSub ? "/(tabs)/home" : "/(auth)/signup-seller") as never);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [member, loading, router]);
 
   if (loading) {

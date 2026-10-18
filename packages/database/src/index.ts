@@ -29,6 +29,20 @@ function prismaHasMemberShippingRules(client: PrismaClient): boolean {
   return "combineShipping" in fields;
 }
 
+function prismaHasOrderItemStockReturnDecision(client: PrismaClient): boolean {
+  const rdm = (
+    client as {
+      _runtimeDataModel?: { models?: Record<string, { fields?: Record<string, unknown> | unknown[] }> };
+    }
+  )._runtimeDataModel;
+  const fields = rdm?.models?.OrderItem?.fields;
+  if (!fields) return false;
+  if (Array.isArray(fields)) {
+    return fields.some((f) => f && typeof f === "object" && (f as { name?: string }).name === "stockReturnDecision");
+  }
+  return "stockReturnDecision" in fields;
+}
+
 function prismaHasShippingOptionCost(client: PrismaClient): boolean {
   const rdm = (
     client as {
@@ -69,7 +83,8 @@ const prismaClient = (() => {
     typeof (existing as { shopifySyncJob?: unknown }).shopifySyncJob !== "undefined" &&
     typeof (existing as { listingBuyerField?: unknown }).listingBuyerField !== "undefined" &&
     prismaHasShippingOptionCost(existing) &&
-    prismaHasMemberShippingRules(existing)
+    prismaHasMemberShippingRules(existing) &&
+    prismaHasOrderItemStockReturnDecision(existing)
   ) {
     return existing;
   }

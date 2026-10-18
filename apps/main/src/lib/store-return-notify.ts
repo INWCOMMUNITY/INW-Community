@@ -2,8 +2,17 @@ import { sendPushNotification } from "@/lib/send-push-notification";
 
 export function notifySellerReturnRequested(sellerId: string, orderId: string, buyerName: string): void {
   sendPushNotification(sellerId, {
-    title: "Return requested",
-    body: `${buyerName} requested a return. Review it in Return Requests.`,
+    title: "Refund request",
+    body: `${buyerName} requested a refund. Review it in Refunds & Cancellations.`,
+    data: { screen: "seller-returns", orderId },
+    category: "commerce",
+  }).catch(() => {});
+}
+
+export function notifySellerOrderCanceled(sellerId: string, orderId: string, buyerName: string): void {
+  sendPushNotification(sellerId, {
+    title: "Order canceled",
+    body: `${buyerName} canceled an order. Review it in Refunds & Cancellations.`,
     data: { screen: "seller-returns", orderId },
     category: "commerce",
   }).catch(() => {});

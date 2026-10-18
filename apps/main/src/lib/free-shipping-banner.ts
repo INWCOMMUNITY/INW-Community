@@ -18,9 +18,10 @@ export function itemHasFreeShipping(item: ShippingItem): boolean {
  */
 export function freeShippingBannerForStore(args: {
   freeShippingMinimumCents?: number | null;
+  offerFreeShippingOnInw?: boolean | null;
   items: ShippingItem[];
 }): FreeShippingBanner | null {
-  if ((args.freeShippingMinimumCents ?? 0) > 0) return "threshold";
+  if (!args.offerFreeShippingOnInw && (args.freeShippingMinimumCents ?? 0) > 0) return "threshold";
   const allFree = args.items.length > 0 && args.items.every(itemHasFreeShipping);
   if (allFree) return "storewide";
   return null;

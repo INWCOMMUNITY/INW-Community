@@ -33,6 +33,7 @@ export function SellerHubWorkQueue({
   variant: "desktop" | "mobile";
 }) {
   const [pendingShip, setPendingShip] = useState(0);
+  const [pendingReturns, setPendingReturns] = useState(0);
   const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [pendingOffers, setPendingOffers] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
@@ -44,11 +45,13 @@ export function SellerHubWorkQueue({
       .then(
         (d: {
           pendingShip?: number;
+          pendingReturns?: number;
           pendingDeliveries?: number;
           sellerOffersPending?: number;
           payoutReady?: boolean;
         }) => {
           setPendingShip(Number(d?.pendingShip) || 0);
+          setPendingReturns(Number(d?.pendingReturns) || 0);
           setPendingDeliveries(Number(d?.pendingDeliveries) || 0);
           setPendingOffers(Number(d?.sellerOffersPending) || 0);
           setPayoutReady(Boolean(d?.payoutReady));
@@ -112,6 +115,13 @@ export function SellerHubWorkQueue({
           badge: pendingShip > 0,
         },
         {
+          label: "Refunds & Cancellations",
+          href: "/seller-hub/store/returns",
+          icon: "arrow-undo-outline",
+          description: "Canceled orders, refund requests, and stock.",
+          badge: pendingReturns > 0,
+        },
+        {
           label: "Offers",
           href: "/seller-hub/offers",
           icon: "pricetag",
@@ -163,6 +173,7 @@ export function SellerHubWorkQueue({
       hasLocalDelivery,
       pendingDeliveries,
       pendingOffers,
+      pendingReturns,
       pendingShip,
       payoutReady,
       sellerSetupComplete,

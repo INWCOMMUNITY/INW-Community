@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { WIX_IMG } from "@/lib/wix-media";
 import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
+import { planOnboardingHref } from "@/components/CheckoutButton";
 
 const PLANS = [
   {
@@ -45,6 +46,11 @@ export function Plans() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   async function handleSubscribe(planId: string) {
+    const onboardingHref = planOnboardingHref(planId, "monthly");
+    if (onboardingHref) {
+      window.location.href = onboardingHref;
+      return;
+    }
     if (status !== "authenticated") {
       window.location.href = `/login?callbackUrl=${encodeURIComponent(
         typeof window !== "undefined" ? window.location.pathname : "/support-nwc"

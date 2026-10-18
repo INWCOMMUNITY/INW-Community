@@ -93,7 +93,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" as const }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
-    { href: "/seller-hub/store/returns", label: "Return Requests", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
+    { href: "/seller-hub/store/returns", label: "Refunds & Cancellations", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
   ];
 
   const storeItems: NavItem[] = [

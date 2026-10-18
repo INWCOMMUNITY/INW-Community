@@ -61,10 +61,11 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
         return;
       }
       props.onExternalCheckoutStart?.();
+      const sellerCheckout = props.planId === "seller";
       const webUrl =
         `/web?url=${encodeURIComponent(data.url)}&title=Checkout` +
-        `&successPattern=${encodeURIComponent("my-community")}` +
-        `&successRoute=${encodeURIComponent("/(tabs)/my-community")}` +
+        `&successPattern=${encodeURIComponent(sellerCheckout ? "step=shipping" : "my-community")}` +
+        `&successRoute=${encodeURIComponent(sellerCheckout ? "/signup-seller?start=shipping" : "/(tabs)/my-community")}` +
         "&refreshOnSuccess=1";
       router.push(webUrl as never);
     } catch (e) {
@@ -84,15 +85,20 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
     router,
   ]);
 
+  const seller = props.planId === "seller";
+
   return (
-    <View style={styles.fallback}>
-      <Text style={styles.fallbackText}>
-        Native payment isn&apos;t available. Complete checkout below.
-      </Text>
+    <View style={seller ? styles.sellerFallback : styles.fallback}>
+      {seller ? null : (
+        <Text style={styles.fallbackText}>
+          Native payment isn&apos;t available. Complete checkout below.
+        </Text>
+      )}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <Pressable
         style={({ pressed }) => [
           styles.fallbackBtn,
+          seller ? styles.sellerFallbackBtn : null,
           (loading || pressed) && styles.pressed,
         ]}
         onPress={handleCheckout}
@@ -101,7 +107,9 @@ function WebCheckoutFallback(props: SubscriptionCheckoutWithFallbackProps) {
         {loading ? (
           <ActivityIndicator size="small" color="#fff" />
         ) : (
-          <Text style={styles.fallbackBtnText}>Pay with card</Text>
+          <Text style={styles.fallbackBtnText}>
+            {props.planId === "seller" ? "Subscribe & Complete Onboarding" : "Pay with card"}
+          </Text>
         )}
       </Pressable>
     </View>
@@ -237,6 +245,7 @@ export function SubscriptionCheckoutWithFallback(props: SubscriptionCheckoutWith
 }
 
 const styles = StyleSheet.create({
+  sellerFallback: { width: "100%" },
   fallback: {
     marginTop: 16,
     padding: 16,
@@ -254,6 +263,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#c00",
     marginBottom: 12,
+  },
+  sellerFallbackBtn: {
+    backgroundColor: theme.colors.earth,
+    width: "100%",
+    paddingVertical: 14,
   },
   fallbackBtn: {
     backgroundColor: theme.colors.primary,

@@ -1101,6 +1101,8 @@ model ListingBuyerFieldOption {
   fieldId      String  @map("field_id")
   position     Int
   label        String
+  /// File labels can be optional. Dropdown choices ignore this and stay required as a group.
+  required     Boolean @default(true)
   etsyOptionId String? @map("etsy_option_id")
 
   field ListingBuyerField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
@@ -1747,6 +1749,8 @@ model OrderItem {
   quantity             Int
   priceCentsAtPurchase Int      @map("price_cents_at_purchase")
   variant              Json?    // selected variant if applicable
+  /// Seller choice after a buyer cancel or return. returned | withheld. Null until they choose.
+  stockReturnDecision  String?  @map("stock_return_decision")
   /// Snapshot of buyer custom-option answers at checkout. Does not affect inventory.
   buyerResponses       Json?    @map("buyer_responses")
   fulfillmentType      String?  @map("fulfillment_type") // ship | local_delivery | pickup

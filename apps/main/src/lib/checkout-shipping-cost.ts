@@ -10,13 +10,47 @@ export type SellerShippingRules = {
   combineShipping: boolean;
   combinedShippingMaxCents: number | null;
   freeShippingMinimumCents: number | null;
+  /** When every INW listing ships free, the purchases-over amount is ignored. */
+  offerFreeShippingOnInw?: boolean;
 };
 
 export type SellerShippingLine = {
   quantity: number;
   fulfillmentType?: string | null;
   shippingCostCents?: number | null;
+  /** Set when the line is a listing, so different products from one storefront count as one shipment. */
+  storeItemId?: string | null;
 };
+
+/** One shipment per storefront. A business id wins; otherwise the seller; never a single listing id when a seller is known. */
+export function storefrontGroupKey(item: {
+  businessId?: string | null;
+  memberId?: string | null;
+  storeItemId?: string | null;
+}): string {
+  const businessId = item.businessId?.trim();
+  if (businessId) return businessId;
+  const memberId = item.memberId?.trim();
+  if (memberId) return memberId;
+  return item.storeItemId?.trim() || "unknown";
+}
+
+/** True when this storefront shipment is more than a single unit of one listing. */
+export function storefrontShipmentIsCombined(lines: SellerShippingLine[]): boolean {
+  let units = 0;
+  let listings = 0;
+  const listingIds = new Set<string>();
+  for (const line of lines) {
+    if ((line.fulfillmentType ?? "ship") !== "ship") continue;
+    const qty = line.quantity > 0 ? line.quantity : 0;
+    if (qty === 0) continue;
+    units += qty;
+    listings += 1;
+    const id = line.storeItemId?.trim();
+    if (id) listingIds.add(id);
+  }
+  return units > 1 || listings > 1 || listingIds.size > 1;
+}
 
 export function sellerOrderShippingQuote(args: {
   lines: SellerShippingLine[];
@@ -34,13 +68,13 @@ export function sellerOrderShippingQuote(args: {
   }
   if (shippedUnits === 0) return { cents: 0, combinedCapApplied: false };
 
-  const minimum = args.rules?.freeShippingMinimumCents;
+  const minimum = args.rules?.offerFreeShippingOnInw ? null : args.rules?.freeShippingMinimumCents;
   if (minimum != null && minimum > 0 && args.merchandiseCents >= minimum) {
     return { cents: 0, combinedCapApplied: false };
   }
 
   const max = args.rules?.combinedShippingMaxCents;
-  if (args.rules?.combineShipping && max != null && shippedUnits > 1) {
+  if (args.rules?.combineShipping && max != null && storefrontShipmentIsCombined(args.lines)) {
     const cap = Math.max(0, max);
     const cents = Math.min(lineShipping, cap);
     return { cents, combinedCapApplied: lineShipping > cap && cents > 0 };
@@ -63,6 +97,7 @@ export function shippingCentsForSellerLines(
 ): number {
   return sellerOrderShippingCents({
     lines: sellerItems.map((line) => ({
+      storeItemId: line.storeItemId,
       quantity: line.quantity,
       fulfillmentType: line.fulfillmentType,
       shippingCostCents: itemMap.get(line.storeItemId)?.shippingCostCents,

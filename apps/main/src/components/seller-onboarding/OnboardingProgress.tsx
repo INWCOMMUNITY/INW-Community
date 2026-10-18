@@ -8,13 +8,13 @@ const STEPS = [
   "Listings",
 ] as const;
 
-export function OnboardingProgress({ stepIndex }: { stepIndex: number }) {
+export function OnboardingProgress({ stepIndex, className = "mb-8" }: { stepIndex: number; className?: string }) {
   const current = Math.min(Math.max(stepIndex, 1), STEPS.length);
   const label = STEPS[current - 1];
   const percent = Math.round((current / STEPS.length) * 100);
 
   return (
-    <div className="mb-8" aria-label="Onboarding progress">
+    <div className={className} aria-label="Onboarding progress">
       <p className="mb-2 text-sm font-medium" style={{ color: "var(--color-heading)" }}>
         Step {current} of {STEPS.length}
         {label ? (

@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "October 15, 2026";
+export const TERMS_LAST_UPDATED = "October 16, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -158,10 +158,11 @@ NWC may request proof of product authenticity, sourcing, or ownership if concern
 ● Sellers must communicate shipping timelines clearly.
 ● Repeated failure to ship as promised may result in removal.
 ● Shipping costs and policies are determined by the seller; sellers may offer free shipping or charge shipping fees as disclosed on the listing.
+● Shipping labels are bought by the seller on Shippo and are paid by the seller with a personal credit card or bank account on that Shippo account. The shipping price included on a listing is added to the seller's payout.
 Sellers are solely responsible for ensuring compliance with USPS, UPS, FedEx, and other applicable shipping regulations for their products.
 
 7.3 Fees & External Store Links
-● NWC does not take a commission on product sales as a percentage for its own discretionary profit. A transaction or card processing fee may be deducted from marketplace orders to support site operations. Where NWC facilitates sales tax as described in Section 7.9, checkout may include sales tax collected from the buyer and, for applicable sales, a Sales Tax Reserve withholding from the seller's share, as disclosed in seller materials and payout statements. Sellers may also incur shipping-related fees. These are disclosed during checkout and seller onboarding.
+● NWC does not take a commission on product sales as a percentage for its own discretionary profit. When a seller sells an item on the storefront, the seller pays about 4.4% + 30¢ per transaction. That amount covers credit card processing, tax processing, and the Sales Tax Reserve described in Section 7.9, and it averages about 7% less than most third-party retailers. Where NWC facilitates sales tax as described in Section 7.9, checkout may include sales tax collected from the buyer and, for applicable sales, a Sales Tax Reserve withholding from the seller's share, as disclosed in seller materials and payout statements. Sellers may also incur shipping-label charges as described in Section 7.2. These fees are disclosed during checkout and seller onboarding.
 ● Sellers may link to their own storefronts freely.
 
 7.4 Disputes
@@ -187,7 +188,7 @@ Storefront orders are paid by card only. NWC does not offer cash checkout or cas
 Each seller sets return and refund terms in Seller Hub Policies: whether they accept returns, how many days after delivery or pickup a return may be requested, whether return shipping is deducted from the refund, and any written refund policy. Buyers must read those terms before buying and must follow them after buying. Buying a storefront item is at the buyer’s risk as to condition, fit, description accuracy, and the seller’s performance, except where an NWC website or app error clearly caused the problem (see 7.4).
 
 7.6.2 What the platform enforces
-NWC hides and rejects a return/refund request after shipment or delivery when that seller does not accept returns, or when the seller’s day window has ended. The window starts when the order is delivered, picked up, or marked received; if that never happens, it starts from the ship or handoff date. Pre-shipment cancel (while the order is still paid and unshipped) still initiates a refund to the original card even if the seller does not accept returns.
+NWC hides and rejects a return/refund request after shipment or delivery when that seller does not accept returns, or when the seller’s day window has ended. The window starts when the order is delivered, picked up, or marked received; if that never happens, it starts from the ship or handoff date. Pre-shipment cancel (while the order is still paid and unshipped) still initiates a refund to the original card even if the seller does not accept returns. A buyer cancel or return does not put that quantity back on the listing until the seller chooses Return on Refunds & Cancellations. Don't Return leaves the count off the listing so the same variant cannot be sold again while the item is still with the buyer.
 
 7.6.3 How a return works when it is allowed
 The buyer requests a return in My Orders. If the seller charges return shipping, NWC tells the buyer before they submit; the Shippo return-label price may be deducted from the refund once the seller buys the label. After the seller approves a mailed return, NWC prompts them to buy a prepaid return label on their Shippo account (buyer checkout address as the sender, seller ship-from as the destination). The seller may instead decline or issue a courtesy refund without requiring the item back. When a return is required, the buyer’s refund is issued after the seller confirms they received the item. For card refunds canceled before shipment, NWC initiates a refund right away. The order shows Refund Initiated, then Refund Complete after Stripe processes it. Most card refunds take 5–10 business days to appear on the buyer’s statement. Before you cancel an unshipped order or submit a refund/return request, NWC shows a notice that Stripe’s non-refundable processing fees will be deducted from your refund (see 7.6.4).

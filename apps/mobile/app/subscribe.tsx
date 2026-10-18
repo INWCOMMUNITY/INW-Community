@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { getToken, apiPost } from "@/lib/api";
+import { getToken, apiGet, apiPost } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -98,6 +98,41 @@ export default function SubscribeScreen() {
       planId === "subscribe" && interval === "monthly" ? subscribeTierDollars ?? residentTier : undefined;
     setCheckoutLoading(checkoutLoadingKey(planId, interval, tierForKey));
     try {
+      if (planId === "seller" || planId === "sponsor") {
+        const token = await getToken();
+        const billing = interval === "yearly" ? "yearly" : undefined;
+        if (!token) {
+          router.push({
+            pathname: planId === "seller" ? "/signup-seller" : "/signup-business",
+            params: billing ? { billing } : {},
+          } as never);
+          return;
+        }
+        if (planId === "sponsor") {
+          try {
+            await apiGet("/api/signup/seller/status?enter=business");
+          } catch {
+            // The business form still starts at registration when this stamp fails.
+          }
+          router.push({
+            pathname: "/signup-business",
+            params: { start: "business", ...(billing ? { billing } : {}) },
+          } as never);
+          return;
+        }
+        let step = "business";
+        try {
+          const status = await apiGet<{ step?: string }>("/api/signup/seller/status?enter=seller");
+          if (status.step && status.step !== "account") step = status.step;
+        } catch {
+          step = "business";
+        }
+        router.push({
+          pathname: "/signup-seller",
+          params: { start: step, ...(billing ? { billing } : {}) },
+        } as never);
+        return;
+      }
       const token = await getToken();
       if (!token) {
         router.replace({ pathname: "/signin", params: { plan: planId, returnTo: "/subscribe" } } as never);

@@ -202,8 +202,10 @@ export async function POST(req: NextRequest) {
     }
   }
   if (ids.length > 1) {
-    const buyerEmail = primaryOrder.buyer?.email;
-    const allSameBuyer = orders.every((o) => o.buyer?.email === buyerEmail);
+    const buyerEmail = primaryOrder.buyer?.email?.trim().toLowerCase() ?? "";
+    const allSameBuyer =
+      buyerEmail.length > 0 &&
+      orders.every((o) => (o.buyer?.email?.trim().toLowerCase() ?? "") === buyerEmail);
     const noneShipped = orders.every((o) => !pickCurrentOutboundShipment(o.shipments));
     if (!allSameBuyer || !noneShipped || orders.length !== ids.length) {
       return NextResponse.json(

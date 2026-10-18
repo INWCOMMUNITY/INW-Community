@@ -37,6 +37,7 @@ const getSellerStorefrontBusiness = cache(async (slug: string) => {
           offerLocalDelivery: true,
           offerLocalPickup: true,
           freeShippingMinimumCents: true,
+          offerFreeShippingOnInw: true,
           acceptMessagesForListings: true,
         },
       },
@@ -143,6 +144,7 @@ export default async function SellerStorefrontPage({
     freeShippingMinimumCents: business.member.freeShippingMinimumCents,
     freeShippingBanner: freeShippingBannerForStore({
       freeShippingMinimumCents: business.member.freeShippingMinimumCents,
+      offerFreeShippingOnInw: business.member.offerFreeShippingOnInw,
       items: shippingRows,
     }),
     sellerShippingPolicy: business.member.sellerShippingPolicy,

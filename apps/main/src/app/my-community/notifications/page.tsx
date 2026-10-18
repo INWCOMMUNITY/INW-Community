@@ -14,6 +14,7 @@ type ActivityNav =
   | { kind: "seller_orders" }
   | { kind: "buyer_order"; orderId: string }
   | { kind: "seller_order"; orderId: string }
+  | { kind: "seller_refunds" }
   | { kind: "group"; slug: string }
   | { kind: "resale_chat"; conversationId: string }
   | { kind: "buyer_resale_offer"; offerId: string }
@@ -74,6 +75,8 @@ function webHrefFromNav(nav: ActivityNav): string | null {
       return "/my-community/orders";
     case "seller_order":
       return `/seller-hub/orders/${nav.orderId}`;
+    case "seller_refunds":
+      return "/seller-hub/store/returns";
     case "group":
       return `/my-community/groups/${nav.slug}?adminInvite=1`;
     case "resale_chat":

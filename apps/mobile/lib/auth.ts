@@ -6,7 +6,7 @@ export interface SignInResult {
   token: string;
   subscriptionPlan?: SubscriptionPlan | null;
   /** Set when a seller still needs to finish onboarding. */
-  onboardingStep?: "business" | "subscribe" | "shipping" | "payouts" | "sponsor" | null;
+  onboardingStep?: "business" | "contact" | "subscribe" | "shipping" | "payouts" | "sponsor" | null;
   member?: {
     firstName: string;
     lastName: string;

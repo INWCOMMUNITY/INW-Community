@@ -9,6 +9,108 @@ export interface BusinessCategoryOption {
   subcategories: string[];
 }
 
+/** Online-sales categories. Shown first on seller signup; also available in the directory list. */
+export const SELLER_RETAIL_CATEGORIES: BusinessCategoryOption[] = [
+  {
+    label: "Antique Retailer",
+    subcategories: ["Furniture", "Jewelry", "Glass and China", "Collectibles", "Books and Paper", "Silver and Metalware", "Other"],
+  },
+  {
+    label: "Clothing",
+    subcategories: ["Women's", "Men's", "Kids", "Vintage", "Streetwear", "Activewear", "Accessories", "Other"],
+  },
+  {
+    label: "Pottery and Ceramics",
+    subcategories: ["Mugs and Drinkware", "Dinnerware", "Decorative", "Planters", "Sculpture", "Other"],
+  },
+  {
+    label: "Jewelry",
+    subcategories: ["Fine Jewelry", "Costume Jewelry", "Handmade", "Vintage", "Watches", "Beads and Findings", "Other"],
+  },
+  {
+    label: "Home Decor",
+    subcategories: ["Wall Art", "Textiles", "Lighting", "Seasonal", "Candles", "Furniture", "Other"],
+  },
+  {
+    label: "Art and Prints",
+    subcategories: ["Original Paintings", "Prints", "Photography", "Sculpture", "Digital Art", "Other"],
+  },
+  {
+    label: "Handmade Goods",
+    subcategories: ["Fiber and Knit", "Wood", "Candles and Soap", "Paper Goods", "Leather", "Other"],
+  },
+  {
+    label: "Vintage and Collectibles",
+    subcategories: ["Toys", "Trading Cards", "Coins and Stamps", "Comics", "Memorabilia", "Advertising", "Other"],
+  },
+  {
+    label: "Beauty and Personal Care",
+    subcategories: ["Skincare", "Makeup", "Hair Care", "Fragrance", "Bath and Body", "Other"],
+  },
+  {
+    label: "Toys and Games",
+    subcategories: ["Kids Toys", "Board Games", "Puzzles", "Outdoor Play", "Collectible Figures", "Other"],
+  },
+  {
+    label: "Baby and Kids",
+    subcategories: ["Clothing", "Nursery", "Toys", "Gear", "Keepsakes", "Other"],
+  },
+  {
+    label: "Pet Supplies",
+    subcategories: ["Toys", "Apparel", "Treats", "Beds", "Collars and Leashes", "Other"],
+  },
+  {
+    label: "Shoes and Bags",
+    subcategories: ["Shoes", "Handbags", "Wallets", "Luggage", "Other"],
+  },
+  {
+    label: "Furniture",
+    subcategories: ["Seating", "Tables", "Storage", "Bedroom", "Outdoor", "Other"],
+  },
+  {
+    label: "Outdoor and Sporting Goods",
+    subcategories: ["Camping", "Hunting and Fishing", "Cycling", "Fitness", "Team Sports", "Other"],
+  },
+  {
+    label: "Electronics",
+    subcategories: ["Audio", "Phone Accessories", "Computers", "Cameras", "Smart Home", "Refurbished", "Other"],
+  },
+  {
+    label: "Books and Stationery",
+    subcategories: ["Books", "Journals", "Stickers", "Planners", "Art Supplies", "Other"],
+  },
+  {
+    label: "Craft Supplies",
+    subcategories: ["Fabric", "Yarn", "Beads", "Paint", "Tools", "Paper", "Other"],
+  },
+  {
+    label: "Garden and Plants",
+    subcategories: ["Houseplants", "Seeds", "Planters", "Garden Decor", "Tools", "Other"],
+  },
+  {
+    label: "Food and Specialty Pantry",
+    subcategories: ["Coffee and Tea", "Baked Goods", "Sauces and Spices", "Candy", "Gift Baskets", "Other"],
+  },
+  {
+    label: "Wedding and Party",
+    subcategories: ["Invitations", "Decor", "Favors", "Attire", "Other"],
+  },
+  {
+    label: "Music",
+    subcategories: ["Instruments", "Accessories", "Records and CDs", "Sheet Music", "Other"],
+  },
+  {
+    label: "Health Products",
+    subcategories: ["Supplements", "Fitness Accessories", "Aromatherapy", "Mobility Aids", "Other"],
+  },
+  {
+    label: "Auto Accessories",
+    subcategories: ["Parts", "Interior Accessories", "Detailing", "Wheels and Tires", "Other"],
+  },
+];
+
+const SELLER_RETAIL_LABELS = new Set(SELLER_RETAIL_CATEGORIES.map((category) => category.label));
+
 export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
   { label: "Bar", subcategories: ["Sports Bar", "Wine Bar", "Pub", "Brewery Taproom", "Lounge", "Nightclub", "Other"] },
   { label: "Coffee Shop", subcategories: ["Café", "Drive-Thru", "Roaster", "Bakery Café", "Other"] },
@@ -178,7 +280,14 @@ export const BUSINESS_CATEGORIES: BusinessCategoryOption[] = [
   { label: "Security and Locksmith", subcategories: ["Locksmith", "Security Systems", "Safe and Vault", "Other"] },
   { label: "Sign and Print", subcategories: ["Sign Shop", "Screen Printing", "Embroidery", "Other"] },
   { label: "Laundry and Dry Cleaning", subcategories: ["Dry Cleaner", "Laundromat", "Alterations", "Other"] },
+  ...SELLER_RETAIL_CATEGORIES,
 ];
+
+/** Seller signup leads with shop categories, then the local-business list. */
+export function sellerSignupCategories(): BusinessCategoryOption[] {
+  const rest = BUSINESS_CATEGORIES.filter((category) => !SELLER_RETAIL_LABELS.has(category.label));
+  return [...SELLER_RETAIL_CATEGORIES, ...rest];
+}
 
 export const BUSINESS_CATEGORY_LABELS = BUSINESS_CATEGORIES.map((c) => c.label);
 
