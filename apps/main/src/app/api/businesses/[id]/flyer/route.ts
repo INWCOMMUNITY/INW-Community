@@ -18,8 +18,11 @@ const HEADING = rgb(62 / 255, 67 / 255, 47 / 255); // #3E432F
 const BODY = rgb(80 / 255, 85 / 255, 66 / 255); // #505542
 const ACCENT = rgb(93 / 255, 79 / 255, 64 / 255); // #5d4f40
 
-const FLYER_TEXT =
-  "is a proud partner of Northwest Community. Helping keep local businesses thriving in the Inland Northwest.";
+const FLYER_LINE_1 = "is a proud partner of Northwest Community.";
+const FLYER_LINE_2 =
+  "Together we champion locally owned businesses across the Inland Northwest.";
+const FLYER_FEATURES =
+  "Shop Locally Online - Local Business Directory - Exclusive Community Social Media - Community Calendars";
 
 const SITE_LABEL = "INWCOMMUNITY.COM";
 const APP_LABEL = "Get the INW Community app";
@@ -27,9 +30,12 @@ const APP_DOWNLOAD_URL = "https://www.inwcommunity.com/download-app";
 
 /** Gaps (PDF points). Logo stays top-pinned; name sits clearly below it. */
 const GAP_TOP_TO_LOGO = 28;
-const GAP_LOGO_TO_NAME = 40;
-const GAP_NAME_TO_BODY = 18;
-const BODY_LINE_GAP = 5;
+const GAP_LOGO_TO_NAME = 64;
+const GAP_NAME_TO_BODY = 20;
+const BODY_LINE_GAP = 6;
+const GAP_BODY_TO_DASHES = 16;
+const GAP_DASHES_TO_FEATURES = 14;
+const FEATURE_LINE_GAP = 5;
 
 function wrapText(
   text: string,
@@ -284,20 +290,48 @@ export async function GET(
     }
 
     y -= GAP_NAME_TO_BODY;
-    const wrappedBody = wrapText(FLYER_TEXT, contentWidth, font, bodySize);
+    const bodyParagraphs = [FLYER_LINE_1, FLYER_LINE_2];
     const bodyLineH = bodySize + BODY_LINE_GAP;
-    for (const line of wrappedBody) {
-      drawCenteredText(page, line, {
-        y,
-        size: bodySize,
-        font,
-        color: BODY,
-        pageWidth,
-      });
-      y -= bodyLineH;
+    for (const paragraph of bodyParagraphs) {
+      const wrapped = wrapText(paragraph, contentWidth, font, bodySize);
+      for (const line of wrapped) {
+        drawCenteredText(page, line, {
+          y,
+          size: bodySize,
+          font,
+          color: BODY,
+          pageWidth,
+        });
+        y -= bodyLineH;
+      }
     }
 
-    // 4. Footer: site → app label → QR
+    // Three dashes, then feature list
+    y -= GAP_BODY_TO_DASHES;
+    drawCenteredText(page, "— — —", {
+      y,
+      size: bodySize,
+      font: fontBold,
+      color: ACCENT,
+      pageWidth,
+    });
+    y -= bodySize + GAP_DASHES_TO_FEATURES;
+
+    const featureSize = 14;
+    const featureLines = wrapText(FLYER_FEATURES, contentWidth, font, featureSize);
+    const featureLineH = featureSize + FEATURE_LINE_GAP;
+    for (const line of featureLines) {
+      drawCenteredText(page, line, {
+        y,
+        size: featureSize,
+        font,
+        color: HEADING,
+        pageWidth,
+      });
+      y -= featureLineH;
+    }
+
+    // Footer: site → app label → QR
     let footY = footerY + footerPad + qrSizePt + 14 + appSize + 10;
 
     // Site with light tracking via spaced characters
