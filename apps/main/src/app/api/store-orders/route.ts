@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
               acceptReturns: true,
               acceptReturnsDays: true,
               chargeReturnShipping: true,
+              returnLabelPayer: true,
+              returnLabelPayerByReason: true,
               businesses: { take: 1, select: { name: true, slug: true } },
             },
           },

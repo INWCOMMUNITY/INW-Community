@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -9,6 +9,7 @@ import {
   Image,
   Linking,
   Alert,
+  Animated,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
@@ -32,6 +33,7 @@ import {
   orderEligibleForAnotherShippoLabel,
   orderHasShippedLine,
 } from "@/lib/shippo-order-label-eligibility";
+import { formatSellerOrderTotal, sellerOrderPaymentLabel } from "@/lib/store-order-fulfillment";
 import { parseBuyerResponseViews } from "@/lib/listing-buyer-fields";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -44,6 +46,7 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 interface OrderItem {
   id: string;
   quantity: number;
+  priceCentsAtPurchase?: number;
   fulfillmentType?: string | null;
   buyerResponses?: unknown;
   storeItem?: { id: string; title: string; slug: string; photos: string[]; listingType?: string };
@@ -61,6 +64,9 @@ interface Shipment {
 interface StoreOrder {
   id: string;
   status: string;
+  orderNumber?: string;
+  orderKind?: string;
+  paymentLabel?: string;
   totalCents: number;
   taxCents?: number;
   createdAt: string;
@@ -73,49 +79,177 @@ interface StoreOrder {
   shipment?: Shipment | null;
 }
 
+function isPreviewableImage(url: string): boolean {
+  return /\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(url);
+}
+
+const downloadsInFlight = new Set<string>();
+
+async function downloadBuyerFile(
+  url: string,
+  label: string,
+  onProgress: (fraction: number | null) => void
+) {
+  const safe = label.replace(/[^\w.-]+/g, "_").slice(0, 40) || "file";
+  const ext = url.split("?")[0]?.match(/\.([a-z0-9]+)$/i)?.[1] ?? "jpg";
+  const dest = `${FileSystem.cacheDirectory}${safe}.${ext}`;
+  const task = FileSystem.createDownloadResumable(url, dest, {}, (data) => {
+    const expected = data.totalBytesExpectedToWrite;
+    onProgress(expected > 0 ? Math.min(1, data.totalBytesWritten / expected) : null);
+  });
+  const result = await task.downloadAsync();
+  if (!result?.uri) throw new Error("missing file");
+  onProgress(1);
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(result.uri);
+    return;
+  }
+  await Linking.openURL(url);
+}
+
+function BuyerPhotoCard({ url, name }: { url: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  const [knownProgress, setKnownProgress] = useState<number | null>(null);
+  const scale = useRef(new Animated.Value(1)).current;
+  const slide = useRef(new Animated.Value(0)).current;
+  const slideLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const pressIn = () => {
+    if (busy || downloadsInFlight.has(url)) return;
+    Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, friction: 6, tension: 220 }).start();
+  };
+
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 5, tension: 140 }).start();
+  };
+
+  const onPress = () => {
+    if (busy || downloadsInFlight.has(url)) return;
+    downloadsInFlight.add(url);
+    setBusy(true);
+    setKnownProgress(null);
+    slide.setValue(0);
+    slideLoop.current?.stop();
+    slideLoop.current = Animated.loop(
+      Animated.timing(slide, { toValue: 1, duration: 900, useNativeDriver: true })
+    );
+    slideLoop.current.start();
+    const started = Date.now();
+    void downloadBuyerFile(url, name, (fraction) => {
+      if (!mounted.current || fraction == null) return;
+      slideLoop.current?.stop();
+      slideLoop.current = null;
+      setKnownProgress(fraction);
+    })
+      .catch(async () => {
+        try {
+          await Linking.openURL(url);
+        } catch {
+          Alert.alert("Download failed", "That file could not be opened.");
+        }
+      })
+      .finally(() => {
+        const wait = Math.max(0, 400 - (Date.now() - started));
+        setTimeout(() => {
+          downloadsInFlight.delete(url);
+          slideLoop.current?.stop();
+          if (!mounted.current) return;
+          setBusy(false);
+          setKnownProgress(null);
+        }, wait);
+      });
+  };
+
+  return (
+    <Animated.View style={[styles.photoCard, { transform: [{ scale }] }]}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityState={{ busy, disabled: busy }}
+      >
+        <View>
+          {isPreviewableImage(url) ? (
+            <Image source={{ uri: url }} style={styles.photoPreview} />
+          ) : (
+            <View style={[styles.photoPreview, styles.photoFallback]}>
+              <Text style={styles.photoFallbackText}>{name}</Text>
+            </View>
+          )}
+          {busy ? (
+            <View style={styles.progressTrack}>
+              {knownProgress == null ? (
+                <Animated.View
+                  style={[
+                    styles.progressChunk,
+                    {
+                      transform: [
+                        {
+                          translateX: slide.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-56, 148],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+              ) : (
+                <View style={[styles.progressFill, { width: `${Math.round(knownProgress * 100)}%` }]} />
+              )}
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.photoName} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={styles.downloadLink}>{busy ? "Downloading…" : "Download"}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 function BuyerAnswers({ raw }: { raw: unknown }) {
   const rows = parseBuyerResponseViews(raw);
   if (rows.length === 0) return null;
+  const choices = rows.filter((row) => row.kind !== "FILE");
+  const uploads = rows.filter((row) => row.kind === "FILE");
   return (
-    <View style={{ marginTop: 6, gap: 6 }}>
-      {rows.map((row) => (
-        <View key={`${row.kind}-${row.title}`}>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: "#333" }}>{row.title}</Text>
-          {row.kind === "TEXT" && row.text ? <Text style={{ fontSize: 13, color: "#444" }}>{row.text}</Text> : null}
-          {row.kind === "DROPDOWN" && row.optionLabel ? (
-            <Text style={{ fontSize: 13, color: "#444" }}>{row.optionLabel}</Text>
-          ) : null}
-          {row.files.map((file) => (
-            <Pressable key={file.url} onPress={() => downloadBuyerFile(file.url, file.label || row.title)}>
-              <Text style={{ fontSize: 13, color: theme.colors.primary, textDecorationLine: "underline", marginTop: 2 }}>
-                Download {file.label || "file"}
-              </Text>
-            </Pressable>
+    <View style={styles.answers}>
+      {choices.length > 0 ? (
+        <View style={styles.choiceGrid}>
+          {choices.map((row, index) => (
+            <View key={`${row.kind}-${index}`} style={styles.choiceCell}>
+              <Text style={styles.choiceLabel}>{row.title}</Text>
+              <Text style={styles.choiceValue}>{row.kind === "TEXT" ? row.text : row.optionLabel}</Text>
+            </View>
           ))}
+        </View>
+      ) : null}
+      {uploads.map((row, index) => (
+        <View key={`${row.kind}-${index}`} style={styles.uploadBlock}>
+          <Text style={styles.choiceLabel}>{row.title}</Text>
+          <View style={styles.photoRow}>
+            {row.files.map((file) => {
+              const name = file.label || "File";
+              const url = resolvePhotoUrl(file.url) ?? file.url;
+              return <BuyerPhotoCard key={file.url} url={url} name={name} />;
+            })}
+          </View>
         </View>
       ))}
     </View>
   );
-}
-
-async function downloadBuyerFile(url: string, label: string) {
-  try {
-    const safe = label.replace(/[^\w.-]+/g, "_").slice(0, 40) || "file";
-    const ext = url.split("?")[0]?.match(/\.([a-z0-9]+)$/i)?.[1] ?? "jpg";
-    const dest = `${FileSystem.cacheDirectory}${safe}.${ext}`;
-    const result = await FileSystem.downloadAsync(url, dest);
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(result.uri);
-      return;
-    }
-    await Linking.openURL(url);
-  } catch {
-    try {
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert("Download failed", "That file could not be opened.");
-    }
-  }
 }
 
 function formatDate(s: string): string {
@@ -253,44 +387,80 @@ export default function OrderDetailScreen() {
     );
   };
 
+  const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
+  const paymentLabel = order.paymentLabel ?? sellerOrderPaymentLabel(order);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.section}>
-        <Text style={styles.label}>Time Placed</Text>
-        <Text style={styles.value}>{formatDate(order.createdAt)}</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.label}>Status</Text>
-        <Text style={styles.value}>{getStoreOrderStatusLabel(order)}</Text>
+      <View style={styles.orderCard}>
+        <Text style={styles.orderNum}>Order #{orderNum}</Text>
+        <Text style={styles.buyerName}>{buyerName}</Text>
+        <Text style={styles.buyerEmail}>{buyerEmail}</Text>
+        <Text style={styles.metaDate}>{formatDate(order.createdAt)}</Text>
+        <View style={styles.badgeRow}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{getStoreOrderStatusLabel(order)}</Text>
+          </View>
+          <View style={styles.badgeMuted}>
+            <Text style={styles.badgeMutedText}>{paymentLabel}</Text>
+          </View>
+        </View>
         {sellerRefundStatusNote(order) ? (
           <Text style={styles.valueHint}>{sellerRefundStatusNote(order)}</Text>
         ) : null}
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.label}>Order Number</Text>
-        <Text style={styles.value}>#{order.id}</Text>
-      </View>
+        {buyerAddress !== "—" ? (
+          <View style={styles.addressBox}>
+            <Text style={styles.choiceLabel}>Shipping address</Text>
+            <Text style={styles.addressValue}>{buyerAddress}</Text>
+          </View>
+        ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.label}>Buyer Name</Text>
-        <Text style={styles.value}>{buyerName}</Text>
-      </View>
+        {(order.items?.length ?? 0) > 0 ? (
+          <View>
+            <Text style={styles.sectionTitle}>Items</Text>
+            {(order.items ?? []).map((oi) => {
+              const si = oi.storeItem;
+              const photoUrl = si?.photos?.[0] ? resolvePhotoUrl(si.photos[0]) : undefined;
+              const linePrice =
+                oi.priceCentsAtPurchase != null
+                  ? ` · $${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`
+                  : "";
+              return (
+                <View key={oi.id} style={styles.itemCard}>
+                  <View style={styles.itemHeader}>
+                    {photoUrl ? (
+                      <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
+                    ) : (
+                      <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
+                    )}
+                    <View style={styles.itemBody}>
+                      <Pressable onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}>
+                        <Text style={styles.itemTitle}>{si?.title ?? "Item"}</Text>
+                        <Text style={styles.itemMeta}>
+                          Qty {oi.quantity}
+                          {linePrice}
+                        </Text>
+                        <Text style={styles.linkBtnText}>View in-app listing</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <BuyerAnswers raw={oi.buyerResponses} />
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.label}>Buyer Address</Text>
-        <Text style={styles.value}>{buyerAddress}</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.label}>Buyer Email</Text>
-        <Text style={styles.value}>{buyerEmail}</Text>
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>Order total</Text>
+          <Text style={styles.totalValue}>{formatSellerOrderTotal(order)}</Text>
+        </View>
       </View>
 
       {showShippingLabels && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Shipping & labels</Text>
+        <View style={styles.fulfillmentCard}>
+          <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Fulfillment</Text>
           <Text style={styles.valueHint}>
             {showPurchaseAnother || order.shipment
               ? "Reprint Label opens the PDF. Repurchase Label buys a new one. Shippo opens full screen."
@@ -352,41 +522,126 @@ export default function OrderDetailScreen() {
           <Text style={styles.refundBtnText}>{canceling ? "Canceling…" : "Cancel & refund"}</Text>
         </Pressable>
       ) : null}
-
-      {(order.items?.length ?? 0) > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Items in this order</Text>
-          {(order.items ?? []).map((oi) => {
-            const si = oi.storeItem;
-            const photoUrl = si?.photos?.[0] ? resolvePhotoUrl(si.photos[0]) : undefined;
-            return (
-              <View key={oi.id} style={styles.itemRow}>
-                {photoUrl ? (
-                  <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
-                ) : (
-                  <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
-                )}
-                <View style={styles.itemBody}>
-                  <Pressable onPress={() => si && openListing(si.slug, si.listingType ?? undefined)}>
-                    <Text style={styles.itemTitle}>{si?.title ?? "Item"} × {oi.quantity}</Text>
-                    <Text style={styles.linkBtnText}>View in-app listing</Text>
-                  </Pressable>
-                  <BuyerAnswers raw={oi.buyerResponses} />
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
       <View style={{ height: 24 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: theme.colors.pageBackground },
   content: { padding: 16, paddingBottom: 40 },
+  orderCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    padding: 16,
+    marginBottom: 16,
+  },
+  orderNum: { fontSize: 13, color: "#6b7280" },
+  buyerName: { fontSize: 20, fontWeight: "700", color: "#111827", marginTop: 4 },
+  buyerEmail: { fontSize: 14, color: "#4b5563", marginTop: 2 },
+  metaDate: { fontSize: 13, color: "#6b7280", marginTop: 8 },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  badge: {
+    backgroundColor: theme.colors.cream,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeText: { fontSize: 13, color: theme.colors.primary },
+  badgeMuted: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeMutedText: { fontSize: 13, color: "#374151" },
+  addressBox: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 16,
+  },
+  addressValue: { fontSize: 15, color: "#111827", lineHeight: 22, marginTop: 4 },
+  sectionTitle: { fontSize: 16, fontWeight: "600", color: "#111827", marginTop: 16, marginBottom: 10 },
+  itemCard: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  itemHeader: { flexDirection: "row", alignItems: "flex-start" },
+  itemMeta: { fontSize: 14, color: "#6b7280", marginTop: 2 },
+  answers: { marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb" },
+  choiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  choiceCell: { flexGrow: 1, flexBasis: "46%" },
+  choiceLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6b7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  choiceValue: { fontSize: 15, color: "#111827", marginTop: 4 },
+  uploadBlock: { marginTop: 14 },
+  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
+  photoCard: {
+    width: 148,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  photoPreview: { width: "100%", height: 104, backgroundColor: "#f3f4f6" },
+  progressTrack: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 5,
+    backgroundColor: "rgba(255,255,255,0.55)",
+    overflow: "hidden",
+  },
+  progressFill: { height: 5, backgroundColor: theme.colors.primary },
+  progressChunk: {
+    width: 56,
+    height: 5,
+    backgroundColor: theme.colors.primary,
+  },
+  photoFallback: { alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  photoFallbackText: { fontSize: 12, color: "#6b7280", textAlign: "center" },
+  photoName: { fontSize: 14, fontWeight: "600", color: "#111827", marginTop: 8, marginHorizontal: 10 },
+  downloadLink: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    textDecorationLine: "underline",
+    marginTop: 2,
+    marginBottom: 10,
+    marginHorizontal: 10,
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e5e7eb",
+    paddingTop: 14,
+    marginTop: 4,
+  },
+  totalLabel: { fontSize: 16, fontWeight: "600", color: "#111827" },
+  totalValue: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  fulfillmentCard: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    padding: 16,
+    marginBottom: 16,
+  },
   center: {
     flex: 1,
     justifyContent: "center",
@@ -464,15 +719,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 2,
   },
-  itemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingRight: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  itemThumb: { width: 48, height: 48, borderRadius: 8, marginRight: 12 },
+  itemThumb: { width: 64, height: 64, borderRadius: 8, marginRight: 12 },
   itemThumbPlaceholder: { backgroundColor: "#ddd" },
   itemBody: { flex: 1, minWidth: 0 },
   itemTitle: { fontSize: 16, color: "#333" },

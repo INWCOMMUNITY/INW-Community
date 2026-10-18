@@ -4,6 +4,7 @@ import {
   computeStripeProcessingFeeCents,
   computeStripeTaxProductFeeCents,
 } from "@/lib/storefront-payout";
+import { policyFromStored, sellerPolicyName } from "@/lib/seller-return-label-policy";
 
 export const STORE_RETURN_STATUSES = [
   "requested",
@@ -176,14 +177,27 @@ export function buyerReturnPolicyFields(
     acceptReturns?: boolean | null;
     acceptReturnsDays?: number | null;
     chargeReturnShipping?: boolean | null;
+    returnLabelPayer?: string | null;
+    returnLabelPayerByReason?: unknown;
+    firstName?: string | null;
+    lastName?: string | null;
+    businesses?: { name?: string | null }[];
   },
   order: ReturnWindowOrder
 ) {
   const days = clampAcceptReturnsDays(seller.acceptReturnsDays);
+  const policy = policyFromStored(seller);
   return {
     sellerAcceptsReturns: seller.acceptReturns !== false,
     sellerAcceptsReturnsDays: days,
-    sellerChargeReturnShipping: seller.chargeReturnShipping === true,
+    sellerChargeReturnShipping: policy.returnLabelPayer === "buyer",
+    sellerPolicyName: sellerPolicyName({
+      businessName: seller.businesses?.[0]?.name,
+      firstName: seller.firstName,
+      lastName: seller.lastName,
+    }),
+    returnLabelPayer: policy.returnLabelPayer,
+    returnLabelPayerByReason: policy.returnLabelPayerByReason,
     returnWindowEndsAt: returnWindowEndsAt(order, days)?.toISOString() ?? null,
   };
 }

@@ -15,6 +15,8 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
+import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import { policyFromStored, type SellerReturnLabelPolicy } from "@/lib/seller-return-label-policy";
 
 interface PolicyData {
   sellerShippingPolicy?: string | null;
@@ -24,6 +26,10 @@ interface PolicyData {
   acceptReturns?: boolean;
   acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
+  handlingTime?: string | null;
+  returnLabelPayer?: string | null;
+  returnLabelPayerByReason?: unknown;
+  sellerPolicyName?: string;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
@@ -52,7 +58,8 @@ export default function PoliciesScreen() {
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [acceptReturns, setAcceptReturns] = useState(true);
   const [acceptReturnsDays, setAcceptReturnsDays] = useState("30");
-  const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
+  const [sellerName, setSellerName] = useState("This seller");
+  const [returnPolicy, setReturnPolicy] = useState<SellerReturnLabelPolicy>(() => policyFromStored({}));
 
   useEffect(() => {
     apiGet<PolicyData>("/api/me")
@@ -68,7 +75,8 @@ export default function PoliciesScreen() {
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
         setAcceptReturns(data?.acceptReturns !== false);
         setAcceptReturnsDays(String(data?.acceptReturnsDays ?? 30));
-        setChargeReturnShipping(data?.chargeReturnShipping ?? false);
+        setSellerName(data.sellerPolicyName?.trim() || "This seller");
+        setReturnPolicy(policyFromStored(data));
       })
       .catch(() => setError("Failed to load policies."))
       .finally(() => setLoading(false));
@@ -89,7 +97,9 @@ export default function PoliciesScreen() {
         offerLocalPickup,
         acceptReturns,
         acceptReturnsDays: Math.min(365, Math.max(1, Number(acceptReturnsDays) || 30)),
-        chargeReturnShipping,
+        handlingTime: returnPolicy.handlingTime,
+        returnLabelPayer: returnPolicy.returnLabelPayer,
+        returnLabelPayerByReason: returnPolicy.returnLabelPayerByReason,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -130,6 +140,8 @@ export default function PoliciesScreen() {
         <Text style={styles.intro}>
           Set shipping, pickup, delivery, and refund policies here. Buyers see these on your storefront.
         </Text>
+
+        <SellerPolicyQuestions sellerName={sellerName} policy={returnPolicy} onChange={setReturnPolicy} />
 
         {POLICY_FIELDS.map(({ key, label, placeholder, offerKey, offerLabel }) => (
           <View key={key} style={styles.field}>
@@ -216,22 +228,9 @@ export default function PoliciesScreen() {
             textAlignVertical="top"
             autoCorrect={true}
           />
-          <View style={styles.checkboxRow}>
-            <Switch
-              value={chargeReturnShipping}
-              onValueChange={setChargeReturnShipping}
-              disabled={!acceptReturns}
-              trackColor={switchTrackColor()}
-              thumbColor={switchThumbColor(chargeReturnShipping)}
-              ios_backgroundColor={switchIosBackgroundColor}
-            />
-            <Text style={[styles.checkboxLabel, !acceptReturns && styles.checkboxLabelDisabled]}>
-              Charge shipping for returns
-            </Text>
-          </View>
           <Text style={styles.hint}>
-            When on, the Shippo return-label price is deducted from the buyer’s refund. You still pay
-            Shippo for the label; you keep that amount from the order instead of refunding it.
+            When the buyer pays, the Shippo return-label price is deducted from the refund after you buy
+            the label. You can still choose to pay for a label when you send it.
           </Text>
         </View>
 

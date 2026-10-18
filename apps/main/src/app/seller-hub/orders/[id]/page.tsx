@@ -112,38 +112,42 @@ function SellerOrderDetailInner() {
 
         <div className="grid lg:grid-cols-[1fr_320px] gap-6 items-start">
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-6">
-            <div>
-              <p className="text-sm text-gray-500">Order #{orderNum}</p>
-              <h1 className="text-xl font-bold text-gray-900 mt-1">
-                {order.buyer.firstName} {order.buyer.lastName}
-              </h1>
-              <p className="text-sm text-gray-600">{order.buyer.email}</p>
-              <p className="text-sm text-gray-500 mt-1">{new Date(order.createdAt).toLocaleString()}</p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <span
-                  className="inline-block px-2 py-0.5 rounded text-sm"
-                  style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
-                >
-                  {getStoreOrderStatusLabel(order)}
-                </span>
-                <span className="inline-block px-2 py-0.5 rounded text-sm bg-gray-100 text-gray-700">
-                  {paymentLabel}
-                </span>
-                {order.orderKind === "reward_redemption" && order.totalCents === 0 ? (
-                  <span className="inline-block px-2 py-0.5 rounded text-sm font-medium bg-emerald-50 text-emerald-800">
-                    Reward — no charge
-                  </span>
-                ) : null}
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Order #{orderNum}</p>
+                <h1 className="mt-1 text-xl font-bold text-gray-900">
+                  {order.buyer.firstName} {order.buyer.lastName}
+                </h1>
+                <p className="text-sm text-gray-600">{order.buyer.email}</p>
               </div>
-              {sellerRefundStatusNote(order) ? (
-                <p className="text-sm text-gray-600 mt-3">{sellerRefundStatusNote(order)}</p>
-              ) : null}
+              <div className="sm:text-right">
+                <p className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
+                <div className="mt-2 flex flex-wrap gap-2 sm:justify-end">
+                  <span
+                    className="inline-block rounded px-2 py-0.5 text-sm"
+                    style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
+                  >
+                    {getStoreOrderStatusLabel(order)}
+                  </span>
+                  <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-sm text-gray-700">
+                    {paymentLabel}
+                  </span>
+                  {order.orderKind === "reward_redemption" && order.totalCents === 0 ? (
+                    <span className="inline-block rounded bg-emerald-50 px-2 py-0.5 text-sm font-medium text-emerald-800">
+                      Reward — no charge
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </div>
+            {sellerRefundStatusNote(order) ? (
+              <p className="text-sm text-gray-600">{sellerRefundStatusNote(order)}</p>
+            ) : null}
 
             {order.shippingAddress != null && typeof order.shippingAddress === "object" ? (
-              <div>
-                <p className="font-medium text-gray-900 mb-1">Shipping address</p>
-                <p className="text-sm text-gray-600 whitespace-pre-wrap">
+              <div className="rounded-lg bg-gray-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Shipping address</p>
+                <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
                   {formatShippingAddress(order.shippingAddress)}
                 </p>
               </div>

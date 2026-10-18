@@ -44,6 +44,8 @@ export async function GET(
             acceptReturns: true,
             acceptReturnsDays: true,
             chargeReturnShipping: true,
+            returnLabelPayer: true,
+            returnLabelPayerByReason: true,
             businesses: { take: 1, select: { name: true, slug: true } },
           },
         },

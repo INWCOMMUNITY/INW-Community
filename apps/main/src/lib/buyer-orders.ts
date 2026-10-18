@@ -83,6 +83,9 @@ export type BuyerStoreOrder = {
   sellerAcceptsReturns?: boolean;
   sellerAcceptsReturnsDays?: number | null;
   sellerChargeReturnShipping?: boolean;
+  sellerPolicyName?: string;
+  returnLabelPayer?: "seller" | "buyer" | "by_reason";
+  returnLabelPayerByReason?: Record<string, "seller" | "buyer">;
   returnWindowEndsAt?: string | null;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;

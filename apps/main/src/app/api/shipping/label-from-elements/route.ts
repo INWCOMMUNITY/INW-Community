@@ -352,7 +352,12 @@ export async function POST(req: NextRequest) {
   });
 
   if (shipmentKind === "return") {
-    notifyBuyerReturnLabelReady(primaryOrder.buyerId, primaryId);
+    const activeReturn = primaryOrder.storeReturns[0];
+    notifyBuyerReturnLabelReady(
+      primaryOrder.buyerId,
+      primaryId,
+      activeReturn?.chargeReturnShipping ? shipData.labelCostCents : null
+    );
   } else {
     const { sendPushNotification } = await import("@/lib/send-push-notification");
     for (const o of orders) {

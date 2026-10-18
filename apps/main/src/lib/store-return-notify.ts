@@ -1,4 +1,5 @@
 import { sendPushNotification } from "@/lib/send-push-notification";
+import { formatReturnLabelDeduction } from "@/lib/seller-return-label-policy";
 
 export function notifySellerReturnRequested(sellerId: string, orderId: string, buyerName: string): void {
   sendPushNotification(sellerId, {
@@ -27,10 +28,20 @@ export function notifyBuyerReturnApproved(buyerId: string, orderId: string): voi
   }).catch(() => {});
 }
 
-export function notifyBuyerReturnLabelReady(buyerId: string, orderId: string): void {
+export function notifyBuyerReturnLabelReady(
+  buyerId: string,
+  orderId: string,
+  deductCents?: number | null
+): void {
+  const deducted =
+    typeof deductCents === "number" && deductCents > 0
+      ? ` ${formatReturnLabelDeduction(deductCents)} will be deducted from your refund.`
+      : "";
   sendPushNotification(buyerId, {
-    title: "Your return has been approved",
-    body: "Your return has been approved, print return label now.",
+    title: "Your return label is ready",
+    body: deducted
+      ? `Your return label is ready.${deducted}`
+      : "Your return label is ready. Print it from your order.",
     data: { screen: "my-orders", orderId },
     category: "commerce",
   }).catch(() => {});

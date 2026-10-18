@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -34,13 +34,15 @@ import { SubscriptionCheckoutWithFallback } from "@/components/SubscriptionCheck
 import { OnboardingProgress } from "@/components/seller-onboarding/OnboardingProgress";
 import { OnboardingSection } from "@/components/seller-onboarding/OnboardingSection";
 import { ShippingSetupPanel } from "@/app/seller-hub/shipping-setup";
+import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import { policyFromStored, type SellerReturnLabelPolicy } from "@/lib/seller-return-label-policy";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-type Step = "account" | "business" | "contact" | "subscribe" | "shipping" | "payouts" | "import";
+type Step = "account" | "business" | "contact" | "subscribe" | "shipping" | "policies" | "payouts" | "import";
 
-const STEP_ORDER: Step[] = ["account", "business", "contact", "subscribe", "shipping", "payouts", "import"];
+const STEP_ORDER: Step[] = ["account", "business", "contact", "subscribe", "shipping", "policies", "payouts", "import"];
 
 const STEP_INDEX: Record<Step, number> = {
   account: 1,
@@ -48,8 +50,9 @@ const STEP_INDEX: Record<Step, number> = {
   contact: 3,
   subscribe: 4,
   shipping: 5,
-  payouts: 6,
-  import: 7,
+  policies: 6,
+  payouts: 7,
+  import: 8,
 };
 
 type SellerStatus = {
@@ -93,6 +96,10 @@ export default function SignupSellerScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [policyName, setPolicyName] = useState("This seller");
+  const [policyDraft, setPolicyDraft] = useState<SellerReturnLabelPolicy>(() => policyFromStored({}));
+  const [policyShipping, setPolicyShipping] = useState("");
+  const [policyReturns, setPolicyReturns] = useState("");
   const [businessData, setBusinessData] = useState<Record<string, unknown> | null>(null);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [error, setError] = useState("");
@@ -106,6 +113,31 @@ export default function SignupSellerScreen() {
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyShop, setShopifyShop] = useState("");
+
+  useEffect(() => {
+    if (step !== "policies") return;
+    let cancelled = false;
+    apiGet<{
+      sellerPolicyName?: string;
+      sellerShippingPolicy?: string | null;
+      sellerReturnPolicy?: string | null;
+      handlingTime?: string | null;
+      returnLabelPayer?: string | null;
+      returnLabelPayerByReason?: unknown;
+      chargeReturnShipping?: boolean;
+    }>("/api/me")
+      .then((data) => {
+        if (cancelled) return;
+        setPolicyName(data.sellerPolicyName?.trim() || "This seller");
+        setPolicyDraft(policyFromStored(data));
+        setPolicyShipping(data.sellerShippingPolicy ?? "");
+        setPolicyReturns(data.sellerReturnPolicy ?? "");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [step]);
 
   useFocusEffect(
     useCallback(() => {
@@ -573,12 +605,60 @@ export default function SignupSellerScreen() {
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 <StepActions
                   onBack={back ? () => setStep(back) : undefined}
-                  onContinue={() => setStep("payouts")}
+                  onContinue={() => setStep("policies")}
                   continueLabel="Continue"
                   continueDisabled={!shippingReady}
                 />
               </OnboardingSection>
             </>
+          ) : null}
+
+          {step === "policies" ? (
+            <OnboardingSection
+              title="Policies"
+              description="These answers show on your storefront. A preset handling time and seller-paid returns are added in bold."
+            >
+              <SellerPolicyQuestions sellerName={policyName} policy={policyDraft} onChange={setPolicyDraft} />
+              <Text style={styles.fieldLabel}>Shipping policy</Text>
+              <TextInput
+                style={styles.input}
+                value={policyShipping}
+                onChangeText={setPolicyShipping}
+                placeholder="Anything else buyers should know about shipping."
+                placeholderTextColor={theme.colors.placeholder}
+                multiline
+              />
+              <Text style={styles.fieldLabel}>Return policy</Text>
+              <TextInput
+                style={styles.input}
+                value={policyReturns}
+                onChangeText={setPolicyReturns}
+                placeholder="Anything else buyers should know about returns."
+                placeholderTextColor={theme.colors.placeholder}
+                multiline
+              />
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <StepActions
+                onBack={() => setStep("shipping")}
+                onContinue={() => {
+                  setError("");
+                  setLoading(true);
+                  void apiPatch("/api/me", {
+                    handlingTime: policyDraft.handlingTime,
+                    returnLabelPayer: policyDraft.returnLabelPayer,
+                    returnLabelPayerByReason: policyDraft.returnLabelPayerByReason,
+                    sellerShippingPolicy: policyShipping.trim() || null,
+                    sellerReturnPolicy: policyReturns.trim() || null,
+                  })
+                    .then(() => setStep("payouts"))
+                    .catch((e) => setError((e as { error?: string }).error ?? "Could not save policies."))
+                    .finally(() => setLoading(false));
+                }}
+                continueLabel={loading ? "Saving…" : "Continue"}
+                loading={loading}
+                continueDisabled={loading || !policyDraft.handlingTime}
+              />
+            </OnboardingSection>
           ) : null}
 
           {step === "payouts" ? (
@@ -608,7 +688,7 @@ export default function SignupSellerScreen() {
                   )}
                 </Pressable>
                 <StepActions
-                  onBack={() => setStep("shipping")}
+                  onBack={() => setStep("policies")}
                   onContinue={() => setStep("import")}
                   continueLabel="Continue"
                   continueDisabled={!stripeReady}
@@ -731,6 +811,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: 16,
   },
+  fieldLabel: { fontSize: 14, fontWeight: "600", color: "#374151", marginBottom: 6, marginTop: 8 },
   input: {
     borderWidth: 1.5,
     borderColor: theme.colors.primary,

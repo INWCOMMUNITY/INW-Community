@@ -28,13 +28,17 @@ import {
   BUYER_REFUND_POLICY_POPUP_TITLE,
   buyerHasPendingRefund,
   buyerRefundStatusNote,
-  BUYER_RETURN_SHIPPING_WARNING,
   canCancelMobileBuyerOrder,
   canRequestMobileBuyerRefund,
   formatBuyerRefundFeeDeductionLine,
   getBuyerOrderStatusLabel,
 } from "@/lib/order-status";
 import { buildProductPath } from "@/lib/product-referrer";
+import {
+  buyerReturnShippingWarning,
+  policyFromStored,
+  returnLabelChargesBuyer,
+} from "@/lib/seller-return-label-policy";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -76,6 +80,9 @@ interface StoreOrder {
   sellerAcceptsReturns?: boolean;
   sellerAcceptsReturnsDays?: number;
   sellerChargeReturnShipping?: boolean;
+  sellerPolicyName?: string;
+  returnLabelPayer?: "seller" | "buyer" | "by_reason";
+  returnLabelPayerByReason?: Record<string, "seller" | "buyer">;
   returnWindowEndsAt?: string | null;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;
@@ -197,7 +204,17 @@ export default function MyOrderDetailScreen() {
       Alert.alert("Provide details", "Please provide details for \"Other\".");
       return;
     }
-    if (order?.sellerChargeReturnShipping && !ackReturnShipping) {
+    const chargesLabel =
+      !!order &&
+      returnLabelChargesBuyer(
+        policyFromStored({
+          returnLabelPayer: order.returnLabelPayer,
+          returnLabelPayerByReason: order.returnLabelPayerByReason,
+          chargeReturnShipping: order.sellerChargeReturnShipping,
+        }),
+        refundReason
+      );
+    if (chargesLabel && !ackReturnShipping) {
       Alert.alert(
         "Return shipping",
         "Please confirm you understand return shipping may be deducted from your refund."
@@ -224,7 +241,7 @@ export default function MyOrderDetailScreen() {
     } finally {
       setRequestingRefund(false);
     }
-  }, [orderId, order?.sellerChargeReturnShipping, ackReturnShipping, refundReason, refundOther, refundNote, load]);
+  }, [orderId, order, ackReturnShipping, refundReason, refundOther, refundNote, load]);
 
   const cancelOrder = useCallback(async () => {
     if (!orderId) return;
@@ -594,14 +611,23 @@ export default function MyOrderDetailScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => !requestingRefund && setRefundModal(false)}>
           <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
             <Text style={styles.modalTitle}>Request Refund</Text>
-            {order.sellerChargeReturnShipping ? (
+            {returnLabelChargesBuyer(
+              policyFromStored({
+                returnLabelPayer: order.returnLabelPayer,
+                returnLabelPayerByReason: order.returnLabelPayerByReason,
+                chargeReturnShipping: order.sellerChargeReturnShipping,
+              }),
+              refundReason
+            ) ? (
               <Pressable style={styles.ackRow} onPress={() => setAckReturnShipping((v) => !v)}>
                 <Ionicons
                   name={ackReturnShipping ? "checkbox" : "square-outline"}
                   size={22}
                   color={theme.colors.primary}
                 />
-                <Text style={styles.ackText}>{BUYER_RETURN_SHIPPING_WARNING}</Text>
+                <Text style={[styles.ackText, { fontWeight: "700" }]}>
+                  {buyerReturnShippingWarning(order.sellerPolicyName || "This seller")}
+                </Text>
               </Pressable>
             ) : null}
             <Text style={styles.modalLabel}>Reason</Text>

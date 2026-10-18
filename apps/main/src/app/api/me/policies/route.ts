@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { clampAcceptReturnsDays } from "@/lib/store-return";
+import { policyFromStored, sellerPolicyName } from "@/lib/seller-return-label-policy";
 
 /**
  * GET /api/me/policies
@@ -55,14 +56,23 @@ export async function GET(req: NextRequest) {
       chargeReturnShipping: member.chargeReturnShipping === true,
       offerShipping,
       offerLocalDelivery,
-      offerLocalPickup,
-    });
-  } catch (e) {
-    const err = e as Error;
-    console.error("[GET /api/me/policies]", err);
-    return NextResponse.json(
-      { error: process.env.NODE_ENV === "development" ? err.message : "Internal error" },
-      { status: 500 }
+    const returnLabelPolicy = policyFromStored(member);
+    return NextResponse.json({
+      sellerShippingPolicy: member.sellerShippingPolicy ?? "",
+      sellerLocalDeliveryPolicy: member.sellerLocalDeliveryPolicy ?? "",
+      sellerPickupPolicy: member.sellerPickupPolicy ?? "",
+      sellerReturnPolicy: member.sellerReturnPolicy ?? "",
+      acceptReturns: member.acceptReturns !== false,
+      acceptReturnsDays: clampAcceptReturnsDays(member.acceptReturnsDays),
+      chargeReturnShipping: member.chargeReturnShipping === true,
+      handlingTime: returnLabelPolicy.handlingTime,
+      returnLabelPayer: returnLabelPolicy.returnLabelPayer,
+      returnLabelPayerByReason: returnLabelPolicy.returnLabelPayerByReason,
+      sellerPolicyName: sellerPolicyName({
+        businessName: business?.name,
+        firstName: member.firstName,
+        lastName: member.lastName,
+      }),
     );
   }
 }

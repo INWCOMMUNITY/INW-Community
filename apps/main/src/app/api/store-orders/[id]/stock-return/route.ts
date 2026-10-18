@@ -96,7 +96,7 @@ export async function POST(
           `seller-stock-return:${line.id}`
         );
       }
-    });
+    }, { timeout: 20_000 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     if (message === "ALREADY_RESTORED") {

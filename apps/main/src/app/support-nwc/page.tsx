@@ -62,6 +62,8 @@ const PLANS: SupportPlanRow[] = [
       "Everything in Business",
       "Online storefront with payouts",
       "Shipping and fulfillment tools",
+      "Sync your Shopify store",
+      "Sync your Etsy shop",
       "NWC does not take a cut of sales",
     ],
     imagePath:
@@ -199,6 +201,14 @@ export default function SupportNWCInfoPage() {
                         </li>
                       ))}
                     </ul>
+                    {plan.id === "seller" ? (
+                      <p className="mb-4 text-xs leading-relaxed text-gray-600">
+                        When you sell items with us, you only pay about{" "}
+                        <span className="font-semibold text-gray-800">4.4% + 30¢ per transaction</span>. That covers
+                        credit card processing, tax processing, and a sales tax reserve. That{" "}
+                        <span className="font-semibold text-gray-800">averages 7% less than most third-party retailers</span>.
+                      </p>
+                    ) : null}
                     <p className="text-xs text-gray-500 mb-3">Valid until canceled</p>
                     {plan.id === "subscribe" ? (
                       <ResidentSubscribeTierPicker
