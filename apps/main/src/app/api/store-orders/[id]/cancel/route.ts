@@ -7,16 +7,11 @@ import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 import { notifySellerOrderCanceled } from "@/lib/store-return-notify";
 import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
+import { BUYER_ORDER_REASONS } from "@/lib/buyer-orders";
 import { buyerFulfillmentHasStarted } from "@/lib/store-return";
 import { pickCurrentOutboundShipment } from "@/lib/store-order-shipments";
 
-const CANCEL_REASONS = [
-  "Changed my mind",
-  "Didn't mean to order",
-  "Order Arrived Damaged",
-  "Wrong Item Delivered",
-  "Other",
-] as const;
+const CANCEL_REASONS = BUYER_ORDER_REASONS;
 
 export const dynamic = "force-dynamic";
 

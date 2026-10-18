@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   View,
@@ -34,8 +35,14 @@ import { SubscriptionCheckoutWithFallback } from "@/components/SubscriptionCheck
 import { OnboardingProgress } from "@/components/seller-onboarding/OnboardingProgress";
 import { OnboardingSection } from "@/components/seller-onboarding/OnboardingSection";
 import { ShippingSetupPanel } from "@/app/seller-hub/shipping-setup";
-import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
-import { policyFromStored, type SellerReturnLabelPolicy } from "@/lib/seller-return-label-policy";
+import { PolicyPreviewField, SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import {
+  freeShippingPolicyLead,
+  handlingTimeBoldLine,
+  policyFromStored,
+  showsFreeReturns,
+  type SellerReturnLabelPolicy,
+} from "@/lib/seller-return-label-policy";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -79,6 +86,14 @@ function toWizardStep(step?: string): Step {
   return normalized ?? "business";
 }
 
+const ONBOARDING_STEP_KEY = "nwc-seller-onboarding-step";
+
+function laterStep(serverStep: Step, remembered?: string | null): Step {
+  const saved = normalizeStart(remembered ?? undefined);
+  if (saved && STEP_INDEX[saved] > STEP_INDEX[serverStep]) return saved;
+  return serverStep;
+}
+
 export default function SignupSellerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -88,6 +103,9 @@ export default function SignupSellerScreen() {
   const startParam = typeof params.start === "string" ? params.start : undefined;
 
   const [step, setStep] = useState<Step>(normalizeStart(startParam) ?? "account");
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">(
+    params.billing === "yearly" ? "yearly" : "monthly"
+  );
   const [placed, setPlaced] = useState(!member);
   const placedKey = useRef<string | null>(null);
   const [hasSubscription, setHasSubscription] = useState(false);
@@ -106,6 +124,8 @@ export default function SignupSellerScreen() {
   const [loading, setLoading] = useState(false);
   const [allowRemoveWithoutPrompt, setAllowRemoveWithoutPrompt] = useState(false);
   const [shippingReady, setShippingReady] = useState(false);
+  const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
+  const [acceptReturnsDays, setAcceptReturnsDays] = useState("30");
   const [stripeReady, setStripeReady] = useState(false);
   const [payoutLoading, setPayoutLoading] = useState(false);
   const [etsyConnected, setEtsyConnected] = useState(false);
@@ -125,6 +145,9 @@ export default function SignupSellerScreen() {
       returnLabelPayer?: string | null;
       returnLabelPayerByReason?: unknown;
       chargeReturnShipping?: boolean;
+      offerFreeShippingOnInw?: boolean;
+      acceptReturns?: boolean;
+      acceptReturnsDays?: number;
     }>("/api/me")
       .then((data) => {
         if (cancelled) return;
@@ -132,6 +155,8 @@ export default function SignupSellerScreen() {
         setPolicyDraft(policyFromStored(data));
         setPolicyShipping(data.sellerShippingPolicy ?? "");
         setPolicyReturns(data.sellerReturnPolicy ?? "");
+        setOfferFreeShippingOnInw(data.offerFreeShippingOnInw === true);
+        setAcceptReturnsDays(String(data.acceptReturnsDays ?? 30));
       })
       .catch(() => {});
     return () => {
@@ -149,7 +174,7 @@ export default function SignupSellerScreen() {
       const requested = normalizeStart(startParam);
       const query = requested ? `?requested=${encodeURIComponent(requested)}` : "";
       apiGet<SellerStatus>(`/api/signup/seller/status${query}`)
-        .then((status) => {
+        .then(async (status) => {
           if (cancelled) return;
           setHasSubscription(Boolean(status.hasSubscription));
           setStripeReady(Boolean(status.stripeConnectStarted));
@@ -163,7 +188,8 @@ export default function SignupSellerScreen() {
             if (status.firstName) setFirstName(status.firstName);
             if (status.lastName) setLastName(status.lastName);
             if (status.phone) setPhone(status.phone);
-            setStep(toWizardStep(status.step));
+            const remembered = await AsyncStorage.getItem(ONBOARDING_STEP_KEY);
+            if (!cancelled) setStep(laterStep(toWizardStep(status.step), remembered));
           }
           setPlaced(true);
         })
@@ -404,8 +430,14 @@ export default function SignupSellerScreen() {
 
   const goToSellerHub = () => {
     setAllowRemoveWithoutPrompt(true);
+    void AsyncStorage.setItem(ONBOARDING_STEP_KEY, "import");
     setTimeout(() => router.replace("/seller-hub" as never), 0);
   };
+
+  function advance(next: Step) {
+    void AsyncStorage.setItem(ONBOARDING_STEP_KEY, next);
+    setStep(next);
+  }
 
   if (member && !placed) {
     return (
@@ -440,6 +472,9 @@ export default function SignupSellerScreen() {
                 Add the details shoppers see on your storefront. Categories can be your own, not only the directory list.
               </Text>
               {error ? <Text style={styles.error}>{error}</Text> : null}
+              <Pressable style={[styles.backBtn, { marginTop: 8 }]} onPress={() => advance("contact")}>
+                <Text style={styles.backBtnText}>Skip this step</Text>
+              </Pressable>
             </View>
           }
           footerContent={progress}
@@ -544,6 +579,7 @@ export default function SignupSellerScreen() {
               <StepActions
                 onBack={back ? () => setStep(back) : undefined}
                 onContinue={() => void handleContactSubmit()}
+                onSkip={() => advance("subscribe")}
                 continueLabel="Continue"
                 loading={loading}
               />
@@ -559,9 +595,31 @@ export default function SignupSellerScreen() {
                 accessibilityLabel="Northwest Community"
               />
               <Text style={styles.subscribeTitle}>Subscribe as a Northwest Community Seller</Text>
+              <View style={styles.billingRow}>
+                <Pressable
+                  style={[styles.billingChip, billingInterval === "monthly" && styles.billingChipOn]}
+                  onPress={() => setBillingInterval("monthly")}
+                >
+                  <Text style={[styles.billingChipText, billingInterval === "monthly" && styles.billingChipTextOn]}>
+                    Monthly
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.billingChip, billingInterval === "yearly" && styles.billingChipOn]}
+                  onPress={() => setBillingInterval("yearly")}
+                >
+                  <Text style={[styles.billingChipText, billingInterval === "yearly" && styles.billingChipTextOn]}>
+                    Yearly
+                  </Text>
+                </Pressable>
+              </View>
               <Text style={styles.price}>
-                $20.00 <Text style={styles.priceUnit}>per month</Text>
+                {billingInterval === "yearly" ? "$200.00" : "$20.00"}{" "}
+                <Text style={styles.priceUnit}>{billingInterval === "yearly" ? "per year" : "per month"}</Text>
               </Text>
+              {billingInterval === "yearly" ? (
+                <Text style={styles.copy}>About $16.67/mo billed annually</Text>
+              ) : null}
               <Text style={styles.copy}>
                 The seller subscription includes everything in the business plan, as well as access to our storefront, third-party syncing with Shopify and/or Etsy, shipping items, and getting paid directly through payouts. INW has a monthly subscription because we do not take a percentage of the items you sell.
               </Text>
@@ -573,7 +631,7 @@ export default function SignupSellerScreen() {
                 <SubscriptionCheckoutWithFallback
                   planId="seller"
                   businessData={businessData ?? undefined}
-                  interval={params.billing === "yearly" ? "yearly" : "monthly"}
+                  interval={billingInterval}
                   onSuccess={handleCheckoutSuccess}
                   refreshMember={refreshMember}
                   onExternalCheckoutStart={() => setAllowRemoveWithoutPrompt(true)}
@@ -583,6 +641,9 @@ export default function SignupSellerScreen() {
                     <Text style={styles.backBtnText}>Back</Text>
                   </Pressable>
                 ) : null}
+                <Pressable style={styles.subscribeBack} onPress={() => advance("shipping")}>
+                  <Text style={styles.backBtnText}>Skip</Text>
+                </Pressable>
               </View>
             </OnboardingSection>
           ) : null}
@@ -596,6 +657,7 @@ export default function SignupSellerScreen() {
                 <ShippingSetupPanel
                   embedded
                   onProgress={(progressState) => {
+                    setOfferFreeShippingOnInw(Boolean(progressState.offerFreeShippingOnInw));
                     setShippingReady(
                       progressState.shippoConnected &&
                         (progressState.offerFreeShippingOnInw || progressState.optionCount >= 1)
@@ -605,7 +667,8 @@ export default function SignupSellerScreen() {
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 <StepActions
                   onBack={back ? () => setStep(back) : undefined}
-                  onContinue={() => setStep("policies")}
+                  onContinue={() => advance("policies")}
+                  onSkip={() => advance("policies")}
                   continueLabel="Continue"
                   continueDisabled={!shippingReady}
                 />
@@ -616,26 +679,36 @@ export default function SignupSellerScreen() {
           {step === "policies" ? (
             <OnboardingSection
               title="Policies"
-              description="These answers show on your storefront. A preset handling time and seller-paid returns are added in bold."
+              description="The bold free shipping line, handling time, and FREE RETURNS show at the top of the policy. Type the rest underneath."
             >
-              <SellerPolicyQuestions sellerName={policyName} policy={policyDraft} onChange={setPolicyDraft} />
-              <Text style={styles.fieldLabel}>Shipping policy</Text>
-              <TextInput
-                style={styles.input}
+              <SellerPolicyQuestions policy={policyDraft} onChange={setPolicyDraft} />
+              <PolicyPreviewField
+                label="Shipping Policy"
+                leads={[freeShippingPolicyLead(offerFreeShippingOnInw)]}
+                lead={handlingTimeBoldLine(policyName, policyDraft.handlingTime)}
                 value={policyShipping}
                 onChangeText={setPolicyShipping}
                 placeholder="Anything else buyers should know about shipping."
-                placeholderTextColor={theme.colors.placeholder}
-                multiline
               />
-              <Text style={styles.fieldLabel}>Return policy</Text>
-              <TextInput
-                style={styles.input}
+              <Text style={styles.fieldLabel}>Accept returns for</Text>
+              <View style={styles.daysRow}>
+                <TextInput
+                  style={[styles.input, styles.daysInput]}
+                  value={acceptReturnsDays}
+                  onChangeText={(t) => setAcceptReturnsDays(t.replace(/[^0-9]/g, ""))}
+                  keyboardType="number-pad"
+                  placeholder="30"
+                  placeholderTextColor={theme.colors.placeholder}
+                />
+                <Text style={styles.ageLabel}>days after delivery</Text>
+              </View>
+              <Text style={styles.hint}>Mention this return window in your refund policy below.</Text>
+              <PolicyPreviewField
+                label="Refund Policy"
+                leads={[showsFreeReturns(policyDraft) ? "FREE RETURNS" : null]}
                 value={policyReturns}
                 onChangeText={setPolicyReturns}
-                placeholder="Anything else buyers should know about returns."
-                placeholderTextColor={theme.colors.placeholder}
-                multiline
+                placeholder={`e.g. Refunds and returns within ${acceptReturnsDays || "30"} days.`}
               />
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <StepActions
@@ -649,11 +722,14 @@ export default function SignupSellerScreen() {
                     returnLabelPayerByReason: policyDraft.returnLabelPayerByReason,
                     sellerShippingPolicy: policyShipping.trim() || null,
                     sellerReturnPolicy: policyReturns.trim() || null,
+                    acceptReturns: true,
+                    acceptReturnsDays: Math.min(365, Math.max(1, Number(acceptReturnsDays) || 30)),
                   })
-                    .then(() => setStep("payouts"))
+                    .then(() => advance("payouts"))
                     .catch((e) => setError((e as { error?: string }).error ?? "Could not save policies."))
                     .finally(() => setLoading(false));
                 }}
+                onSkip={() => advance("payouts")}
                 continueLabel={loading ? "Saving…" : "Continue"}
                 loading={loading}
                 continueDisabled={loading || !policyDraft.handlingTime}
@@ -689,7 +765,8 @@ export default function SignupSellerScreen() {
                 </Pressable>
                 <StepActions
                   onBack={() => setStep("policies")}
-                  onContinue={() => setStep("import")}
+                  onContinue={() => advance("import")}
+                  onSkip={() => advance("import")}
                   continueLabel="Continue"
                   continueDisabled={!stripeReady}
                 />
@@ -773,12 +850,14 @@ export default function SignupSellerScreen() {
 function StepActions({
   onBack,
   onContinue,
+  onSkip,
   continueLabel,
   loading,
   continueDisabled,
 }: {
   onBack?: () => void;
   onContinue: () => void;
+  onSkip?: () => void;
   continueLabel: string;
   loading?: boolean;
   continueDisabled?: boolean;
@@ -797,6 +876,11 @@ function StepActions({
       >
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.continueText}>{continueLabel}</Text>}
       </Pressable>
+      {onSkip ? (
+        <Pressable style={styles.backBtn} onPress={onSkip} disabled={loading}>
+          <Text style={styles.backBtnText}>Skip</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -822,6 +906,10 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     backgroundColor: "#fff",
   },
+  daysRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  daysInput: { width: 88, marginBottom: 0 },
+  inputDisabled: { opacity: 0.5 },
+  hint: { fontSize: 13, color: "#6b7280", marginTop: 8, marginBottom: 4, lineHeight: 18 },
   ageRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 8 },
   ageLabel: { flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.text },
   termsText: { fontSize: 13, color: theme.colors.text, marginBottom: 12, lineHeight: 18 },
@@ -849,6 +937,18 @@ const styles = StyleSheet.create({
   continueText: { color: "#fff", fontSize: 16, fontWeight: "700", textAlign: "center" },
   disabled: { opacity: 0.55 },
   logo: { width: 80, height: 80, borderRadius: 40, alignSelf: "center", marginBottom: 12 },
+  billingRow: { flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 12 },
+  billingChip: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    backgroundColor: "#fff",
+  },
+  billingChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  billingChipText: { fontSize: 15, color: "#374151", fontWeight: "600" },
+  billingChipTextOn: { color: "#fff" },
   subscribeTitle: {
     fontSize: 22,
     fontWeight: "700",

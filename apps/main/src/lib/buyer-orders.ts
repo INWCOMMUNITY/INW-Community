@@ -24,8 +24,14 @@ export type BuyerOrderTab = (typeof BUYER_ORDER_TABS)[number]["key"];
 export const BUYER_ORDER_REASONS = [
   "Changed my mind",
   "Didn't mean to order",
+  "Ordered the wrong size, color, or quantity",
+  "Doesn't fit",
+  "No longer needed",
   "Order Arrived Damaged",
   "Wrong Item Delivered",
+  "Not as described",
+  "Missing parts",
+  "Defective",
   "Other",
 ] as const;
 
@@ -85,7 +91,7 @@ export type BuyerStoreOrder = {
   sellerChargeReturnShipping?: boolean;
   sellerPolicyName?: string;
   returnLabelPayer?: "seller" | "buyer" | "by_reason";
-  returnLabelPayerByReason?: Record<string, "seller" | "buyer">;
+  returnLabelPayerByReason?: Record<string, "seller" | "buyer" | "later">;
   returnWindowEndsAt?: string | null;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;

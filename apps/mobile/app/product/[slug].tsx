@@ -88,8 +88,11 @@ interface StoreItem {
     acceptMessagesForListings?: boolean;
     sellerShippingPolicy?: string | null;
     sellerLocalDeliveryPolicy?: string | null;
+    offerLocalDelivery?: boolean | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    acceptReturns?: boolean | null;
+    acceptReturnsDays?: number | null;
     freeShippingMinimumCents?: number | null;
   };
   freeShippingBanner?: "storewide" | "threshold" | null;
@@ -589,13 +592,13 @@ export default function ProductScreen() {
   const effectiveShippingPolicy =
     item.shippingPolicy ?? item.member?.sellerShippingPolicy ?? null;
   const effectiveLocalDeliveryPolicy =
-    item.localDeliveryTerms ??
-    item.member?.sellerLocalDeliveryPolicy ??
-    null;
+    item.member?.offerLocalDelivery === false || !item.localDeliveryAvailable
+      ? null
+      : item.localDeliveryTerms ?? item.member?.sellerLocalDeliveryPolicy ?? null;
   const hasSellerPolicy =
     !!effectiveLocalDeliveryPolicy ||
     !!effectiveShippingPolicy ||
-    !!item.member?.sellerReturnPolicy;
+    !!item.member?.sellerReturnPolicy?.trim();
 
   const isResaleListing = item.condition === "used";
   const isOwnListing = !!(
@@ -1209,12 +1212,10 @@ export default function ProductScreen() {
                     </Text>
                   </View>
                 ) : null}
-                {item.member?.sellerReturnPolicy ? (
+                {item.member?.sellerReturnPolicy?.trim() ? (
                   <View style={styles.policyBlock}>
                     <Text style={styles.policyLabel}>Return Policy</Text>
-                    <Text style={styles.policyText}>
-                      {item.member.sellerReturnPolicy}
-                    </Text>
+                    <Text style={styles.policyText}>{item.member.sellerReturnPolicy}</Text>
                   </View>
                 ) : null}
               </View>

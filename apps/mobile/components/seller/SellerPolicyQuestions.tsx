@@ -1,30 +1,29 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { theme } from "@/lib/theme";
 import {
+  BUYER_FAULT_REASONS,
   HANDLING_TIME_PRESETS,
-  RETURN_LABEL_REASONS,
-  handlingTimeBoldLine,
-  showsFreeReturns,
+  SELLER_FAULT_REASONS,
+  applyReasonGroup,
+  reasonGroupSelection,
   type HandlingTime,
   type ReasonLabelPayer,
   type ReturnLabelPayerMode,
+  type ReturnLabelReason,
   type SellerReturnLabelPolicy,
 } from "@/lib/seller-return-label-policy";
 
 export function SellerPolicyQuestions({
-  sellerName,
   policy,
   onChange,
 }: {
-  sellerName: string;
   policy: SellerReturnLabelPolicy;
   onChange: (next: SellerReturnLabelPolicy) => void;
 }) {
-  const handlingLine = handlingTimeBoldLine(sellerName, policy.handlingTime);
   const payers: { value: ReturnLabelPayerMode; label: string }[] = [
     { value: "seller", label: "I do" },
-    { value: "buyer", label: "The buyer" },
-    { value: "by_reason", label: "By reason" },
+    { value: "buyer", label: "The Buyer" },
+    { value: "by_reason", label: "By Reason" },
   ];
   return (
     <View style={styles.wrap}>
@@ -49,12 +48,11 @@ export function SellerPolicyQuestions({
           <Text style={[styles.chipText, policy.handlingTime === "custom" && styles.chipTextOn]}>Custom</Text>
         </Pressable>
       </View>
-      {handlingLine ? <Text style={styles.bold}>{handlingLine}</Text> : null}
       {policy.handlingTime === "custom" ? (
         <Text style={styles.hint}>Custom handling time does not add the bold shipping line.</Text>
       ) : null}
 
-      <Text style={styles.heading}>Return policy</Text>
+      <Text style={styles.heading}>Return Policy</Text>
       <Text style={styles.label}>Who pays for the return label?</Text>
       {payers.map((payer) => (
         <Pressable
@@ -66,45 +64,156 @@ export function SellerPolicyQuestions({
           <Text style={styles.radioLabel}>{payer.label}</Text>
         </Pressable>
       ))}
-      {policy.returnLabelPayer === "by_reason"
-        ? RETURN_LABEL_REASONS.map((reason) => (
-            <View key={reason} style={styles.reasonBlock}>
-              <Text style={styles.reason}>{reason}</Text>
-              <View style={styles.choiceRow}>
-                {(
-                  [
-                    ["buyer", "Buyer pays"],
-                    ["seller", "I pay"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Pressable
-                    key={value}
-                    style={[styles.chip, policy.returnLabelPayerByReason[reason] === value && styles.chipOn]}
-                    onPress={() =>
-                      onChange({
-                        ...policy,
-                        returnLabelPayerByReason: {
-                          ...policy.returnLabelPayerByReason,
-                          [reason]: value satisfies ReasonLabelPayer,
-                        },
-                      })
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        policy.returnLabelPayerByReason[reason] === value && styles.chipTextOn,
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ))
-        : null}
-      {showsFreeReturns(policy) ? <Text style={styles.bold}>FREE RETURNS</Text> : null}
+      {policy.returnLabelPayer === "by_reason" ? (
+        <>
+          <ReasonGroup title="Buyer fault" reasons={BUYER_FAULT_REASONS} policy={policy} onChange={onChange} />
+          <ReasonGroup title="Seller fault" reasons={SELLER_FAULT_REASONS} policy={policy} onChange={onChange} />
+          <Text style={styles.reason}>Other</Text>
+          <View style={styles.choiceRow}>
+            {(
+              [
+                ["buyer", "Buyer pays"],
+                ["seller", "I pay"],
+                ["later", "Decide at that time"],
+              ] as const
+            ).map(([value, label]) => (
+              <Pressable
+                key={value}
+                style={[styles.chip, policy.returnLabelPayerByReason.Other === value && styles.chipOn]}
+                onPress={() =>
+                  onChange({
+                    ...policy,
+                    returnLabelPayerByReason: { ...policy.returnLabelPayerByReason, Other: value },
+                  })
+                }
+              >
+                <Text style={[styles.chipText, policy.returnLabelPayerByReason.Other === value && styles.chipTextOn]}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+export function PolicyPreviewField({
+  label,
+  lead,
+  leads,
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  label: string;
+  lead?: string | null;
+  leads?: readonly (string | null | undefined)[];
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+}) {
+  const lines = [...(leads ?? []), lead].filter((line): line is string => Boolean(line));
+  return (
+    <View style={styles.previewWrap}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.previewBox}>
+        {lines.map((line) => (
+          <Text key={line} style={styles.bold}>
+            {line}
+          </Text>
+        ))}
+        <TextInput
+          style={styles.previewInput}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={lines.length ? "Type under this line." : placeholder}
+          placeholderTextColor={theme.colors.placeholder}
+          multiline
+          textAlignVertical="top"
+        />
+      </View>
+    </View>
+  );
+}
+
+function ReasonGroup({
+  title,
+  reasons,
+  policy,
+  onChange,
+}: {
+  title: string;
+  reasons: readonly ReturnLabelReason[];
+  policy: SellerReturnLabelPolicy;
+  onChange: (next: SellerReturnLabelPolicy) => void;
+}) {
+  const selected = reasonGroupSelection(policy.returnLabelPayerByReason, reasons);
+  return (
+    <View style={styles.reasonBlock}>
+      <Text style={styles.reason}>{title}</Text>
+      <View style={styles.choiceRow}>
+        {(
+          [
+            ["buyer", "Buyer pays"],
+            ["seller", "I pay"],
+          ] as const
+        ).map(([value, label]) => (
+          <Pressable
+            key={value}
+            style={[styles.chip, selected === value && styles.chipOn]}
+            onPress={() =>
+              onChange({
+                ...policy,
+                returnLabelPayerByReason: applyReasonGroup(
+                  policy.returnLabelPayerByReason,
+                  reasons,
+                  value satisfies ReasonLabelPayer
+                ),
+              })
+            }
+          >
+            <Text style={[styles.chipText, selected === value && styles.chipTextOn]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {reasons.map((reason) => (
+        <View key={reason} style={styles.reasonBlock}>
+          <Text style={styles.reason}>{reason}</Text>
+          <View style={styles.choiceRow}>
+            {(
+              [
+                ["buyer", "Buyer pays"],
+                ["seller", "I pay"],
+              ] as const
+            ).map(([value, label]) => (
+              <Pressable
+                key={value}
+                style={[styles.chip, policy.returnLabelPayerByReason[reason] === value && styles.chipOn]}
+                onPress={() =>
+                  onChange({
+                    ...policy,
+                    returnLabelPayerByReason: {
+                      ...policy.returnLabelPayerByReason,
+                      [reason]: value satisfies ReasonLabelPayer,
+                    },
+                  })
+                }
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    policy.returnLabelPayerByReason[reason] === value && styles.chipTextOn,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -133,4 +242,19 @@ const styles = StyleSheet.create({
   radioLabel: { fontSize: 15, color: "#111827" },
   reasonBlock: { gap: 6, marginTop: 6 },
   reason: { fontSize: 14, color: "#111827" },
+  previewWrap: { marginTop: 8 },
+  previewBox: {
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  previewInput: {
+    minHeight: 88,
+    paddingVertical: 8,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
 });

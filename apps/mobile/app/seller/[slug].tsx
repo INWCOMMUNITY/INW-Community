@@ -23,7 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { buildProductPath } from "@/lib/product-referrer";
 import { openAddressInMaps } from "@/lib/open-maps";
-import { handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
+import { freeShippingPolicyLead, handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { AppImage } from "@/components/AppImage";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
@@ -82,6 +82,7 @@ interface SellerStorefront {
   chargeReturnShipping?: boolean;
   handlingTime?: string | null;
   returnLabelPayer?: string | null;
+  offerFreeShippingOnInw?: boolean;
   offerShipping: boolean;
   offerLocalDelivery: boolean;
   offerLocalPickup: boolean;
@@ -563,16 +564,18 @@ export default function SellerStorefrontScreen() {
       chargeReturnShipping: seller.chargeReturnShipping,
     });
     const shipLine = handlingTimeBoldLine(seller.name, labelPolicy.handlingTime);
+    const freeShipping = freeShippingPolicyLead(seller.offerFreeShippingOnInw);
     const freeReturns = showsFreeReturns(labelPolicy);
     return (
     <View style={styles.tabContent}>
       <View style={styles.policiesContainer}>
-        {(shipLine || seller.sellerShippingPolicy) && (
+        {(freeShipping || shipLine || seller.sellerShippingPolicy) && (
           <View style={styles.policyCard}>
             <View style={styles.policyHeader}>
               <Ionicons name="airplane-outline" size={20} color={theme.colors.primary} />
               <Text style={styles.policyTitle}>Shipping Policy</Text>
             </View>
+            {freeShipping ? <Text style={[styles.policyText, { fontWeight: "700" }]}>{freeShipping}</Text> : null}
             {shipLine ? <Text style={[styles.policyText, { fontWeight: "700" }]}>{shipLine}</Text> : null}
             {seller.sellerShippingPolicy ? <Text style={styles.policyText}>{seller.sellerShippingPolicy}</Text> : null}
           </View>
@@ -598,17 +601,12 @@ export default function SellerStorefrontScreen() {
             </View>
             {freeReturns ? <Text style={[styles.policyText, { fontWeight: "700" }]}>FREE RETURNS</Text> : null}
             <Text style={styles.policyText}>
-              {seller.acceptReturns === false
-                ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
-                : [
-                    `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery.`,
-                    seller.chargeReturnShipping
-                      ? "Return shipping may be deducted from your refund."
-                      : null,
-                    seller.sellerReturnPolicy?.trim() || null,
-                  ]
-                    .filter(Boolean)
-                    .join("\n\n")}
+              {[
+                seller.chargeReturnShipping ? "Return shipping may be deducted from your refund." : null,
+                seller.sellerReturnPolicy?.trim() || null,
+              ]
+                .filter(Boolean)
+                .join("\n\n")}
             </Text>
           </View>
         )}

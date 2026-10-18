@@ -15,6 +15,7 @@ import { z } from "zod";
 import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
 import { memberHasAppAccess } from "@/lib/member-public-visibility";
 import { ACCOUNT_SETUP_INCOMPLETE_MESSAGE } from "@/lib/require-verified-member";
+import { clampAcceptReturnsDays } from "@/lib/store-return";
 import {
   chargeReturnShippingForMode,
   isReturnLabelPayerMode,
@@ -57,7 +58,7 @@ const patchSchema = z.object({
   chargeReturnShipping: z.boolean().optional(),
   handlingTime: z.enum(["1-2", "2-3", "3-4", "4-5", "custom"]).nullable().optional(),
   returnLabelPayer: z.enum(["seller", "buyer", "by_reason"]).optional(),
-  returnLabelPayerByReason: z.record(z.enum(["buyer", "seller"])).optional(),
+  returnLabelPayerByReason: z.record(z.enum(["buyer", "seller", "later"])).optional(),
   offerShipping: z.boolean().optional(),
   offerLocalDelivery: z.boolean().optional(),
   offerLocalPickup: z.boolean().optional(),
@@ -95,6 +96,7 @@ export async function GET(req: NextRequest) {
       handlingTime: true,
       returnLabelPayer: true,
       returnLabelPayerByReason: true,
+      offerFreeShippingOnInw: true,
       offerShipping: true,
       offerLocalDelivery: true,
       offerLocalPickup: true,
@@ -271,11 +273,11 @@ export async function PATCH(req: NextRequest) {
         ...(data.sellerReturnPolicy !== undefined && {
           sellerReturnPolicy: data.sellerReturnPolicy === null || data.sellerReturnPolicy === "" ? null : data.sellerReturnPolicy,
         }),
-        ...(data.acceptReturns !== undefined && {
-          acceptReturns: data.acceptReturns,
-        }),
+        ...((data.acceptReturns !== undefined || data.acceptReturnsDays !== undefined)
+          ? { acceptReturns: true }
+          : {}),
         ...(data.acceptReturnsDays !== undefined && {
-          acceptReturnsDays: data.acceptReturnsDays,
+          acceptReturnsDays: clampAcceptReturnsDays(data.acceptReturnsDays),
         }),
         ...(data.chargeReturnShipping !== undefined && data.returnLabelPayer === undefined && {
           chargeReturnShipping: data.chargeReturnShipping,

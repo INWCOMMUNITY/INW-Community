@@ -188,7 +188,7 @@ export function buyerReturnPolicyFields(
   const days = clampAcceptReturnsDays(seller.acceptReturnsDays);
   const policy = policyFromStored(seller);
   return {
-    sellerAcceptsReturns: seller.acceptReturns !== false,
+    sellerAcceptsReturns: true,
     sellerAcceptsReturnsDays: days,
     sellerChargeReturnShipping: policy.returnLabelPayer === "buyer",
     sellerPolicyName: sellerPolicyName({
@@ -391,16 +391,12 @@ export function sellerReturnPolicySummary(seller: {
   chargeReturnShipping?: boolean;
   sellerReturnPolicy?: string | null;
 }): string {
-  if (seller.acceptReturns === false) {
-    return seller.sellerReturnPolicy?.trim() || "This seller does not accept returns.";
-  }
-  const days = clampAcceptReturnsDays(seller.acceptReturnsDays);
-  const windowLine = `Returns within ${days} days of delivery or pickup.`;
   const shipLine = seller.chargeReturnShipping
-    ? " Return shipping may be deducted from your refund."
+    ? "Return shipping may be deducted from your refund."
     : "";
   const extra = seller.sellerReturnPolicy?.trim();
-  return extra ? `${windowLine}${shipLine}\n\n${extra}` : `${windowLine}${shipLine}`;
+  if (extra && shipLine) return `${shipLine}\n\n${extra}`;
+  return extra || shipLine;
 }
 
 export function storeReturnBuyerLabel(

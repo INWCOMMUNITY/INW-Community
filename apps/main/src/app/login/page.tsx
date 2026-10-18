@@ -85,8 +85,13 @@ function LoginForm() {
       const statusRes = await fetch("/api/signup/seller/status", { credentials: "include" });
       const status = (await statusRes.json().catch(() => ({}))) as { resumePath?: string | null };
       if (cancelled) return;
+      const remembered = sessionStorage.getItem("nwc-seller-onboarding-step");
+      if (remembered === "import") {
+        router.replace("/seller-hub");
+        return;
+      }
       if (typeof status.resumePath === "string" && status.resumePath.startsWith("/signup/")) {
-        router.replace(status.resumePath);
+        router.replace(remembered ? `/signup/seller?step=${remembered}` : status.resumePath);
         return;
       }
       const target =
@@ -272,8 +277,13 @@ function LoginForm() {
       if (res?.ok) {
         const statusRes = await fetch("/api/signup/seller/status", { credentials: "include" });
         const status = (await statusRes.json().catch(() => ({}))) as { resumePath?: string | null };
+        const remembered = sessionStorage.getItem("nwc-seller-onboarding-step");
+        if (remembered === "import") {
+          window.location.href = "/seller-hub";
+          return;
+        }
         if (typeof status.resumePath === "string" && status.resumePath.startsWith("/signup/")) {
-          window.location.href = status.resumePath;
+          window.location.href = remembered ? `/signup/seller?step=${remembered}` : status.resumePath;
           return;
         }
         window.location.href = postLoginUrlForAdminAccount(email, callbackUrl);

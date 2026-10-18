@@ -229,11 +229,11 @@ export async function POST(req: NextRequest) {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url:
         planId === "seller"
-          ? `${baseUrl}/signup/seller?step=shipping&success=1`
+          ? `${baseUrl}/signup/seller?step=shipping&success=1&billing=${interval}`
           : `${baseUrl}/my-community?success=1`,
       cancel_url:
         planId === "seller"
-          ? `${baseUrl}/signup/seller?step=subscribe&canceled=1`
+          ? `${baseUrl}/signup/seller?step=subscribe&canceled=1&billing=${interval}`
           : `${baseUrl}/support-nwc?canceled=1`,
       automatic_tax: {
         enabled:

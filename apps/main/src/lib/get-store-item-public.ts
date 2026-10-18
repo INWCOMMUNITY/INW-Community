@@ -54,8 +54,11 @@ const storeItemPublicSelect = {
       lastName: true,
       sellerShippingPolicy: true,
       sellerLocalDeliveryPolicy: true,
+      offerLocalDelivery: true,
       sellerPickupPolicy: true,
       sellerReturnPolicy: true,
+      acceptReturns: true,
+      acceptReturnsDays: true,
       freeShippingMinimumCents: true,
       offerFreeShippingOnInw: true,
     },
@@ -104,8 +107,11 @@ export type StoreItemPublicPayload = {
     lastName: string;
     sellerShippingPolicy?: string | null;
     sellerLocalDeliveryPolicy?: string | null;
+    offerLocalDelivery?: boolean | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    acceptReturns?: boolean | null;
+    acceptReturnsDays?: number | null;
     freeShippingMinimumCents?: number | null;
     offerFreeShippingOnInw?: boolean | null;
   } | null;

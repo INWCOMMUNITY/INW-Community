@@ -2,11 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import { PolicyPreviewField, SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
 import {
+  freeShippingPolicyLead,
+  handlingTimeBoldLine,
   policyFromStored,
+  showsFreeReturns,
   type SellerReturnLabelPolicy,
 } from "@/lib/seller-return-label-policy";
+import { clampAcceptReturnsDays } from "@/lib/store-return";
 
 interface PolicyData {
   sellerShippingPolicy?: string | null;
@@ -15,8 +19,13 @@ interface PolicyData {
   acceptReturns?: boolean;
   acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
+  handlingTime?: string | null;
+  returnLabelPayer?: string | null;
+  returnLabelPayerByReason?: unknown;
+  sellerPolicyName?: string;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
+  offerFreeShippingOnInw?: boolean;
 }
 
 const POLICY_FIELDS: {
@@ -54,13 +63,9 @@ export default function PoliciesPage() {
   });
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
-  const [acceptReturns, setAcceptReturns] = useState(true);
   const [acceptReturnsDays, setAcceptReturnsDays] = useState(30);
-  const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/me/policies", { credentials: "include" })
   const [sellerName, setSellerName] = useState("This seller");
+  const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
   const [returnPolicy, setReturnPolicy] = useState<SellerReturnLabelPolicy>(() =>
     policyFromStored({ chargeReturnShipping: false })
   );
@@ -76,10 +81,14 @@ export default function PoliciesPage() {
         });
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
-        setAcceptReturns(data?.acceptReturns !== false);
         setAcceptReturnsDays(data?.acceptReturnsDays ?? 30);
         setSellerName(data?.sellerPolicyName?.trim() || "This seller");
+        setOfferFreeShippingOnInw(data?.offerFreeShippingOnInw === true);
         setReturnPolicy(policyFromStored(data ?? {}));
+      })
+      .catch(() => setError("Failed to load policies."))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,15 +108,15 @@ export default function PoliciesPage() {
           offerShipping,
           offerLocalDelivery,
           offerLocalPickup: false,
-          acceptReturns,
-          acceptReturnsDays,
-          chargeReturnShipping,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
+          acceptReturns: true,
+          acceptReturnsDays: clampAcceptReturnsDays(acceptReturnsDays),
           handlingTime: returnPolicy.handlingTime,
           returnLabelPayer: returnPolicy.returnLabelPayer,
           returnLabelPayerByReason: returnPolicy.returnLabelPayerByReason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
         setError(data.error ?? "Failed to save.");
         return;
       }
@@ -156,47 +165,45 @@ export default function PoliciesPage() {
                 </label>
               </div>
             )}
-            <label htmlFor={key} className="block text-sm font-medium text-gray-700">
-              {label}
-            </label>
-            <textarea
             {key === "sellerShippingPolicy" ? (
               <SellerPolicyQuestions
-                sellerName={sellerName}
                 policy={returnPolicy}
                 onChange={setReturnPolicy}
                 disabled={saving}
               />
             ) : null}
-              id={key}
-              value={values[key]}
-              onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
-              placeholder={placeholder}
-              rows={4}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-500 min-w-0"
-            />
+            {key === "sellerShippingPolicy" ? (
+              <PolicyPreviewField
+                id={key}
+                label={label}
+                leads={[freeShippingPolicyLead(offerFreeShippingOnInw)]}
+                lead={handlingTimeBoldLine(sellerName, returnPolicy.handlingTime)}
+                value={values[key] ?? ""}
+                onChange={(text) => setValues((v) => ({ ...v, [key]: text }))}
+                placeholder={placeholder}
+                disabled={saving}
+              />
+            ) : key === "sellerLocalDeliveryPolicy" && !offerLocalDelivery ? null : (
+              <>
+                <label htmlFor={key} className="block text-sm font-medium text-gray-700">
+                  {label}
+                </label>
+                <textarea
+                  id={key}
+                  value={values[key]}
+                  onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  rows={4}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-500 min-w-0"
+                />
+              </>
+            )}
           </div>
         ))}
 
         <div className="space-y-4 rounded-lg border border-gray-200 p-4 bg-gray-50">
           <h2 className="text-lg font-semibold text-gray-900">Returns & Refunds</h2>
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="accept-returns"
-              checked={acceptReturns}
-              onChange={(e) => setAcceptReturns(e.target.checked)}
-              className="rounded border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]"
-            />
-            <label htmlFor="accept-returns" className="text-sm font-medium text-gray-700">
-              Accept returns
-            </label>
-          </div>
-          <p className="text-sm text-gray-600">
-            When off, buyers cannot request a return after an order ships. You can still cancel and
-            refund an order before it ships.
-          </p>
-          <label htmlFor="accept-returns-days" className={`block text-sm font-medium ${acceptReturns ? "text-gray-700" : "text-gray-400"}`}>
+          <label htmlFor="accept-returns-days" className="block text-sm font-medium text-gray-700">
             Accept returns for
           </label>
           <div className="flex items-center gap-2">
@@ -206,32 +213,30 @@ export default function PoliciesPage() {
               min={1}
               max={365}
               value={acceptReturnsDays}
-              onChange={(e) => setAcceptReturnsDays(Math.min(365, Math.max(1, Number(e.target.value) || 1)))}
-              disabled={!acceptReturns}
-              className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
+              onChange={(e) => setAcceptReturnsDays(clampAcceptReturnsDays(Number(e.target.value)))}
+              className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-gray-900"
             />
-            <span className={`text-sm ${acceptReturns ? "text-gray-700" : "text-gray-400"}`}>
-              days after delivery
-            </span>
+            <span className="text-sm text-gray-700">days after delivery</span>
           </div>
-          <label htmlFor="sellerReturnPolicy" className="block text-sm font-medium text-gray-700">
-            Refund policy
-          </label>
-          <textarea
+          <p className="text-sm text-gray-600">
+            Mention this return window in your refund policy below.
+          </p>
+          <PolicyPreviewField
             id="sellerReturnPolicy"
+            label="Refund Policy"
+            leads={[showsFreeReturns(returnPolicy) ? "FREE RETURNS" : null]}
             value={values.sellerReturnPolicy}
-            onChange={(e) => setValues((v) => ({ ...v, sellerReturnPolicy: e.target.value }))}
+            onChange={(text) => setValues((v) => ({ ...v, sellerReturnPolicy: text }))}
             placeholder="e.g. Returns within 14 days, unused items only."
-            rows={4}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-500 min-w-0"
+            disabled={saving}
           />
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="charge-return-shipping"
           <p className="text-sm text-gray-600">
             When the buyer pays, the Shippo return-label price is deducted from the refund after you buy
             the label. You can still choose to pay for a label when you send it.
+          </p>
+        </div>
+
+        {error && <p className="text-red-600 text-sm">{error}</p>}
 
         <div className="flex items-center gap-3">
           <button

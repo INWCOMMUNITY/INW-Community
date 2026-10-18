@@ -15,8 +15,14 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
-import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
-import { policyFromStored, type SellerReturnLabelPolicy } from "@/lib/seller-return-label-policy";
+import { PolicyPreviewField, SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import {
+  freeShippingPolicyLead,
+  handlingTimeBoldLine,
+  policyFromStored,
+  showsFreeReturns,
+  type SellerReturnLabelPolicy,
+} from "@/lib/seller-return-label-policy";
 
 interface PolicyData {
   sellerShippingPolicy?: string | null;
@@ -33,6 +39,7 @@ interface PolicyData {
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
+  offerFreeShippingOnInw?: boolean;
 }
 
 const POLICY_FIELDS: { key: keyof PolicyData; label: string; placeholder: string; offerKey?: "offerShipping" | "offerLocalDelivery" | "offerLocalPickup"; offerLabel?: string }[] = [
@@ -56,9 +63,9 @@ export default function PoliciesScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
-  const [acceptReturns, setAcceptReturns] = useState(true);
   const [acceptReturnsDays, setAcceptReturnsDays] = useState("30");
   const [sellerName, setSellerName] = useState("This seller");
+  const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
   const [returnPolicy, setReturnPolicy] = useState<SellerReturnLabelPolicy>(() => policyFromStored({}));
 
   useEffect(() => {
@@ -73,9 +80,9 @@ export default function PoliciesScreen() {
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
-        setAcceptReturns(data?.acceptReturns !== false);
         setAcceptReturnsDays(String(data?.acceptReturnsDays ?? 30));
         setSellerName(data.sellerPolicyName?.trim() || "This seller");
+        setOfferFreeShippingOnInw(data?.offerFreeShippingOnInw === true);
         setReturnPolicy(policyFromStored(data));
       })
       .catch(() => setError("Failed to load policies."))
@@ -95,7 +102,7 @@ export default function PoliciesScreen() {
         offerShipping,
         offerLocalDelivery,
         offerLocalPickup,
-        acceptReturns,
+        acceptReturns: true,
         acceptReturnsDays: Math.min(365, Math.max(1, Number(acceptReturnsDays) || 30)),
         handlingTime: returnPolicy.handlingTime,
         returnLabelPayer: returnPolicy.returnLabelPayer,
@@ -141,7 +148,7 @@ export default function PoliciesScreen() {
           Set shipping, pickup, delivery, and refund policies here. Buyers see these on your storefront.
         </Text>
 
-        <SellerPolicyQuestions sellerName={sellerName} policy={returnPolicy} onChange={setReturnPolicy} />
+        <SellerPolicyQuestions policy={returnPolicy} onChange={setReturnPolicy} />
 
         {POLICY_FIELDS.map(({ key, label, placeholder, offerKey, offerLabel }) => (
           <View key={key} style={styles.field}>
@@ -173,60 +180,52 @@ export default function PoliciesScreen() {
                 <Text style={styles.checkboxLabel}>{offerLabel}</Text>
               </View>
             )}
-            <Text style={styles.label}>{label}</Text>
-            <TextInput
-              style={styles.input}
-              value={values[key]}
-              onChangeText={(t) => setValues((v) => ({ ...v, [key]: t }))}
-              placeholder={placeholder}
-              placeholderTextColor={theme.colors.placeholder}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              autoCorrect={true}
-            />
+            {key === "sellerShippingPolicy" ? (
+              <PolicyPreviewField
+                label={label}
+                leads={[freeShippingPolicyLead(offerFreeShippingOnInw)]}
+                lead={handlingTimeBoldLine(sellerName, returnPolicy.handlingTime)}
+                value={values[key] ?? ""}
+                onChangeText={(t) => setValues((v) => ({ ...v, [key]: t }))}
+                placeholder={placeholder}
+              />
+            ) : key === "sellerLocalDeliveryPolicy" && !offerLocalDelivery ? null : (
+              <>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={values[key]}
+                  onChangeText={(t) => setValues((v) => ({ ...v, [key]: t }))}
+                  placeholder={placeholder}
+                  placeholderTextColor={theme.colors.placeholder}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  autoCorrect={true}
+                />
+              </>
+            )}
           </View>
         ))}
 
         <View style={styles.field}>
           <Text style={styles.label}>Returns & Refunds</Text>
-          <View style={styles.checkboxRow}>
-            <Switch
-              value={acceptReturns}
-              onValueChange={setAcceptReturns}
-              trackColor={switchTrackColor()}
-              thumbColor={switchThumbColor(acceptReturns)}
-              ios_backgroundColor={switchIosBackgroundColor}
-            />
-            <Text style={styles.checkboxLabel}>Accept returns</Text>
-          </View>
-          <Text style={styles.hint}>
-            When off, buyers cannot request a return after an order ships. You can still cancel and
-            refund an order before it ships.
-          </Text>
-          <Text style={[styles.label, !acceptReturns && styles.checkboxLabelDisabled]}>
-            Accept returns for (days after delivery or pickup)
-          </Text>
+          <Text style={styles.label}>Accept returns for (days after delivery or pickup)</Text>
           <TextInput
-            style={[styles.input, styles.daysInput, !acceptReturns && styles.inputDisabled]}
+            style={[styles.input, styles.daysInput]}
             value={acceptReturnsDays}
             onChangeText={(t) => setAcceptReturnsDays(t.replace(/[^0-9]/g, ""))}
             keyboardType="number-pad"
-            editable={acceptReturns}
             placeholder="30"
             placeholderTextColor={theme.colors.placeholder}
           />
-          <Text style={styles.label}>Refund policy</Text>
-          <TextInput
-            style={styles.input}
+          <Text style={styles.hint}>Mention this return window in your refund policy below.</Text>
+          <PolicyPreviewField
+            label="Refund Policy"
+            leads={[showsFreeReturns(returnPolicy) ? "FREE RETURNS" : null]}
             value={values.sellerReturnPolicy}
             onChangeText={(t) => setValues((v) => ({ ...v, sellerReturnPolicy: t }))}
             placeholder="e.g. Returns within 14 days, unused items only."
-            placeholderTextColor={theme.colors.placeholder}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-            autoCorrect={true}
           />
           <Text style={styles.hint}>
             When the buyer pays, the Shippo return-label price is deducted from the refund after you buy

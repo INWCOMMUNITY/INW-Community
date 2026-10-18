@@ -6,7 +6,7 @@ import {
 } from "@/lib/store-return";
 import { pickCurrentOutboundShipment } from "@/lib/store-order-shipments";
 import { LATEST_STORE_RETURN_ORDER_BY } from "@/lib/store-return-order";
-import { policyFromStored, returnLabelChargesBuyer } from "@/lib/seller-return-label-policy";
+import { policyFromStored, returnLabelSellerChooses } from "@/lib/seller-return-label-policy";
 
 export type CreateBuyerRequestedStoreReturnInput = {
   orderId: string;
@@ -95,7 +95,7 @@ export async function createBuyerRequestedStoreReturn(
       status: order.status,
       isCashOrder: !order.stripePaymentIntentId,
       stripePaymentIntentId: order.stripePaymentIntentId,
-      sellerAcceptsReturns: order.seller.acceptReturns,
+      sellerAcceptsReturns: true,
       sellerAcceptsReturnsDays: order.seller.acceptReturnsDays,
       storeReturn: latest,
       refundRequestedAt: latest ? null : order.refundRequestedAt,
@@ -109,9 +109,6 @@ export async function createBuyerRequestedStoreReturn(
     };
 
     if (!buyerCanRequestRefund(refundCheck, now)) {
-      if (order.seller.acceptReturns === false) {
-        return { ok: false, error: "seller_no_returns" } as const;
-      }
       if (!order.stripePaymentIntentId) {
         return { ok: false, error: "no_card_payment" } as const;
       }
@@ -128,7 +125,7 @@ export async function createBuyerRequestedStoreReturn(
         status: "requested",
         reason: refundReason ?? reason,
         note,
-        chargeReturnShipping: returnLabelChargesBuyer(policy, reason),
+        chargeReturnShipping: returnLabelSellerChooses(policy, reason),
         requestedAt: now,
       },
     });

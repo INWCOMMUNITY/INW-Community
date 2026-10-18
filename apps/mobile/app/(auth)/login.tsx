@@ -21,7 +21,7 @@ const PLAN_OPTIONS: {
 }[] = [
   { plan: "subscribe", label: "Login as Resident", icon: "person", signUpLabel: "Sign up as Resident" },
   { plan: "sponsor", label: "Login as Business", icon: "business", signUpLabel: "Sign up as Business" },
-  { plan: "seller", label: "Login as Seller", icon: "briefcase", signUpLabel: "Sign up as Seller" },
+  { plan: "seller", label: "Login as Seller", icon: "briefcase", signUpLabel: "Sign Up as Seller" },
 ];
 
 export default function LoginScreen() {
