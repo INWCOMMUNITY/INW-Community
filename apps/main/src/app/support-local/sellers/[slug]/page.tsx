@@ -33,6 +33,8 @@ const getSellerStorefrontBusiness = cache(async (slug: string) => {
           acceptReturns: true,
           acceptReturnsDays: true,
           chargeReturnShipping: true,
+          handlingTime: true,
+          returnLabelPayer: true,
           offerShipping: true,
           offerLocalDelivery: true,
           offerLocalPickup: true,

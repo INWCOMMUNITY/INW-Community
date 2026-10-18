@@ -34,7 +34,7 @@ export default function IndexScreen() {
       .then((status) => {
         if (cancelled) return;
         const step = status.onboardingStep;
-        if (step === "business" || step === "subscribe" || step === "shipping" || step === "payouts") {
+        if (step === "business" || step === "contact" || step === "subscribe" || step === "shipping" || step === "policies" || step === "payouts") {
           router.replace(`/(auth)/signup-seller?start=${step}` as never);
           return;
         }

@@ -298,9 +298,37 @@ export default function ReturnsScreen() {
                 <View style={styles.actions}>
                   <Pressable
                     style={styles.btn}
-                    onPress={() =>
-                      router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never)
-                    }
+                    onPress={() => {
+                      const go = () =>
+                        router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never);
+                      if (!ret?.chargeReturnShipping) {
+                        go();
+                        return;
+                      }
+                      Alert.alert(
+                        "Who pays for this label?",
+                        "Choose before you buy it. If you deduct, the buyer is told the real Shippo price after the label is bought.",
+                        [
+                          { text: "Later", style: "cancel" },
+                          {
+                            text: "I'll pay",
+                            onPress: () => {
+                              void apiPost(`/api/store-orders/${order.id}/returns/label-payer`, { pay: "seller" })
+                                .then(go)
+                                .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
+                            },
+                          },
+                          {
+                            text: "Deduct from refund",
+                            onPress: () => {
+                              void apiPost(`/api/store-orders/${order.id}/returns/label-payer`, { pay: "buyer" })
+                                .then(go)
+                                .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
+                            },
+                          },
+                        ]
+                      );
+                    }}
                   >
                     <Text style={styles.btnText}>Send Buyer Return Label</Text>
                   </Pressable>

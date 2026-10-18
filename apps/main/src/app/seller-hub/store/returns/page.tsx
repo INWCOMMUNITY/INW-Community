@@ -89,12 +89,38 @@ export default function RequestedReturnsPage() {
 
   useEffect(() => {
     if (!sendLabelOrder) return;
+    if (sendLabelOrder.storeReturn?.chargeReturnShipping && !sendLabelOrder.returnShipment?.labelUrl) return;
     const orderId = sendLabelOrder.id;
     const t = window.setTimeout(() => {
       openReturnLabel(orderId);
     }, 400);
     return () => window.clearTimeout(t);
   }, [sendLabelOrder, openReturnLabel]);
+
+  async function chooseLabelPayer(orderId: string, pay: "seller" | "buyer") {
+    setBusyId(orderId);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/store-orders/${orderId}/returns/label-payer`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pay }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError((data as { error?: string }).error ?? "Could not save who pays for this label.");
+        setSendLabelOrder(null);
+        return;
+      }
+      openReturnLabel(orderId);
+    } catch {
+      setActionError("Connection failed.");
+      setSendLabelOrder(null);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   function load() {
     setFetchError(null);
@@ -356,13 +382,24 @@ export default function RequestedReturnsPage() {
                 <div className="flex flex-wrap gap-2">
                   {ret?.status === "awaiting_return" || ret?.status === "in_transit" ? (
                     <>
-                      {orderCanBuyReturnLabel(order) ? (
-                        <Link
-                          href={`/seller-hub/orders/shippo/${order.id}?labelAction=return`}
-                          className="btn text-sm py-2 px-3 inline-block"
-                        >
-                          Send Buyer Return Label
-                        </Link>
+                      {orderCanBuyReturnLabel(order) && !order.returnShipment?.labelUrl ? (
+                        ret.chargeReturnShipping ? (
+                          <button
+                            type="button"
+                            className="btn text-sm py-2 px-3"
+                            disabled={busy}
+                            onClick={() => setSendLabelOrder(order)}
+                          >
+                            Send Buyer Return Label
+                          </button>
+                        ) : (
+                          <Link
+                            href={`/seller-hub/orders/shippo/${order.id}?labelAction=return`}
+                            className="btn text-sm py-2 px-3 inline-block"
+                          >
+                            Send Buyer Return Label
+                          </Link>
+                        )
                       ) : null}
                       {order.returnShipment?.labelUrl ? (
                         <a
@@ -430,26 +467,62 @@ export default function RequestedReturnsPage() {
             <h3 id="send-return-label-title" className="text-lg font-bold mb-2">
               Send Buyer Return Label
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Opening Shippo with the buyer’s checkout address as the sender and your Shippo ship-from
-              as the return destination — the same as a regular shipment, reversed.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn text-sm py-2 px-3"
-                onClick={() => openReturnLabel(sendLabelOrder.id)}
-              >
-                Send Buyer Return Label
-              </button>
-              <button
-                type="button"
-                className="text-sm py-2 px-3 border rounded-lg"
-                onClick={() => setSendLabelOrder(null)}
-              >
-                Later
-              </button>
-            </div>
+            {sendLabelOrder.storeReturn?.chargeReturnShipping && !sendLabelOrder.returnShipment?.labelUrl ? (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  This return can deduct the label from the refund. Choose before you buy it. The amount
+                  is the Shippo price, and the buyer is told that amount after the label is bought.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    className="btn text-sm py-2 px-3"
+                    disabled={busyId === sendLabelOrder.id}
+                    onClick={() => void chooseLabelPayer(sendLabelOrder.id, "seller")}
+                  >
+                    I&apos;ll pay for this label
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm py-2 px-3 border rounded-lg"
+                    disabled={busyId === sendLabelOrder.id}
+                    onClick={() => void chooseLabelPayer(sendLabelOrder.id, "buyer")}
+                  >
+                    Deduct it from the refund
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm py-2 px-3"
+                    onClick={() => setSendLabelOrder(null)}
+                  >
+                    Later
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  Opening Shippo with the buyer’s checkout address as the sender and your Shippo ship-from
+                  as the return destination — the same as a regular shipment, reversed.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn text-sm py-2 px-3"
+                    onClick={() => openReturnLabel(sendLabelOrder.id)}
+                  >
+                    Send Buyer Return Label
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm py-2 px-3 border rounded-lg"
+                    onClick={() => setSendLabelOrder(null)}
+                  >
+                    Later
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}

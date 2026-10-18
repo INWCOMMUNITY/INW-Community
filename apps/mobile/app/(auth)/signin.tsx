@@ -33,12 +33,13 @@ function signupRouteForPlan(p: SubscriptionPlan): Href {
 }
 
 function onboardingResumeHref(
-  step: "business" | "contact" | "subscribe" | "shipping" | "payouts" | "sponsor" | null | undefined
+  step: "business" | "contact" | "subscribe" | "shipping" | "policies" | "payouts" | "sponsor" | null | undefined
 ): Href | null {
   if (step === "business") return "/signup-seller?start=business";
   if (step === "contact") return "/signup-seller?start=contact";
   if (step === "subscribe") return "/signup-seller?start=subscribe";
   if (step === "shipping") return "/signup-seller?start=shipping";
+  if (step === "policies") return "/signup-seller?start=policies";
   if (step === "payouts") return "/signup-seller?start=payouts";
   if (step === "sponsor") return "/signup-business?start=business";
   return null;

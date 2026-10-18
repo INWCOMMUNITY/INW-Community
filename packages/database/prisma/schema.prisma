@@ -36,7 +36,14 @@ model Member {
   /// Days after delivery/pickup that a buyer may request a return.
   acceptReturnsDays Int @default(30) @map("accept_returns_days")
   /// When true, Shippo return-label cost is deducted from the buyer's refund.
+  /// Seller-pays-all stores false. Buyer-pays-all stores true. By-reason stores false and each return snapshots its own choice.
   chargeReturnShipping Boolean @default(false) @map("charge_return_shipping")
+  /// 1-2 | 2-3 | 3-4 | 4-5 | custom. Custom does not add the bold handling line.
+  handlingTime String? @map("handling_time")
+  /// seller | buyer | by_reason. Null means the older chargeReturnShipping switch.
+  returnLabelPayer String? @map("return_label_payer")
+  /// Reason label -> buyer | seller. Used when returnLabelPayer is by_reason.
+  returnLabelPayerByReason Json? @map("return_label_payer_by_reason")
   offerShipping              Boolean @default(true) @map("offer_shipping")
   /// Default new INW listings to free shipping (shippingCostCents = 0). Does not change eBay/Etsy rates.
   offerFreeShippingOnInw     Boolean @default(false) @map("offer_free_shipping_on_inw")

@@ -6,6 +6,7 @@ import {
 } from "@/lib/store-return";
 import { pickCurrentOutboundShipment } from "@/lib/store-order-shipments";
 import { LATEST_STORE_RETURN_ORDER_BY } from "@/lib/store-return-order";
+import { policyFromStored, returnLabelChargesBuyer } from "@/lib/seller-return-label-policy";
 
 export type CreateBuyerRequestedStoreReturnInput = {
   orderId: string;
@@ -50,7 +51,15 @@ export async function createBuyerRequestedStoreReturn(
     const order = await tx.storeOrder.findFirst({
       where: { id: input.orderId, buyerId: input.buyerId },
       include: {
-        seller: { select: { acceptReturns: true, acceptReturnsDays: true } },
+        seller: {
+          select: {
+            acceptReturns: true,
+            acceptReturnsDays: true,
+            chargeReturnShipping: true,
+            returnLabelPayer: true,
+            returnLabelPayerByReason: true,
+          },
+        },
         items: { select: { fulfillmentType: true } },
         shipments: {
           select: { createdAt: true, kind: true, supersededAt: true, trackingStatus: true },
@@ -112,12 +121,14 @@ export async function createBuyerRequestedStoreReturn(
       return { ok: false, error: "not_eligible" } as const;
     }
 
+    const policy = policyFromStored(order.seller);
     const created = await tx.storeReturn.create({
       data: {
         orderId: order.id,
         status: "requested",
         reason: refundReason ?? reason,
         note,
+        chargeReturnShipping: returnLabelChargesBuyer(policy, reason),
         requestedAt: now,
       },
     });

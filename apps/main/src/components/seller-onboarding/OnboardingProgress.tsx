@@ -4,6 +4,7 @@ const STEPS = [
   "Name and phone",
   "Subscribe",
   "Shipping",
+  "Policies",
   "Get paid",
   "Listings",
 ] as const;

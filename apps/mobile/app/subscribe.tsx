@@ -63,6 +63,8 @@ const PLANS = [
       "Everything in Business",
       "Online storefront with listings",
       "Shipping & fulfillment tools",
+      "Sync your Shopify store",
+      "Sync your Etsy shop",
       "Seller Hub management",
       "NWC does not take a cut of sales",
     ],
@@ -258,6 +260,14 @@ export default function SubscribeScreen() {
                   </View>
                 ))}
               </View>
+              {plan.id === "seller" ? (
+                <Text style={styles.feeBreakdown}>
+                  When you sell items with us, you only pay about{" "}
+                  <Text style={styles.feeBreakdownBold}>4.4% + 30¢ per transaction</Text>. That covers credit card
+                  processing, tax processing, and a sales tax reserve. That{" "}
+                  <Text style={styles.feeBreakdownBold}>averages 7% less than most third-party retailers</Text>.
+                </Text>
+              ) : null}
               {hasPlan ? (
                 <View style={styles.activeBadge}>
                   <Text style={styles.activeBadgeText}>Current Plan</Text>
@@ -449,6 +459,8 @@ const styles = StyleSheet.create({
     color: "#444",
     flex: 1,
   },
+  feeBreakdown: { marginBottom: 16, fontSize: 13, lineHeight: 18, color: "#555" },
+  feeBreakdownBold: { fontSize: 13, lineHeight: 18, fontWeight: "700", color: theme.colors.heading },
   activeBadge: {
     backgroundColor: theme.colors.primary,
     paddingVertical: 10,

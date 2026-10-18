@@ -7,11 +7,13 @@ import { signIn } from "next-auth/react";
 import { BusinessForm, type BusinessFormData } from "@/components/BusinessForm";
 import { OnboardingProgress } from "@/components/seller-onboarding/OnboardingProgress";
 import { ShippingSetupPanel } from "@/components/seller/ShippingSetupPanel";
+import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import { policyFromStored, type SellerReturnLabelPolicy } from "@/lib/seller-return-label-policy";
 import { ListingFormSection } from "@/components/store-item/ListingFormSection";
 import { IonIcon } from "@/components/IonIcon";
 import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
 
-type Step = "account" | "business" | "contact" | "subscribe" | "shipping" | "payouts" | "import";
+type Step = "account" | "business" | "contact" | "subscribe" | "shipping" | "policies" | "payouts" | "import";
 
 const STEP_INDEX: Record<Step, number> = {
   account: 1,
@@ -19,8 +21,9 @@ const STEP_INDEX: Record<Step, number> = {
   contact: 3,
   subscribe: 4,
   shipping: 5,
-  payouts: 6,
-  import: 7,
+  policies: 6,
+  payouts: 7,
+  import: 8,
 };
 
 const BUSINESS_STORAGE_KEY = "nwc-seller-onboarding-business";
@@ -30,7 +33,7 @@ const fieldClass =
 const cardStyle = { borderColor: "var(--color-primary)" };
 
 function isStep(value: string | null): value is Step {
-  return value === "account" || value === "business" || value === "contact" || value === "subscribe" || value === "shipping" || value === "payouts" || value === "import";
+  return value === "account" || value === "business" || value === "contact" || value === "subscribe" || value === "shipping" || value === "policies" || value === "payouts" || value === "import";
 }
 
 export default function SignupSellerPage() {
@@ -46,6 +49,9 @@ export default function SignupSellerPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [shippingReady, setShippingReady] = useState(false);
+  const [policyName, setPolicyName] = useState("This seller");
+  const [policyDraft, setPolicyDraft] = useState<SellerReturnLabelPolicy>(() => policyFromStored({}));
+  const [policyTexts, setPolicyTexts] = useState({ shipping: "", returns: "" });
   const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
   const [stripeReady, setStripeReady] = useState(false);
   const [waitingForPlan, setWaitingForPlan] = useState(false);
@@ -55,6 +61,55 @@ export default function SignupSellerPage() {
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyShop, setShopifyShop] = useState("");
   const [channelNote, setChannelNote] = useState("");
+
+  useEffect(() => {
+    if (step !== "policies") return;
+    let cancelled = false;
+    fetch("/api/me/policies", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data || data.error) return;
+        setPolicyName(typeof data.sellerPolicyName === "string" && data.sellerPolicyName.trim() ? data.sellerPolicyName : "This seller");
+        setPolicyDraft(policyFromStored(data));
+        setPolicyTexts({
+          shipping: data.sellerShippingPolicy ?? "",
+          returns: data.sellerReturnPolicy ?? "",
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [step]);
+
+  async function savePoliciesAndContinue() {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          handlingTime: policyDraft.handlingTime,
+          returnLabelPayer: policyDraft.returnLabelPayer,
+          returnLabelPayerByReason: policyDraft.returnLabelPayerByReason,
+          sellerShippingPolicy: policyTexts.shipping.trim() || null,
+          sellerReturnPolicy: policyTexts.returns.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Could not save policies.");
+        return;
+      }
+      go("payouts");
+    } catch {
+      setError("Could not save policies.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const onShippingProgress = useCallback(
     (progress: { shippoConnected: boolean; optionCount: number; offerFreeShippingOnInw?: boolean }) => {
@@ -567,10 +622,53 @@ export default function SignupSellerPage() {
               <button type="button" onClick={() => go("subscribe")} className="btn-outline flex-1 text-center">
                 Back
               </button>
-              <button type="button" className="btn flex-1 text-center" disabled={!shippingReady || waitingForPlan} onClick={() => go("payouts")}>
+              <button type="button" className="btn flex-1 text-center" disabled={!shippingReady || waitingForPlan} onClick={() => go("policies")}>
                 Continue
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {step === "policies" && (
+        <div className="space-y-6">
+          <p className="text-gray-600">
+            These answers show on your storefront. A preset handling time and seller-paid returns are added in bold.
+          </p>
+          <SellerPolicyQuestions
+            sellerName={policyName}
+            policy={policyDraft}
+            onChange={setPolicyDraft}
+            disabled={loading}
+          />
+          <label className="block text-sm font-medium text-gray-700" htmlFor="onboarding-shipping-policy">
+            Shipping policy
+          </label>
+          <textarea
+            id="onboarding-shipping-policy"
+            className={fieldClass}
+            rows={4}
+            value={policyTexts.shipping}
+            onChange={(e) => setPolicyTexts((prev) => ({ ...prev, shipping: e.target.value }))}
+            placeholder="Anything else buyers should know about shipping."
+          />
+          <label className="block text-sm font-medium text-gray-700" htmlFor="onboarding-return-policy">
+            Return policy
+          </label>
+          <textarea
+            id="onboarding-return-policy"
+            className={fieldClass}
+            rows={4}
+            value={policyTexts.returns}
+            onChange={(e) => setPolicyTexts((prev) => ({ ...prev, returns: e.target.value }))}
+            placeholder="Anything else buyers should know about returns."
+          />
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => go("shipping")} className="btn-outline flex-1 text-center">Back</button>
+            <button type="button" className="btn flex-1 text-center" disabled={loading || !policyDraft.handlingTime} onClick={() => void savePoliciesAndContinue()}>
+              {loading ? "Saving…" : "Continue"}
+            </button>
           </div>
         </div>
       )}
@@ -594,7 +692,7 @@ export default function SignupSellerPage() {
             {loading ? "Opening Stripe…" : stripeReady ? "Review payout setup" : "Set Up Payouts"}
           </button>
           <div className="flex gap-2">
-            <button type="button" onClick={() => go("shipping")} className="btn-outline flex-1 text-center">Back</button>
+            <button type="button" onClick={() => go("policies")} className="btn-outline flex-1 text-center">Back</button>
             <button type="button" className="btn flex-1 text-center" disabled={!stripeReady} onClick={() => go("import")}>
               Continue
             </button>

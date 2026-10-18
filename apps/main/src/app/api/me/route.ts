@@ -15,6 +15,13 @@ import { z } from "zod";
 import { validateMemberDisplayNameFields } from "@/lib/member-display-name-policy";
 import { memberHasAppAccess } from "@/lib/member-public-visibility";
 import { ACCOUNT_SETUP_INCOMPLETE_MESSAGE } from "@/lib/require-verified-member";
+import {
+  chargeReturnShippingForMode,
+  isReturnLabelPayerMode,
+  normalizeReasonPayers,
+  policyFromStored,
+  sellerPolicyName,
+} from "@/lib/seller-return-label-policy";
 
 const deliveryAddressSchema = z.object({
   street: z.string().optional(),
@@ -48,6 +55,9 @@ const patchSchema = z.object({
   acceptReturns: z.boolean().optional(),
   acceptReturnsDays: z.number().int().min(1).max(365).optional(),
   chargeReturnShipping: z.boolean().optional(),
+  handlingTime: z.enum(["1-2", "2-3", "3-4", "4-5", "custom"]).nullable().optional(),
+  returnLabelPayer: z.enum(["seller", "buyer", "by_reason"]).optional(),
+  returnLabelPayerByReason: z.record(z.enum(["buyer", "seller"])).optional(),
   offerShipping: z.boolean().optional(),
   offerLocalDelivery: z.boolean().optional(),
   offerLocalPickup: z.boolean().optional(),
@@ -82,6 +92,9 @@ export async function GET(req: NextRequest) {
       acceptReturns: true,
       acceptReturnsDays: true,
       chargeReturnShipping: true,
+      handlingTime: true,
+      returnLabelPayer: true,
+      returnLabelPayerByReason: true,
       offerShipping: true,
       offerLocalDelivery: true,
       offerLocalPickup: true,
@@ -116,6 +129,7 @@ export async function GET(req: NextRequest) {
     prisma.business.findFirst({
       where: { memberId: session.user.id },
       select: {
+        name: true,
         coverPhotoUrl: true,
         photos: true,
         hoursOfOperation: true,
@@ -134,7 +148,13 @@ export async function GET(req: NextRequest) {
   const canAccessSellerHub = isPlatformAdmin || sellerPlanRow != null;
   const paidSlugSet = new Set<string>(NWC_PAID_PLAN_SLUGS);
   const hasPaidSubscription = subscriptions.some((s) => paidSlugSet.has(s.plan));
-  const { emailVerifiedAt, signupIntent, ...memberRest } = member;
+  const { emailVerifiedAt, signupIntent, handlingTime, returnLabelPayer, returnLabelPayerByReason, chargeReturnShipping, ...memberRest } = member;
+  const returnLabelPolicy = policyFromStored({
+    handlingTime,
+    returnLabelPayer,
+    returnLabelPayerByReason,
+    chargeReturnShipping,
+  });
   const emailVerified =
     !!emailVerifiedAt ||
     signupIntent === "business" ||
@@ -148,6 +168,15 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ...memberRest,
+    chargeReturnShipping,
+    handlingTime: returnLabelPolicy.handlingTime,
+    returnLabelPayer: returnLabelPolicy.returnLabelPayer,
+    returnLabelPayerByReason: returnLabelPolicy.returnLabelPayerByReason,
+    sellerPolicyName: sellerPolicyName({
+      businessName: primaryBusiness?.name,
+      firstName: member.firstName,
+      lastName: member.lastName,
+    }),
     emailVerified,
     isSubscriber: !!subTier,
     /** Active Business/Seller plan or admin-assigned business (`adminGrantedAt`). */
@@ -248,8 +277,18 @@ export async function PATCH(req: NextRequest) {
         ...(data.acceptReturnsDays !== undefined && {
           acceptReturnsDays: data.acceptReturnsDays,
         }),
-        ...(data.chargeReturnShipping !== undefined && {
+        ...(data.chargeReturnShipping !== undefined && data.returnLabelPayer === undefined && {
           chargeReturnShipping: data.chargeReturnShipping,
+        }),
+        ...(data.handlingTime !== undefined && {
+          handlingTime: data.handlingTime,
+        }),
+        ...(data.returnLabelPayer !== undefined && isReturnLabelPayerMode(data.returnLabelPayer) && {
+          returnLabelPayer: data.returnLabelPayer,
+          chargeReturnShipping: chargeReturnShippingForMode(data.returnLabelPayer),
+        }),
+        ...(data.returnLabelPayerByReason !== undefined && {
+          returnLabelPayerByReason: normalizeReasonPayers(data.returnLabelPayerByReason),
         }),
       },
     });

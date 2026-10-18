@@ -16,6 +16,7 @@ import {
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
 } from "@/lib/store-return";
+import { handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
 import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -64,6 +65,8 @@ export type SellerStorefrontData = {
   acceptReturns?: boolean;
   acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
+  handlingTime?: string | null;
+  returnLabelPayer?: string | null;
   storeItems: SellerStoreItem[];
 };
 
@@ -605,8 +608,23 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
 
         {activeTab === "policies" ? (
             <div className="space-y-4">
-              {seller.sellerShippingPolicy ? (
-                <PolicyCard icon="airplane-outline" title="Shipping Policy" text={seller.sellerShippingPolicy} />
+              {(() => {
+                const labelPolicy = policyFromStored({
+                  handlingTime: seller.handlingTime,
+                  returnLabelPayer: seller.returnLabelPayer,
+                  chargeReturnShipping: seller.chargeReturnShipping,
+                });
+                const shipLine = handlingTimeBoldLine(seller.name, labelPolicy.handlingTime);
+                const freeReturns = showsFreeReturns(labelPolicy);
+                return (
+                  <>
+              {shipLine || seller.sellerShippingPolicy ? (
+                <PolicyCard
+                  icon="airplane-outline"
+                  title="Shipping Policy"
+                  lead={shipLine}
+                  text={seller.sellerShippingPolicy ?? ""}
+                />
               ) : null}
               {seller.sellerLocalDeliveryPolicy ? (
                 <PolicyCard icon="car-outline" title="Local Delivery Policy" text={seller.sellerLocalDeliveryPolicy} />
@@ -614,10 +632,12 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               {seller.acceptReturns === false ||
               seller.sellerReturnPolicy ||
               seller.acceptReturnsDays != null ||
+              freeReturns ||
               seller.chargeReturnShipping ? (
                 <PolicyCard
                   icon="refresh-outline"
                   title="Return Policy"
+                  lead={freeReturns ? "FREE RETURNS" : null}
                   text={
                     seller.acceptReturns === false
                       ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
@@ -633,6 +653,9 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                   }
                 />
               ) : null}
+                  </>
+                );
+              })()}
               <PolicyCard
                 icon="card-outline"
                 title={NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE}
@@ -694,12 +717,14 @@ function PolicyCard({
   icon,
   title,
   text,
+  lead,
   collapsible = false,
   collapsedHint,
 }: {
   icon: string;
   title: string;
   text: string;
+  lead?: string | null;
   collapsible?: boolean;
   collapsedHint?: string;
 }) {
@@ -734,9 +759,14 @@ function PolicyCard({
         </div>
       )}
       {open ? (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-text)" }}>
-          {text}
-        </p>
+        <>
+          {lead ? <p className="mb-2 text-sm font-bold leading-relaxed" style={{ color: "var(--color-text)" }}>{lead}</p> : null}
+          {text ? (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-text)" }}>
+              {text}
+            </p>
+          ) : null}
+        </>
       ) : collapsedHint ? (
         <p className="text-sm opacity-70" style={{ color: "var(--color-text)" }}>
           {collapsedHint}

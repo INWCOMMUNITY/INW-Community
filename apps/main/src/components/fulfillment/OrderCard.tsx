@@ -244,68 +244,93 @@ export function CombinedOrderCard({
   );
 }
 
+function isPreviewableImage(url: string): boolean {
+  return /\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(url);
+}
+
 function BuyerResponseDetails({ raw }: { raw: unknown }) {
   const rows = parseBuyerResponseViews(raw);
   if (rows.length === 0) return null;
+  const choices = rows.filter((row) => row.kind !== "FILE");
+  const uploads = rows.filter((row) => row.kind === "FILE");
   return (
-    <div className="mt-1 space-y-1">
-      {rows.map((row) => (
-        <div key={`${row.kind}-${row.title}`} className="text-xs text-gray-700">
-          <p className="font-medium text-gray-800">{row.title}</p>
-          {row.kind === "TEXT" && row.text ? <p className="break-words">{row.text}</p> : null}
-          {row.kind === "DROPDOWN" && row.optionLabel ? <p>{row.optionLabel}</p> : null}
-          {row.kind === "FILE"
-            ? row.files.map((file) => {
-                const name = file.label || "Download file";
-                const image = /\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(file.url);
-                return (
-                  <p key={file.url} className="mt-1">
-                    {image ? (
-                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="inline-block">
-                        <img src={file.url} alt={name} className="h-16 w-16 rounded object-cover" />
-                      </a>
-                    ) : null}
+    <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
+      {choices.length > 0 ? (
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          {choices.map((row, index) => (
+            <div key={`${row.kind}-${index}`}>
+              <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">{row.title}</dt>
+              <dd className="mt-1 text-sm text-gray-900 break-words">
+                {row.kind === "TEXT" ? row.text : row.optionLabel}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {uploads.map((row, index) => (
+        <div key={`${row.kind}-${index}`}>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{row.title}</p>
+          <ul className="mt-2 flex flex-wrap gap-3">
+            {row.files.map((file) => {
+              const name = file.label || "File";
+              const image = isPreviewableImage(file.url);
+              return (
+                <li key={file.url} className="w-40 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                  {image ? (
+                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="block">
+                      <img src={file.url} alt={name} className="h-28 w-full object-cover" />
+                    </a>
+                  ) : (
+                    <div className="flex h-28 items-center justify-center bg-gray-50 px-3 text-center text-xs text-gray-500">
+                      {name}
+                    </div>
+                  )}
+                  <div className="space-y-1 px-3 py-2">
+                    <p className="truncate text-sm font-medium text-gray-900">{name}</p>
                     <a
                       href={file.url}
                       download
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block underline"
+                      className="inline-block text-sm underline"
                       style={{ color: "var(--color-link)" }}
                     >
-                      Download {name}
+                      Download
                     </a>
-                  </p>
-                );
-              })
-            : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ))}
     </div>
   );
 }
 
-/** Compact item rows for order detail sidebar / two-column layout. */
+/** Item rows for the seller order detail page. */
 export function OrderCardItemRows({ order }: { order: FulfillmentStoreOrder }) {
   return (
-    <ul className="space-y-3">
+    <ul className="space-y-4">
       {(order.items ?? []).map((oi) => (
-        <li key={oi.id} className="flex items-center gap-3">
-          {oi.storeItem.photos[0] ? (
-            <img src={oi.storeItem.photos[0]} alt="" className="w-12 h-12 object-cover rounded-lg" />
-          ) : (
-            <div className="w-12 h-12 rounded-lg bg-gray-100" />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-900">{oi.storeItem.title}</p>
-            <p className="text-xs text-gray-500">
-              Qty {oi.quantity}
-              {oi.priceCentsAtPurchase != null
-                ? ` · $${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`
-                : ""}
-            </p>
-            <BuyerResponseDetails raw={oi.buyerResponses} />
+        <li key={oi.id} className="rounded-lg border border-gray-200 p-4">
+          <div className="flex items-start gap-3">
+            {oi.storeItem.photos[0] ? (
+              <img src={oi.storeItem.photos[0]} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+            ) : (
+              <div className="h-16 w-16 shrink-0 rounded-lg bg-gray-100" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-gray-900">{oi.storeItem.title}</p>
+              <p className="mt-0.5 text-sm text-gray-500">
+                Qty {oi.quantity}
+                {oi.priceCentsAtPurchase != null
+                  ? ` · $${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`
+                  : ""}
+              </p>
+            </div>
           </div>
+          <BuyerResponseDetails raw={oi.buyerResponses} />
         </li>
       ))}
     </ul>

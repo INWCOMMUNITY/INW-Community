@@ -1,7 +1,7 @@
 import { prisma } from "database";
 import { prismaWhereMemberSellerPlanAccess, prismaWhereMemberSponsorPlanAccess } from "@/lib/nwc-paid-subscription";
 
-const STEPS = ["account", "business", "contact", "subscribe", "shipping", "payouts", "import"] as const;
+const STEPS = ["account", "business", "contact", "subscribe", "shipping", "policies", "payouts", "import"] as const;
 export type SellerOnboardingStep = (typeof STEPS)[number];
 
 const BEFORE_PAYMENT: SellerOnboardingStep[] = ["account", "business", "contact", "subscribe"];
@@ -12,6 +12,7 @@ const RESUME_STEPS = new Set<SellerOnboardingStep>([
   "contact",
   "subscribe",
   "shipping",
+  "policies",
   "payouts",
 ]);
 
@@ -48,6 +49,7 @@ export async function getSellerOnboardingProgress(memberId: string) {
         shippoOAuthTokenEncrypted: true,
         stripeConnectAccountId: true,
         offerFreeShippingOnInw: true,
+        returnLabelPayer: true,
       },
     }),
     prisma.business.findFirst({
@@ -68,6 +70,7 @@ export async function getSellerOnboardingProgress(memberId: string) {
   const freeShippingOnInw = Boolean(member?.offerFreeShippingOnInw);
   const shippingStepDone = shippoConnected && (freeShippingOnInw || shippingOptionCount >= 1);
   const payoutsStepDone = stripeConnectStarted;
+  const policiesStepDone = Boolean(member?.returnLabelPayer);
   const hasBusiness = Boolean(business);
 
   if (member?.signupIntent === "business" && !hasSubscription) {
@@ -107,6 +110,8 @@ export async function getSellerOnboardingProgress(memberId: string) {
     furthest = !hasBusiness ? "business" : !hasContactName ? "contact" : "subscribe";
   } else if (!shippingStepDone) {
     furthest = "shipping";
+  } else if (!payoutsStepDone && !policiesStepDone) {
+    furthest = "policies";
   } else if (!payoutsStepDone) {
     furthest = "payouts";
   } else {

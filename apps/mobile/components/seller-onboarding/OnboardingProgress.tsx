@@ -8,6 +8,7 @@ export const SELLER_ONBOARDING_STEPS = [
   "Name and phone",
   "Subscribe",
   "Shipping",
+  "Policies",
   "Get paid",
   "Listings",
 ] as const;

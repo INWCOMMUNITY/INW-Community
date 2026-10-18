@@ -5,6 +5,7 @@ import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { ACTIVE_STORE_RETURN_STATUSES, isActiveStoreReturnStatus } from "@/lib/store-return";
 import { LATEST_STORE_RETURN_ORDER_BY } from "@/lib/store-return-order";
 import { notifyBuyerReturnApproved } from "@/lib/store-return-notify";
+import { policyFromStored, returnLabelChargesBuyer } from "@/lib/seller-return-label-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,13 @@ export async function POST(
     where: { id, sellerId: userId },
     include: {
       storeReturns: { orderBy: [...LATEST_STORE_RETURN_ORDER_BY], take: 1 },
-      seller: { select: { chargeReturnShipping: true } },
+      seller: {
+        select: {
+          chargeReturnShipping: true,
+          returnLabelPayer: true,
+          returnLabelPayerByReason: true,
+        },
+      },
       items: { select: { fulfillmentType: true } },
     },
   });
@@ -53,7 +60,6 @@ export async function POST(
         data: {
           status: "awaiting_return",
           requireReturn: true,
-          chargeReturnShipping: order.seller.chargeReturnShipping,
           approvedAt: now,
         },
       })
@@ -74,7 +80,6 @@ export async function POST(
               data: {
                 status: "awaiting_return",
                 requireReturn: true,
-                chargeReturnShipping: order.seller.chargeReturnShipping,
                 approvedAt: now,
               },
             });
@@ -86,7 +91,7 @@ export async function POST(
             orderId: order.id,
             status: "awaiting_return",
             requireReturn: true,
-            chargeReturnShipping: order.seller.chargeReturnShipping,
+            chargeReturnShipping: returnLabelChargesBuyer(policyFromStored(order.seller), "Initiated by seller"),
             reason: "Initiated by seller",
             requestedAt: now,
             approvedAt: now,

@@ -17,9 +17,13 @@ import {
   BUYER_REFUND_POLICY_NEVERMIND_LABEL,
   BUYER_REFUND_POLICY_POPUP_BODY,
   BUYER_REFUND_POLICY_POPUP_TITLE,
-  BUYER_RETURN_SHIPPING_WARNING,
   formatBuyerRefundFeeDeductionLine,
 } from "@/lib/store-return";
+import {
+  buyerReturnShippingWarning,
+  policyFromStored,
+  returnLabelChargesBuyer,
+} from "@/lib/seller-return-label-policy";
 
 export type BuyerOrderModal =
   | { kind: "cancel"; order: BuyerStoreOrder }
@@ -138,7 +142,15 @@ export function BuyerOrderModals({
       setError('Please provide details for "Other".');
       return;
     }
-    if (order.sellerChargeReturnShipping && !ackReturnShipping) {
+    const chargesLabel = returnLabelChargesBuyer(
+      policyFromStored({
+        returnLabelPayer: order.returnLabelPayer,
+        returnLabelPayerByReason: order.returnLabelPayerByReason,
+        chargeReturnShipping: order.sellerChargeReturnShipping,
+      }),
+      reason
+    );
+    if (chargesLabel && !ackReturnShipping) {
       setError("Please confirm you understand return shipping may be deducted from your refund.");
       return;
     }
@@ -367,7 +379,15 @@ export function BuyerOrderModals({
             <p className="text-xs mb-4 font-medium" style={{ color: "var(--color-primary)" }}>
               {feeLine}
             </p>
-            {!isCancel && order.sellerChargeReturnShipping ? (
+            {!isCancel &&
+            returnLabelChargesBuyer(
+              policyFromStored({
+                returnLabelPayer: order.returnLabelPayer,
+                returnLabelPayerByReason: order.returnLabelPayerByReason,
+                chargeReturnShipping: order.sellerChargeReturnShipping,
+              }),
+              reason
+            ) ? (
               <label className="flex items-start gap-2 mb-4 text-sm">
                 <input
                   type="checkbox"
@@ -376,7 +396,9 @@ export function BuyerOrderModals({
                   className="mt-1"
                   disabled={submitting}
                 />
-                <span>{BUYER_RETURN_SHIPPING_WARNING}</span>
+                <span className="font-semibold">
+                  {buyerReturnShippingWarning(order.sellerPolicyName || "This seller")}
+                </span>
               </label>
             ) : null}
             <p className="text-sm font-medium mb-2">Reason (required)</p>
