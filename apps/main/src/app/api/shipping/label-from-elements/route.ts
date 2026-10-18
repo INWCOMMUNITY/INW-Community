@@ -120,8 +120,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  // Combined shipment: only the primary order has a Shipment row; save must target that id.
-  if (ids.length === 1) {
+  // Combined outbound shipment: only the primary order has a Shipment row; save must target that id.
+  // Return labels stay on the order that was approved. That order often has no
+  // shipment of its own because it shipped together with the primary order.
+  if (requestedKind !== "return" && ids.length === 1) {
     const soleId = ids[0];
     const row = await prisma.storeOrder.findFirst({
       where: { id: soleId, sellerId: userId },
