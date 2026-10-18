@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
           handlingTime: true,
           returnLabelPayer: true,
           returnLabelPayerByReason: true,
+          offerFreeShippingOnInw: true,
         },
       }),
       prisma.business.findFirst({
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
       handlingTime: returnLabelPolicy.handlingTime,
       returnLabelPayer: returnLabelPolicy.returnLabelPayer,
       returnLabelPayerByReason: returnLabelPolicy.returnLabelPayerByReason,
+      offerFreeShippingOnInw: member.offerFreeShippingOnInw === true,
       sellerPolicyName: sellerPolicyName({
         businessName: business?.name,
         firstName: member.firstName,

@@ -4,24 +4,40 @@ export type HandlingTime = HandlingTimePreset | "custom";
 
 export const RETURN_LABEL_PAYER_MODES = ["seller", "buyer", "by_reason"] as const;
 export type ReturnLabelPayerMode = (typeof RETURN_LABEL_PAYER_MODES)[number];
-export type ReasonLabelPayer = "buyer" | "seller";
+export type ReasonLabelPayer = "buyer" | "seller" | "later";
 
-export const RETURN_LABEL_REASONS = [
+export const BUYER_FAULT_REASONS = [
   "Changed my mind",
   "Didn't mean to order",
+  "Ordered the wrong size, color, or quantity",
+  "Doesn't fit",
+  "No longer needed",
+] as const;
+
+export const SELLER_FAULT_REASONS = [
   "Order Arrived Damaged",
   "Wrong Item Delivered",
-  "Other",
+  "Not as described",
+  "Missing parts",
+  "Defective",
 ] as const;
+
+export const RETURN_LABEL_REASONS = [...BUYER_FAULT_REASONS, ...SELLER_FAULT_REASONS, "Other"] as const;
 
 export type ReturnLabelReason = (typeof RETURN_LABEL_REASONS)[number];
 
 const DEFAULT_REASON_PAYER: Record<ReturnLabelReason, ReasonLabelPayer> = {
   "Changed my mind": "buyer",
   "Didn't mean to order": "buyer",
+  "Ordered the wrong size, color, or quantity": "buyer",
+  "Doesn't fit": "buyer",
+  "No longer needed": "buyer",
   "Order Arrived Damaged": "seller",
   "Wrong Item Delivered": "seller",
-  Other: "buyer",
+  "Not as described": "seller",
+  "Missing parts": "seller",
+  Defective: "seller",
+  Other: "later",
 };
 
 export type SellerReturnLabelPolicy = {
@@ -48,7 +64,11 @@ export function normalizeReasonPayers(raw: unknown): Record<ReturnLabelReason, R
   const record = raw as Record<string, unknown>;
   for (const reason of RETURN_LABEL_REASONS) {
     const value = record[reason];
-    if (value === "buyer" || value === "seller") next[reason] = value;
+    if (reason === "Other" && (value === "buyer" || value === "seller" || value === "later")) {
+      next[reason] = value;
+    } else if (value === "buyer" || value === "seller") {
+      next[reason] = value;
+    }
   }
   return next;
 }
@@ -86,6 +106,10 @@ export function sellerPolicyName(input: {
   return personal || "This seller";
 }
 
+export function freeShippingPolicyLead(offerFreeShippingOnInw: boolean | null | undefined): string | null {
+  return offerFreeShippingOnInw ? "FREE SHIPPING" : null;
+}
+
 export function handlingTimeBoldLine(sellerName: string, handlingTime: HandlingTime | null): string | null {
   if (!handlingTime || handlingTime === "custom") return null;
   return `${sellerName} typically ships in ${handlingTime} business days.`;
@@ -95,18 +119,52 @@ export function showsFreeReturns(policy: SellerReturnLabelPolicy): boolean {
   return policy.returnLabelPayer === "seller";
 }
 
+export function reasonKey(reason: string | null | undefined): ReturnLabelReason | null {
+  const raw = reason?.trim() ?? "";
+  const key = raw === "Other" || raw.startsWith("Other:") ? "Other" : raw;
+  return (RETURN_LABEL_REASONS as readonly string[]).includes(key) ? (key as ReturnLabelReason) : null;
+}
+
+export function reasonGroupSelection(
+  payers: Record<ReturnLabelReason, ReasonLabelPayer>,
+  reasons: readonly ReturnLabelReason[]
+): ReasonLabelPayer | "mixed" {
+  const values = new Set(reasons.map((reason) => payers[reason]));
+  if (values.size !== 1) return "mixed";
+  return [...values][0];
+}
+
+export function applyReasonGroup(
+  payers: Record<ReturnLabelReason, ReasonLabelPayer>,
+  reasons: readonly ReturnLabelReason[],
+  payer: ReasonLabelPayer
+): Record<ReturnLabelReason, ReasonLabelPayer> {
+  const next = { ...payers };
+  for (const reason of reasons) next[reason] = payer;
+  return next;
+}
+
+function payerForReason(policy: SellerReturnLabelPolicy, reason: string | null | undefined): ReasonLabelPayer | null {
+  if (policy.returnLabelPayer === "seller") return "seller";
+  if (policy.returnLabelPayer === "buyer") return "buyer";
+  const key = reasonKey(reason);
+  return key ? policy.returnLabelPayerByReason[key] : null;
+}
+
 export function returnLabelChargesBuyer(
   policy: SellerReturnLabelPolicy,
   reason: string | null | undefined
 ): boolean {
-  if (policy.returnLabelPayer === "seller") return false;
-  if (policy.returnLabelPayer === "buyer") return true;
-  const raw = reason?.trim() ?? "";
-  const key = raw === "Other" || raw.startsWith("Other:") ? "Other" : raw;
-  if ((RETURN_LABEL_REASONS as readonly string[]).includes(key)) {
-    return policy.returnLabelPayerByReason[key as ReturnLabelReason] === "buyer";
-  }
-  return false;
+  return payerForReason(policy, reason) === "buyer";
+}
+
+/** Seller chooses pay or deduct when sending the label. "Decide at that time" is included. */
+export function returnLabelSellerChooses(
+  policy: SellerReturnLabelPolicy,
+  reason: string | null | undefined
+): boolean {
+  const payer = payerForReason(policy, reason);
+  return payer === "buyer" || payer === "later";
 }
 
 export function buyerReturnShippingWarning(sellerName: string): string {

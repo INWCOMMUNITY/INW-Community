@@ -16,7 +16,7 @@ import {
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
   NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
 } from "@/lib/store-return";
-import { handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
+import { freeShippingPolicyLead, handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
 import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -67,6 +67,7 @@ export type SellerStorefrontData = {
   chargeReturnShipping?: boolean;
   handlingTime?: string | null;
   returnLabelPayer?: string | null;
+  offerFreeShippingOnInw?: boolean | null;
   storeItems: SellerStoreItem[];
 };
 
@@ -615,18 +616,20 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                   chargeReturnShipping: seller.chargeReturnShipping,
                 });
                 const shipLine = handlingTimeBoldLine(seller.name, labelPolicy.handlingTime);
+                const freeShipping = freeShippingPolicyLead(seller.offerFreeShippingOnInw);
                 const freeReturns = showsFreeReturns(labelPolicy);
+                const shippingLead = [freeShipping, shipLine].filter(Boolean).join("\n");
                 return (
                   <>
-              {shipLine || seller.sellerShippingPolicy ? (
+              {shippingLead || seller.sellerShippingPolicy ? (
                 <PolicyCard
                   icon="airplane-outline"
                   title="Shipping Policy"
-                  lead={shipLine}
+                  lead={shippingLead || null}
                   text={seller.sellerShippingPolicy ?? ""}
                 />
               ) : null}
-              {seller.sellerLocalDeliveryPolicy ? (
+              {seller.offerLocalDelivery && seller.sellerLocalDeliveryPolicy ? (
                 <PolicyCard icon="car-outline" title="Local Delivery Policy" text={seller.sellerLocalDeliveryPolicy} />
               ) : null}
               {seller.acceptReturns === false ||
@@ -639,10 +642,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                   title="Return Policy"
                   lead={freeReturns ? "FREE RETURNS" : null}
                   text={
-                    seller.acceptReturns === false
-                      ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
-                      : [
-                          `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery.`,
+                    [
                           seller.chargeReturnShipping
                             ? "Return shipping may be deducted from your refund."
                             : null,
@@ -760,7 +760,13 @@ function PolicyCard({
       )}
       {open ? (
         <>
-          {lead ? <p className="mb-2 text-sm font-bold leading-relaxed" style={{ color: "var(--color-text)" }}>{lead}</p> : null}
+          {lead
+            ? lead.split("\n").map((line) => (
+                <p key={line} className="mb-2 text-sm font-bold leading-relaxed" style={{ color: "var(--color-text)" }}>
+                  {line}
+                </p>
+              ))
+            : null}
           {text ? (
             <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-text)" }}>
               {text}

@@ -82,7 +82,7 @@ interface StoreOrder {
   sellerChargeReturnShipping?: boolean;
   sellerPolicyName?: string;
   returnLabelPayer?: "seller" | "buyer" | "by_reason";
-  returnLabelPayerByReason?: Record<string, "seller" | "buyer">;
+  returnLabelPayerByReason?: Record<string, "seller" | "buyer" | "later">;
   returnWindowEndsAt?: string | null;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;
@@ -98,8 +98,20 @@ interface StoreOrder {
   shipment?: { trackingNumber?: string | null; carrier?: string } | null;
 }
 
-const REFUND_REASONS = ["Changed my mind", "Didn't mean to order", "Order Arrived Damaged", "Wrong Item Delivered", "Other"] as const;
-const CANCEL_REASONS = ["Changed my mind", "Didn't mean to order", "Order Arrived Damaged", "Wrong Item Delivered", "Other"] as const;
+const REFUND_REASONS = [
+  "Changed my mind",
+  "Didn't mean to order",
+  "Ordered the wrong size, color, or quantity",
+  "Doesn't fit",
+  "No longer needed",
+  "Order Arrived Damaged",
+  "Wrong Item Delivered",
+  "Not as described",
+  "Missing parts",
+  "Defective",
+  "Other",
+] as const;
+const CANCEL_REASONS = REFUND_REASONS;
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
@@ -31,9 +32,18 @@ export default function IndexScreen() {
 
     let cancelled = false;
     apiGet<{ onboardingStep?: string | null }>("/api/signup/seller/status")
-      .then((status) => {
+      .then(async (status) => {
         if (cancelled) return;
-        const step = status.onboardingStep;
+        const remembered = await AsyncStorage.getItem("nwc-seller-onboarding-step");
+        if (cancelled) return;
+        if (remembered === "import") {
+          router.replace("/(tabs)/home");
+          return;
+        }
+        const steps = ["business", "contact", "subscribe", "shipping", "policies", "payouts"];
+        const rememberedIndex = remembered ? steps.indexOf(remembered) : -1;
+        const serverIndex = status.onboardingStep ? steps.indexOf(status.onboardingStep) : -1;
+        const step = rememberedIndex > serverIndex ? remembered : status.onboardingStep;
         if (step === "business" || step === "contact" || step === "subscribe" || step === "shipping" || step === "policies" || step === "payouts") {
           router.replace(`/(auth)/signup-seller?start=${step}` as never);
           return;

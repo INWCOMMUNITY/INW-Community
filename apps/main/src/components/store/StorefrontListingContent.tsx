@@ -73,8 +73,11 @@ interface StoreItem {
     lastName: string;
     sellerShippingPolicy?: string | null;
     sellerLocalDeliveryPolicy?: string | null;
+    offerLocalDelivery?: boolean | null;
     sellerPickupPolicy?: string | null;
     sellerReturnPolicy?: string | null;
+    acceptReturns?: boolean | null;
+    acceptReturnsDays?: number | null;
     freeShippingMinimumCents?: number | null;
   };
   freeShippingBanner?: FreeShippingBanner | null;
@@ -1163,7 +1166,7 @@ export function StorefrontListingContent({
               </div>
             ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
-              {effectiveLocalDeliveryPolicy && (
+              {item.member?.offerLocalDelivery !== false && item.localDeliveryAvailable && effectiveLocalDeliveryPolicy && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1193,21 +1196,21 @@ export function StorefrontListingContent({
                   </div>
                 </div>
               )}
-              {item.member?.sellerReturnPolicy && (
+              {item.member?.sellerReturnPolicy?.trim() ? (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Return Policy
                     </label>
                     <div
-                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto"
                       style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
                     >
-                      {item.member.sellerReturnPolicy}
+                      <p className="whitespace-pre-wrap">{item.member.sellerReturnPolicy}</p>
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
               <div className="space-y-4">
                 <div>
                   <button

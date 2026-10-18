@@ -135,6 +135,7 @@ export async function GET(
       chargeReturnShipping: business.member.chargeReturnShipping === true,
       handlingTime: business.member.handlingTime,
       returnLabelPayer: business.member.returnLabelPayer,
+      offerFreeShippingOnInw: business.member.offerFreeShippingOnInw === true,
       offerShipping: business.member.offerShipping,
       offerLocalDelivery: business.member.offerLocalDelivery,
       offerLocalPickup: business.member.offerLocalPickup,

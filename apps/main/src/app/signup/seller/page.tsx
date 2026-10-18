@@ -7,11 +7,18 @@ import { signIn } from "next-auth/react";
 import { BusinessForm, type BusinessFormData } from "@/components/BusinessForm";
 import { OnboardingProgress } from "@/components/seller-onboarding/OnboardingProgress";
 import { ShippingSetupPanel } from "@/components/seller/ShippingSetupPanel";
-import { SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
-import { policyFromStored, type SellerReturnLabelPolicy } from "@/lib/seller-return-label-policy";
+import { PolicyPreviewField, SellerPolicyQuestions } from "@/components/seller/SellerPolicyQuestions";
+import {
+  freeShippingPolicyLead,
+  handlingTimeBoldLine,
+  policyFromStored,
+  showsFreeReturns,
+  type SellerReturnLabelPolicy,
+} from "@/lib/seller-return-label-policy";
+import { clampAcceptReturnsDays } from "@/lib/store-return";
 import { ListingFormSection } from "@/components/store-item/ListingFormSection";
 import { IonIcon } from "@/components/IonIcon";
-import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
+import { formatSubscriptionPriceForInterval } from "@/lib/subscription-plan-prices";
 
 type Step = "account" | "business" | "contact" | "subscribe" | "shipping" | "policies" | "payouts" | "import";
 
@@ -27,7 +34,6 @@ const STEP_INDEX: Record<Step, number> = {
 };
 
 const BUSINESS_STORAGE_KEY = "nwc-seller-onboarding-business";
-const SELLER_MONTHLY = SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd;
 const fieldClass =
   "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[var(--color-primary)]";
 const cardStyle = { borderColor: "var(--color-primary)" };
@@ -38,6 +44,7 @@ function isStep(value: string | null): value is Step {
 
 export default function SignupSellerPage() {
   const [step, setStep] = useState<Step>("account");
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
   const [booting, setBooting] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -53,6 +60,7 @@ export default function SignupSellerPage() {
   const [policyDraft, setPolicyDraft] = useState<SellerReturnLabelPolicy>(() => policyFromStored({}));
   const [policyTexts, setPolicyTexts] = useState({ shipping: "", returns: "" });
   const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
+  const [acceptReturnsDays, setAcceptReturnsDays] = useState(30);
   const [stripeReady, setStripeReady] = useState(false);
   const [waitingForPlan, setWaitingForPlan] = useState(false);
   const [etsyConnected, setEtsyConnected] = useState(false);
@@ -75,6 +83,8 @@ export default function SignupSellerPage() {
           shipping: data.sellerShippingPolicy ?? "",
           returns: data.sellerReturnPolicy ?? "",
         });
+        setOfferFreeShippingOnInw(data.offerFreeShippingOnInw === true);
+        setAcceptReturnsDays(typeof data.acceptReturnsDays === "number" ? data.acceptReturnsDays : 30);
       })
       .catch(() => {});
     return () => {
@@ -96,6 +106,8 @@ export default function SignupSellerPage() {
           returnLabelPayerByReason: policyDraft.returnLabelPayerByReason,
           sellerShippingPolicy: policyTexts.shipping.trim() || null,
           sellerReturnPolicy: policyTexts.returns.trim() || null,
+          acceptReturns: true,
+          acceptReturnsDays: clampAcceptReturnsDays(acceptReturnsDays),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -123,6 +135,7 @@ export default function SignupSellerPage() {
   function go(next: Step) {
     setError("");
     setStep(next);
+    sessionStorage.setItem("nwc-seller-onboarding-step", next);
     const url = next === "account" ? "/signup/seller" : `/signup/seller?step=${next}`;
     window.history.replaceState(null, "", url);
   }
@@ -134,9 +147,10 @@ export default function SignupSellerPage() {
     const justPaid = params.get("success") === "1";
 
     const billing = params.get("billing");
-    if (billing === "yearly" || billing === "monthly") {
-      sessionStorage.setItem("nwc-onboarding-billing", billing);
-    }
+    const stored = sessionStorage.getItem("nwc-onboarding-billing");
+    const initial = billing === "yearly" || billing === "monthly" ? billing : stored === "yearly" ? "yearly" : "monthly";
+    sessionStorage.setItem("nwc-onboarding-billing", initial);
+    setBillingInterval(initial);
 
     const notes: string[] = [];
     if (params.get("etsy") === "connected") notes.push("Etsy is connected. You can import listings, or finish without them.");
@@ -198,7 +212,14 @@ export default function SignupSellerPage() {
         return;
       }
       setWaitingForPlan(false);
-      if (isStep(body.step ?? null)) setStep(body.step as Step);
+      const serverStep = isStep(body.step ?? null) ? (body.step as Step) : null;
+      const remembered = sessionStorage.getItem("nwc-seller-onboarding-step");
+      const rememberedStep = isStep(remembered) ? remembered : null;
+      const chosen =
+        serverStep && rememberedStep && STEP_INDEX[rememberedStep] > STEP_INDEX[serverStep]
+          ? rememberedStep
+          : serverStep ?? rememberedStep;
+      if (chosen) setStep(chosen);
       setBooting(false);
     }
 
@@ -299,11 +320,15 @@ export default function SignupSellerPage() {
     }
   }
 
+  function selectBilling(next: "monthly" | "yearly") {
+    setBillingInterval(next);
+    sessionStorage.setItem("nwc-onboarding-billing", next);
+  }
+
   function checkoutBody() {
-    const billing = sessionStorage.getItem("nwc-onboarding-billing") === "yearly" ? "yearly" : "monthly";
     return {
       planId: "seller",
-      interval: billing,
+      interval: billingInterval,
       businessData: businessData
         ? {
             name: businessData.name,
@@ -445,7 +470,7 @@ export default function SignupSellerPage() {
     <div className="mx-auto max-w-3xl px-4 py-8">
       <OnboardingProgress stepIndex={STEP_INDEX[step]} />
       <h1 className={`text-2xl font-bold ${step === "subscribe" ? "text-center" : ""} ${step === "payouts" ? "mb-4" : "mb-6"}`} style={{ color: "var(--color-heading)" }}>
-        Sign up as Seller
+        Sign Up as Seller
       </h1>
       {step === "payouts" ? (
         <div className="mb-4 flex justify-center">
@@ -525,6 +550,9 @@ export default function SignupSellerPage() {
             onBack={() => go("account")}
           />
           {error && <p className="text-red-600 text-sm">{error}</p>}
+          <button type="button" onClick={() => go("contact")} className="btn-outline w-full text-center">
+            Skip this step
+          </button>
         </div>
       )}
 
@@ -549,6 +577,9 @@ export default function SignupSellerPage() {
             <button type="submit" className="btn flex-1" disabled={loading}>
               {loading ? "Saving…" : "Continue"}
             </button>
+            <button type="button" onClick={() => go("subscribe")} className="btn-outline flex-1 text-center">
+              Skip
+            </button>
           </div>
           </ListingFormSection>
         </form>
@@ -569,11 +600,37 @@ export default function SignupSellerPage() {
           <h2 className="text-2xl md:text-3xl font-bold text-center mb-2" style={{ color: "var(--color-heading)" }}>
             Subscribe as a Northwest Community Seller
           </h2>
+          <div className="flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => selectBilling("monthly")}
+              className={`px-6 py-2.5 rounded-lg text-base font-medium ${
+                billingInterval === "monthly"
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "bg-white text-gray-700 border border-gray-300"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => selectBilling("yearly")}
+              className={`px-6 py-2.5 rounded-lg text-base font-medium ${
+                billingInterval === "yearly"
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "bg-white text-gray-700 border border-gray-300"
+              }`}
+            >
+              Yearly
+            </button>
+          </div>
           <div className="flex flex-col items-center gap-1 mb-2">
             <p className="text-3xl md:text-4xl font-bold text-gray-900 text-center">
-              ${SELLER_MONTHLY.toFixed(2)}
-              <span className="text-lg font-normal text-gray-600 ml-1">per month</span>
+              {formatSubscriptionPriceForInterval("seller", billingInterval)?.primary}
             </p>
+            {billingInterval === "yearly" ? (
+              <p className="text-sm text-gray-600">{formatSubscriptionPriceForInterval("seller", "yearly")?.secondary}</p>
+            ) : null}
           </div>
           <div className="mb-6 max-w-lg mx-auto space-y-4 text-center text-base leading-relaxed text-gray-700">
             <p>
@@ -589,6 +646,9 @@ export default function SignupSellerPage() {
             <button type="button" onClick={() => go("contact")} className="btn-outline flex-1 text-center">Back</button>
             <button type="button" onClick={() => void handleCheckout()} className="btn flex-1 text-center" disabled={loading}>
               {loading ? "Redirecting…" : "Subscribe & Complete Onboarding"}
+            </button>
+            <button type="button" onClick={() => go("shipping")} className="btn-outline flex-1 text-center">
+              Skip
             </button>
           </div>
         </div>
@@ -625,6 +685,9 @@ export default function SignupSellerPage() {
               <button type="button" className="btn flex-1 text-center" disabled={!shippingReady || waitingForPlan} onClick={() => go("policies")}>
                 Continue
               </button>
+              <button type="button" className="btn-outline flex-1 text-center" onClick={() => go("policies")}>
+                Skip
+              </button>
             </div>
           </div>
         </div>
@@ -633,41 +696,61 @@ export default function SignupSellerPage() {
       {step === "policies" && (
         <div className="space-y-6">
           <p className="text-gray-600">
-            These answers show on your storefront. A preset handling time and seller-paid returns are added in bold.
+            The bold free shipping line, handling time, and FREE RETURNS show at the top of the policy. Type the rest underneath.
           </p>
           <SellerPolicyQuestions
-            sellerName={policyName}
             policy={policyDraft}
             onChange={setPolicyDraft}
             disabled={loading}
           />
-          <label className="block text-sm font-medium text-gray-700" htmlFor="onboarding-shipping-policy">
-            Shipping policy
-          </label>
-          <textarea
+          <PolicyPreviewField
             id="onboarding-shipping-policy"
-            className={fieldClass}
-            rows={4}
+            label="Shipping Policy"
+            leads={[freeShippingPolicyLead(offerFreeShippingOnInw)]}
+            lead={handlingTimeBoldLine(policyName, policyDraft.handlingTime)}
             value={policyTexts.shipping}
-            onChange={(e) => setPolicyTexts((prev) => ({ ...prev, shipping: e.target.value }))}
+            onChange={(shipping) => setPolicyTexts((prev) => ({ ...prev, shipping }))}
             placeholder="Anything else buyers should know about shipping."
+            disabled={loading}
           />
-          <label className="block text-sm font-medium text-gray-700" htmlFor="onboarding-return-policy">
-            Return policy
-          </label>
-          <textarea
+          <div className="space-y-2">
+            <label htmlFor="onboarding-accept-returns-days" className="block text-sm font-medium text-gray-700">
+              Accept returns for
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="onboarding-accept-returns-days"
+                type="number"
+                min={1}
+                max={365}
+                value={acceptReturnsDays}
+                disabled={loading}
+                onChange={(e) => setAcceptReturnsDays(clampAcceptReturnsDays(Number(e.target.value)))}
+                className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
+              />
+              <span className="text-sm text-gray-700">days after delivery</span>
+            </div>
+            <p className="text-sm text-gray-600">
+              Mention this return window in your refund policy below.
+            </p>
+          </div>
+          <PolicyPreviewField
             id="onboarding-return-policy"
-            className={fieldClass}
-            rows={4}
+            label="Refund Policy"
+            leads={[showsFreeReturns(policyDraft) ? "FREE RETURNS" : null]}
             value={policyTexts.returns}
-            onChange={(e) => setPolicyTexts((prev) => ({ ...prev, returns: e.target.value }))}
-            placeholder="Anything else buyers should know about returns."
+            onChange={(returns) => setPolicyTexts((prev) => ({ ...prev, returns }))}
+            placeholder={`e.g. Refunds and returns within ${acceptReturnsDays} days.`}
+            disabled={loading}
           />
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => go("shipping")} className="btn-outline flex-1 text-center">Back</button>
             <button type="button" className="btn flex-1 text-center" disabled={loading || !policyDraft.handlingTime} onClick={() => void savePoliciesAndContinue()}>
               {loading ? "Saving…" : "Continue"}
+            </button>
+            <button type="button" className="btn-outline flex-1 text-center" onClick={() => go("payouts")}>
+              Skip
             </button>
           </div>
         </div>
@@ -695,6 +778,9 @@ export default function SignupSellerPage() {
             <button type="button" onClick={() => go("policies")} className="btn-outline flex-1 text-center">Back</button>
             <button type="button" className="btn flex-1 text-center" disabled={!stripeReady} onClick={() => go("import")}>
               Continue
+            </button>
+            <button type="button" className="btn-outline flex-1 text-center" onClick={() => go("import")}>
+              Skip
             </button>
           </div>
         </div>

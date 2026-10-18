@@ -34,8 +34,10 @@ describe("seller return label policy", () => {
     expect(returnLabelChargesBuyer(policy, "Changed my mind")).toBe(true);
     expect(returnLabelChargesBuyer(policy, "Order Arrived Damaged")).toBe(false);
     expect(returnLabelChargesBuyer(policy, "Wrong Item Delivered")).toBe(false);
+    expect(returnLabelChargesBuyer(policy, "Doesn't fit")).toBe(true);
+    expect(returnLabelChargesBuyer(policy, "Missing parts")).toBe(false);
     expect(returnLabelChargesBuyer(policy, "Initiated by seller")).toBe(false);
-    expect(returnLabelChargesBuyer(policy, "Other: too big")).toBe(true);
+    expect(returnLabelChargesBuyer(policy, "Other: too big")).toBe(false);
     expect(chargeReturnShippingForMode("by_reason")).toBe(false);
     expect(chargeReturnShippingForMode("buyer")).toBe(true);
   });

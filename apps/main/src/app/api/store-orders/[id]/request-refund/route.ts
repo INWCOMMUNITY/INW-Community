@@ -2,19 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { BUYER_ORDER_REASONS } from "@/lib/buyer-orders";
 import { createBuyerRequestedStoreReturn } from "@/lib/store-return-request";
 import { notifySellerReturnRequested } from "@/lib/store-return-notify";
 import { prisma } from "database";
 
 export const dynamic = "force-dynamic";
 
-const REFUND_REASONS = [
-  "Changed my mind",
-  "Didn't mean to order",
-  "Order Arrived Damaged",
-  "Wrong Item Delivered",
-  "Other",
-] as const;
+const REFUND_REASONS = BUYER_ORDER_REASONS;
 
 export async function POST(
   req: NextRequest,

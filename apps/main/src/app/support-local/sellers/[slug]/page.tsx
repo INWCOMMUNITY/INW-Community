@@ -156,6 +156,9 @@ export default async function SellerStorefrontPage({
     acceptReturns: business.member.acceptReturns !== false,
     acceptReturnsDays: business.member.acceptReturnsDays ?? 30,
     chargeReturnShipping: business.member.chargeReturnShipping === true,
+    handlingTime: business.member.handlingTime,
+    returnLabelPayer: business.member.returnLabelPayer,
+    offerFreeShippingOnInw: business.member.offerFreeShippingOnInw === true,
     storeItems: storeItems.map((item) => ({
       id: item.id,
       title: item.title,
