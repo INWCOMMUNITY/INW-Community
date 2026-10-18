@@ -15,6 +15,10 @@ interface PolicyData {
   acceptReturns?: boolean;
   acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
+  handlingTime?: string | null;
+  returnLabelPayer?: string | null;
+  returnLabelPayerByReason?: unknown;
+  sellerPolicyName?: string;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
 }
@@ -56,10 +60,6 @@ export default function PoliciesPage() {
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [acceptReturns, setAcceptReturns] = useState(true);
   const [acceptReturnsDays, setAcceptReturnsDays] = useState(30);
-  const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/me/policies", { credentials: "include" })
   const [sellerName, setSellerName] = useState("This seller");
   const [returnPolicy, setReturnPolicy] = useState<SellerReturnLabelPolicy>(() =>
     policyFromStored({ chargeReturnShipping: false })
@@ -80,6 +80,10 @@ export default function PoliciesPage() {
         setAcceptReturnsDays(data?.acceptReturnsDays ?? 30);
         setSellerName(data?.sellerPolicyName?.trim() || "This seller");
         setReturnPolicy(policyFromStored(data ?? {}));
+      })
+      .catch(() => setError("Failed to load policies."))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,13 +105,13 @@ export default function PoliciesPage() {
           offerLocalPickup: false,
           acceptReturns,
           acceptReturnsDays,
-          chargeReturnShipping,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
           handlingTime: returnPolicy.handlingTime,
           returnLabelPayer: returnPolicy.returnLabelPayer,
           returnLabelPayerByReason: returnPolicy.returnLabelPayerByReason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
         setError(data.error ?? "Failed to save.");
         return;
       }
@@ -156,10 +160,6 @@ export default function PoliciesPage() {
                 </label>
               </div>
             )}
-            <label htmlFor={key} className="block text-sm font-medium text-gray-700">
-              {label}
-            </label>
-            <textarea
             {key === "sellerShippingPolicy" ? (
               <SellerPolicyQuestions
                 sellerName={sellerName}
@@ -168,6 +168,10 @@ export default function PoliciesPage() {
                 disabled={saving}
               />
             ) : null}
+            <label htmlFor={key} className="block text-sm font-medium text-gray-700">
+              {label}
+            </label>
+            <textarea
               id={key}
               value={values[key]}
               onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
@@ -225,13 +229,13 @@ export default function PoliciesPage() {
             rows={4}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-500 min-w-0"
           />
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="charge-return-shipping"
           <p className="text-sm text-gray-600">
             When the buyer pays, the Shippo return-label price is deducted from the refund after you buy
             the label. You can still choose to pay for a label when you send it.
+          </p>
+        </div>
+
+        {error && <p className="text-red-600 text-sm">{error}</p>}
 
         <div className="flex items-center gap-3">
           <button

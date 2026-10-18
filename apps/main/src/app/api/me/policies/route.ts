@@ -16,18 +16,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const member = await prisma.member.findUnique({
-      where: { id: userId },
-      select: {
-        sellerShippingPolicy: true,
-        sellerLocalDeliveryPolicy: true,
-        sellerPickupPolicy: true,
-        sellerReturnPolicy: true,
-        acceptReturns: true,
-        acceptReturnsDays: true,
-        chargeReturnShipping: true,
-      },
-    });
+    const [member, business] = await Promise.all([
+      prisma.member.findUnique({
+        where: { id: userId },
+        select: {
+          firstName: true,
+          lastName: true,
+          sellerShippingPolicy: true,
+          sellerLocalDeliveryPolicy: true,
+          sellerPickupPolicy: true,
+          sellerReturnPolicy: true,
+          acceptReturns: true,
+          acceptReturnsDays: true,
+          chargeReturnShipping: true,
+          handlingTime: true,
+          returnLabelPayer: true,
+          returnLabelPayerByReason: true,
+        },
+      }),
+      prisma.business.findFirst({
+        where: { memberId: userId },
+        orderBy: { createdAt: "asc" },
+        select: { name: true },
+      }),
+    ]);
     if (!member) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -46,16 +58,6 @@ export async function GET(req: NextRequest) {
     } catch {
       // Columns may not exist; keep defaults
     }
-    return NextResponse.json({
-      sellerShippingPolicy: member.sellerShippingPolicy ?? "",
-      sellerLocalDeliveryPolicy: member.sellerLocalDeliveryPolicy ?? "",
-      sellerPickupPolicy: member.sellerPickupPolicy ?? "",
-      sellerReturnPolicy: member.sellerReturnPolicy ?? "",
-      acceptReturns: member.acceptReturns !== false,
-      acceptReturnsDays: clampAcceptReturnsDays(member.acceptReturnsDays),
-      chargeReturnShipping: member.chargeReturnShipping === true,
-      offerShipping,
-      offerLocalDelivery,
     const returnLabelPolicy = policyFromStored(member);
     return NextResponse.json({
       sellerShippingPolicy: member.sellerShippingPolicy ?? "",
@@ -73,6 +75,16 @@ export async function GET(req: NextRequest) {
         firstName: member.firstName,
         lastName: member.lastName,
       }),
+      offerShipping,
+      offerLocalDelivery,
+      offerLocalPickup,
+    });
+  } catch (e) {
+    const err = e as Error;
+    console.error("[GET /api/me/policies]", err);
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === "development" ? err.message : "Internal error" },
+      { status: 500 }
     );
   }
 }
