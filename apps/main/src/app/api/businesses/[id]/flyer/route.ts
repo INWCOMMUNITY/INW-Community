@@ -22,7 +22,7 @@ const FLYER_LINE_1 = "A proud partner of Northwest Community.";
 const FLYER_LINE_2 =
   "Together we work to help local businesses thrive—keeping services local and money in the Inland Northwest.";
 const FLYER_FEATURES =
-  "Shop Locally Online - Local Business Directory - Exclusive Community Social Media - Community Calendars";
+  "Shop Locally Online - Local Business Directory - Community Page - Local Calendars";
 
 const SITE_LABEL = "INWCOMMUNITY.COM";
 const APP_LABEL = "Get the INW Community app";
