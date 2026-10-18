@@ -107,6 +107,17 @@ export type BuyerStoreOrder = {
   };
   items: BuyerOrderItem[];
   shipment: BuyerShipment | null;
+  refundBreakdown?: {
+    title: "Expected refund" | "Refund";
+    lines: Array<{
+      label: string;
+      cents: number | null;
+      kind: "credit" | "deduction";
+      detail: string | null;
+    }>;
+    expectedCents: number;
+    footnote: string | null;
+  } | null;
 };
 
 export function formatBuyerPrice(cents: number): string {

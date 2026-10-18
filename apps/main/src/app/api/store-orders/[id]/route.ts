@@ -16,7 +16,7 @@ import {
   serializeOrderShipments,
   storeOrderShipmentInclude,
 } from "@/lib/store-order-shipments";
-import { buyerReturnPolicyFields } from "@/lib/store-return";
+import { buyerRefundBreakdown, buyerReturnPolicyFields } from "@/lib/store-return";
 
 export const dynamic = "force-dynamic";
 
@@ -125,10 +125,15 @@ export async function GET(
     // For buyer: do not expose stripePaymentIntentId; add isCashOrder for UI (cancel vs request refund).
     if (orderForResponse.buyerId === userId) {
       const { stripePaymentIntentId, ...rest } = orderForResponse;
-      return NextResponse.json({
+      const buyerFields = buyerReturnPolicyFields(order.seller, orderForResponse);
+      const buyerOrder = {
         ...rest,
         isCashOrder: !stripePaymentIntentId,
-        ...buyerReturnPolicyFields(order.seller, orderForResponse),
+        ...buyerFields,
+      };
+      return NextResponse.json({
+        ...buyerOrder,
+        refundBreakdown: buyerRefundBreakdown(buyerOrder),
         orderNumber: orderForResponse.id.slice(-8).toUpperCase(),
         paymentLabel,
       });

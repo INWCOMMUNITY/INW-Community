@@ -141,6 +141,8 @@ export function BuyerOrderDetailContent() {
   const shopSlug = buyerShopSlug(order);
   const trackingHref = buyerTrackingHref(order.shipment);
   const trackingNumber = order.shipment?.trackingNumber?.trim() || null;
+  const returnTrackingNumber = order.returnShipment?.trackingNumber?.trim() || null;
+  const returnTrackingHref = buyerTrackingHref(order.returnShipment);
   const address = formatShippingAddress(order.shippingAddress);
   const items = order.items ?? [];
   const activeFulfillment = order.status === "paid" || order.status === "shipped" || order.status === "delivered";
@@ -188,6 +190,42 @@ export function BuyerOrderDetailContent() {
       <section className="mb-6">
         <p className="text-xs uppercase tracking-wide opacity-70 mb-1">Seller</p>
         <p className="font-medium">{sellerName}</p>
+        {trackingNumber ? (
+          <p className="text-sm mt-2">
+            <span className="opacity-70">Tracking </span>
+            {trackingHref ? (
+              <a
+                href={trackingHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium hover:underline"
+                style={{ color: "var(--color-link)" }}
+              >
+                {trackingNumber}
+              </a>
+            ) : (
+              <span className="font-medium">{trackingNumber}</span>
+            )}
+          </p>
+        ) : null}
+        {returnTrackingNumber ? (
+          <p className="text-sm mt-1">
+            <span className="opacity-70">Return tracking </span>
+            {returnTrackingHref ? (
+              <a
+                href={returnTrackingHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium hover:underline"
+                style={{ color: "var(--color-link)" }}
+              >
+                {returnTrackingNumber}
+              </a>
+            ) : (
+              <span className="font-medium">{returnTrackingNumber}</span>
+            )}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2 mt-2">
           {shopSlug ? (
             <Link href={buildBusinessHref(shopSlug, { type: "directory" })} className={outlineBtn}>
@@ -278,6 +316,34 @@ export function BuyerOrderDetailContent() {
           <span>{formatBuyerPrice(buyerOrderGrandTotalCents(order))}</span>
         </div>
       </section>
+
+      {order.refundBreakdown ? (
+        <section className="mb-6 rounded-xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] p-4 text-sm">
+          <div className="flex justify-between items-baseline gap-3">
+            <h2 className="text-base font-bold" style={{ color: "var(--color-heading)" }}>
+              {order.refundBreakdown.title}
+            </h2>
+            <p className="text-xl font-bold" style={{ color: "var(--color-primary)" }}>
+              {formatBuyerPrice(order.refundBreakdown.expectedCents)}
+            </p>
+          </div>
+          <div className="mt-3 space-y-1">
+            {order.refundBreakdown.lines.map((line) => (
+              <div key={line.label} className="flex justify-between gap-3">
+                <span className="opacity-80">{line.label}</span>
+                <span style={line.kind === "deduction" ? { color: "#6b2430" } : undefined}>
+                  {line.cents == null
+                    ? line.detail
+                    : `${line.kind === "deduction" ? "-" : ""}${formatBuyerPrice(line.cents)}`}
+                </span>
+              </div>
+            ))}
+          </div>
+          {order.refundBreakdown.footnote ? (
+            <p className="mt-3 text-xs leading-5 opacity-80">{order.refundBreakdown.footnote}</p>
+          ) : null}
+        </section>
+      ) : null}
 
       {address ? (
         <section className="mb-6">

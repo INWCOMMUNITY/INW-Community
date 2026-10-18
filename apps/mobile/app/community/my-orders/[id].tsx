@@ -73,6 +73,17 @@ interface StoreOrder {
     declineReason?: string | null;
   } | null;
   returnShipment?: { labelUrl?: string | null; trackingNumber?: string | null; carrier?: string } | null;
+  refundBreakdown?: {
+    title: "Expected refund" | "Refund";
+    lines: Array<{
+      label: string;
+      cents: number | null;
+      kind: "credit" | "deduction";
+      detail: string | null;
+    }>;
+    expectedCents: number;
+    footnote: string | null;
+  } | null;
   cancelReason?: string | null;
   cancelNote?: string | null;
   isCashOrder?: boolean;
@@ -309,6 +320,10 @@ export default function MyOrderDetailScreen() {
   const trackingUrl = trackingNumber
     ? getTrackingUrl(order?.shipment?.carrier ?? null, trackingNumber)
     : null;
+  const returnTrackingNumber = order?.returnShipment?.trackingNumber?.trim() || null;
+  const returnTrackingUrl = returnTrackingNumber
+    ? getTrackingUrl(order?.returnShipment?.carrier ?? null, returnTrackingNumber)
+    : null;
   const hasLocalDelivery =
     order?.items?.some((i) => (i.fulfillmentType ?? "") === "local_delivery") ?? false;
   const orderNumberDisplay = order?.orderNumber ?? order?.id.slice(-8).toUpperCase();
@@ -441,6 +456,32 @@ export default function MyOrderDetailScreen() {
           <Text style={styles.metaLabel}>Seller</Text>
           <Text style={styles.metaValue}>{sellerName}</Text>
         </View>
+        {trackingNumber ? (
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Tracking</Text>
+            <Pressable
+              onPress={() => {
+                if (trackingUrl) void Linking.openURL(trackingUrl);
+              }}
+              accessibilityRole="link"
+            >
+              <Text style={styles.trackingLink}>{trackingNumber}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {returnTrackingNumber ? (
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Return tracking</Text>
+            <Pressable
+              onPress={() => {
+                if (returnTrackingUrl) void Linking.openURL(returnTrackingUrl);
+              }}
+              accessibilityRole="link"
+            >
+              <Text style={styles.trackingLink}>{returnTrackingNumber}</Text>
+            </Pressable>
+          </View>
+        ) : null}
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>Payment</Text>
           <Text style={styles.metaValue}>{paymentLabelText}</Text>
@@ -468,6 +509,28 @@ export default function MyOrderDetailScreen() {
           </View>
         ) : null}
       </View>
+
+      {order.refundBreakdown ? (
+        <View style={styles.refundCard}>
+          <View style={styles.refundHeader}>
+            <Text style={styles.refundTitle}>{order.refundBreakdown.title}</Text>
+            <Text style={styles.refundAmount}>{formatPrice(order.refundBreakdown.expectedCents)}</Text>
+          </View>
+          {order.refundBreakdown.lines.map((line) => (
+            <View key={line.label} style={styles.refundLine}>
+              <Text style={styles.refundLineLabel}>{line.label}</Text>
+              <Text style={line.kind === "deduction" ? styles.refundDeduction : styles.refundLineValue}>
+                {line.cents == null
+                  ? line.detail
+                  : `${line.kind === "deduction" ? "-" : ""}${formatPrice(line.cents)}`}
+              </Text>
+            </View>
+          ))}
+          {order.refundBreakdown.footnote ? (
+            <Text style={styles.refundFootnote}>{order.refundBreakdown.footnote}</Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {trackingNumber ? (
         <View style={styles.card}>
@@ -956,6 +1019,13 @@ const styles = StyleSheet.create({
     color: theme.colors.heading,
     fontWeight: "700",
   },
+  trackingLink: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.colors.primary,
+    textAlign: "right",
+    flexShrink: 1,
+  },
   metaValue: {
     flex: 1,
     fontSize: 14,
@@ -1109,6 +1179,34 @@ const styles = StyleSheet.create({
   ticketCloseBtn: { marginTop: 12, paddingVertical: 10, alignItems: "center" },
   ticketCloseBtnText: { fontSize: 16, color: "#666", fontWeight: "600" },
   totalValue: { fontSize: 16, fontWeight: "700", color: theme.colors.earth },
+  refundCard: {
+    backgroundColor: theme.colors.cream,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    padding: 16,
+    marginBottom: 12,
+  },
+  refundHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 12,
+    marginBottom: 10,
+  },
+  refundTitle: { fontSize: 16, fontWeight: "700", color: theme.colors.heading },
+  refundAmount: { fontSize: 22, fontWeight: "700", color: theme.colors.primary },
+  refundLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 4,
+  },
+  refundLineLabel: { fontSize: 14, color: "#333" },
+  refundLineValue: { fontSize: 14, fontWeight: "600", color: "#333" },
+  refundDeduction: { fontSize: 14, fontWeight: "700", color: "#6b2430" },
+  refundFootnote: { fontSize: 13, color: "#333", lineHeight: 18, marginTop: 10 },
   errorText: { fontSize: 16, color: "#666", textAlign: "center", marginBottom: 16 },
   errorButtons: { flexDirection: "row", gap: 12, marginTop: 8 },
   backBtn: {

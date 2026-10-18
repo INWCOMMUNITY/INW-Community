@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buyerCanRequestRefund,
   buyerCardRefundCents,
+  buyerRefundBreakdown,
   buyerRefundCentsForFeeBearer,
   clampAcceptReturnsDays,
   isActiveStoreReturnStatus,
@@ -52,6 +53,104 @@ describe("return refund math", () => {
         returnLabelCostCents: 850,
       })
     ).toBe(8877);
+  });
+
+  it("shows the buyer each amount that makes up an expected return refund", () => {
+    const breakdown = buyerRefundBreakdown({
+      status: "shipped",
+      totalCents: 10000,
+      subtotalCents: 9000,
+      shippingCostCents: 1000,
+      taxCents: 100,
+      returnLabelPayer: "buyer",
+      storeReturn: {
+        status: "awaiting_return",
+        reason: "Changed my mind",
+        chargeReturnShipping: true,
+        returnLabelCostCents: 850,
+      },
+    });
+    expect(breakdown?.title).toBe("Expected refund");
+    expect(breakdown?.lines.map((line) => line.label)).toEqual([
+      "Items",
+      "Shipping",
+      "Tax",
+      "Card processing fee",
+      "Sales tax fee",
+      "Return label",
+    ]);
+    const net = (breakdown?.lines ?? []).reduce((sum, line) => {
+      const cents = line.cents ?? 0;
+      return sum + (line.kind === "deduction" ? -cents : cents);
+    }, 0);
+    const expected = returnRefundAmountCents({
+      totalCents: 10000,
+      taxCents: 100,
+      chargeReturnShipping: true,
+      returnLabelCostCents: 850,
+    });
+    expect(net).toBe(expected);
+    expect(breakdown?.expectedCents).toBe(expected);
+    expect(breakdown?.footnote).toBeNull();
+  });
+
+  it("leaves the return label off the total until the seller buys it", () => {
+    const breakdown = buyerRefundBreakdown({
+      status: "shipped",
+      totalCents: 10000,
+      subtotalCents: 10000,
+      shippingCostCents: 0,
+      taxCents: 100,
+      returnLabelPayer: "buyer",
+      storeReturn: {
+        status: "requested",
+        reason: "Changed my mind",
+        chargeReturnShipping: true,
+        returnLabelCostCents: 0,
+      },
+    });
+    expect(breakdown?.lines.find((line) => line.label === "Return label")).toMatchObject({
+      cents: null,
+      detail: "Deducted when purchased",
+    });
+    expect(breakdown?.expectedCents).toBe(
+      returnRefundAmountCents({
+        totalCents: 10000,
+        taxCents: 100,
+        chargeReturnShipping: false,
+      })
+    );
+    expect(breakdown?.footnote).toMatch(/deducted from this amount when the seller buys it/);
+  });
+
+  it("refunds the full charge when the seller cancels", () => {
+    const breakdown = buyerRefundBreakdown({
+      status: "canceled",
+      totalCents: 10000,
+      subtotalCents: 10000,
+      taxCents: 100,
+      cancelReason: "Seller canceled & refunded",
+    });
+    expect(breakdown?.expectedCents).toBe(10100);
+    expect(breakdown?.lines.some((line) => line.kind === "deduction")).toBe(false);
+  });
+
+  it("hides the breakdown until a refund or return is underway", () => {
+    expect(
+      buyerRefundBreakdown({
+        status: "shipped",
+        totalCents: 10000,
+        taxCents: 0,
+      })
+    ).toBeNull();
+    expect(
+      buyerRefundBreakdown({
+        status: "shipped",
+        isCashOrder: true,
+        totalCents: 10000,
+        storeReturn: { status: "requested", chargeReturnShipping: false },
+      })
+    ).toBeNull();
   });
 
   it("does not go below zero", () => {

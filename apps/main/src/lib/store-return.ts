@@ -4,7 +4,7 @@ import {
   computeStripeProcessingFeeCents,
   computeStripeTaxProductFeeCents,
 } from "@/lib/storefront-payout";
-import { policyFromStored, sellerPolicyName } from "@/lib/seller-return-label-policy";
+import { payerForReason, policyFromStored, sellerPolicyName } from "@/lib/seller-return-label-policy";
 
 export const STORE_RETURN_STATUSES = [
   "requested",
@@ -289,6 +289,142 @@ export function returnRefundAmountCents(args: {
   const base = buyerCardRefundCents(args);
   if (!args.chargeReturnShipping) return base;
   return Math.max(0, base - Math.max(0, args.returnLabelCostCents ?? 0));
+}
+
+export type BuyerRefundBreakdownLine = {
+  label: string;
+  /** Null when the amount is not known yet. Deductions are positive cents, shown as subtracted. */
+  cents: number | null;
+  kind: "credit" | "deduction";
+  detail: string | null;
+};
+
+export type BuyerRefundBreakdown = {
+  title: "Expected refund" | "Refund";
+  lines: BuyerRefundBreakdownLine[];
+  expectedCents: number;
+  footnote: string | null;
+};
+
+const BUYER_REFUND_BREAKDOWN_STATUSES = new Set([
+  "requested",
+  "awaiting_return",
+  "in_transit",
+  "received",
+  "refunded",
+]);
+
+const SELLER_ABSORBS_STRIPE_FEE_REASONS = new Set([
+  "Seller canceled & refunded",
+  "Seller canceled delivery",
+  "requested_by_seller",
+  "Courtesy refund",
+]);
+
+function sellerAbsorbsStripeFee(args: {
+  cancelReason?: string | null;
+  returnReason?: string | null;
+}): boolean {
+  return (
+    SELLER_ABSORBS_STRIPE_FEE_REASONS.has(args.cancelReason ?? "") ||
+    SELLER_ABSORBS_STRIPE_FEE_REASONS.has(args.returnReason ?? "")
+  );
+}
+
+/**
+ * What the buyer can expect back, with each amount that makes up that refund.
+ * Seller cancels and courtesy refunds return the full charge. Buyer cancels and
+ * returns deduct Stripe's non-refundable fees, then the return label when the buyer pays it.
+ */
+export function buyerRefundBreakdown(order: {
+  status?: string | null;
+  isCashOrder?: boolean;
+  totalCents: number;
+  subtotalCents?: number | null;
+  shippingCostCents?: number | null;
+  taxCents?: number | null;
+  cancelReason?: string | null;
+  refundInitiatedAt?: string | Date | null;
+  refundCompletedAt?: string | Date | null;
+  returnLabelPayer?: string | null;
+  returnLabelPayerByReason?: unknown;
+  storeReturn?: {
+    status?: string | null;
+    reason?: string | null;
+    chargeReturnShipping?: boolean | null;
+    returnLabelCostCents?: number | null;
+  } | null;
+}): BuyerRefundBreakdown | null {
+  if (order.isCashOrder) return null;
+  const returnStatus = order.storeReturn?.status ?? null;
+  const returnOpen = returnStatus != null && BUYER_REFUND_BREAKDOWN_STATUSES.has(returnStatus);
+  const orderRefunded = order.status === "refunded" || order.status === "canceled" || Boolean(order.refundInitiatedAt);
+  if (!returnOpen && !orderRefunded) return null;
+
+  const sellerAbsorbs = sellerAbsorbsStripeFee({
+    cancelReason: order.cancelReason,
+    returnReason: order.storeReturn?.reason,
+  });
+  const preTax = Math.max(0, order.totalCents);
+  const subtotal = Math.max(0, order.subtotalCents ?? 0);
+  const shipping = Math.max(0, order.shippingCostCents ?? 0);
+  const tax = Math.max(0, order.taxCents ?? 0);
+  const paid = preTax + tax;
+  const processing = sellerAbsorbs ? 0 : computeStripeProcessingFeeCents(paid);
+  const taxFee = sellerAbsorbs ? 0 : computeStripeTaxProductFeeCents(paid, tax);
+  const chargeLabel = Boolean(order.storeReturn?.chargeReturnShipping) && !sellerAbsorbs;
+  const labelCost = Math.max(0, order.storeReturn?.returnLabelCostCents ?? 0);
+  const labelKnown = chargeLabel && labelCost > 0;
+  const settled = returnStatus === "refunded" || returnStatus === "received" || order.status === "refunded";
+  const labelPending = chargeLabel && !labelKnown && !settled;
+  const labelPayer = payerForReason(
+    policyFromStored({
+      returnLabelPayer: order.returnLabelPayer,
+      returnLabelPayerByReason: order.returnLabelPayerByReason,
+    }),
+    order.storeReturn?.reason
+  );
+  const expectedCents = Math.max(0, (sellerAbsorbs ? paid : paid - processing - taxFee) - (labelKnown ? labelCost : 0));
+
+  const lines: BuyerRefundBreakdownLine[] = [];
+  const partsMatch = subtotal > 0 && subtotal + shipping === preTax;
+  if (partsMatch) {
+    lines.push({ label: "Items", cents: subtotal, kind: "credit", detail: null });
+    if (shipping > 0) lines.push({ label: "Shipping", cents: shipping, kind: "credit", detail: null });
+  } else {
+    lines.push({ label: "Order total", cents: preTax, kind: "credit", detail: null });
+  }
+  if (tax > 0) lines.push({ label: "Tax", cents: tax, kind: "credit", detail: null });
+  if (processing > 0) {
+    lines.push({ label: "Card processing fee", cents: processing, kind: "deduction", detail: null });
+  }
+  if (taxFee > 0) {
+    lines.push({ label: "Sales tax fee", cents: taxFee, kind: "deduction", detail: null });
+  }
+  if (labelKnown) {
+    lines.push({ label: "Return label", cents: labelCost, kind: "deduction", detail: null });
+  } else if (labelPending) {
+    lines.push({
+      label: "Return label",
+      cents: null,
+      kind: "deduction",
+      detail: labelPayer === "later" ? "Seller decides" : "Deducted when purchased",
+    });
+  }
+
+  const complete = returnStatus === "refunded" || order.status === "refunded" || Boolean(order.refundCompletedAt);
+  const footnote = labelPending
+    ? labelPayer === "later"
+      ? "If the seller charges you for the return label, its price will be deducted from this amount."
+      : "The return label price will be deducted from this amount when the seller buys it."
+    : null;
+
+  return {
+    title: complete ? "Refund" : "Expected refund",
+    lines,
+    expectedCents,
+    footnote,
+  };
 }
 
 /**

@@ -144,7 +144,7 @@ export function applyReasonGroup(
   return next;
 }
 
-function payerForReason(policy: SellerReturnLabelPolicy, reason: string | null | undefined): ReasonLabelPayer | null {
+export function payerForReason(policy: SellerReturnLabelPolicy, reason: string | null | undefined): ReasonLabelPayer | null {
   if (policy.returnLabelPayer === "seller") return "seller";
   if (policy.returnLabelPayer === "buyer") return "buyer";
   const key = reasonKey(reason);
