@@ -130,6 +130,7 @@ beforeEach(() => {
   vi.mocked(prisma.shopifyVariantMap.findUnique).mockResolvedValue(baseMap() as never);
   vi.mocked(prisma.shopifyListingLink.findUnique).mockResolvedValue({
     inventoryHealth: "HEALTHY",
+    shopifyProductId: "gid://shopify/Product/55",
   } as never);
   vi.mocked(prisma.storeItem.findUnique).mockResolvedValue(null as never);
 });
@@ -451,5 +452,82 @@ describe("handleShopifyProjectInventoryJob", () => {
       baseMap({ inventoryDesiredAvailable: 10 }) as never
     );
     await handleShopifyProjectInventoryJob(claim(), { fetchImpl });
+  });
+
+  it("sets quantity to zero and stops overselling so the variant sells out", async () => {
+    vi.mocked(prisma.shopifyVariantMap.findUnique).mockResolvedValue(
+      baseMap({ inventoryDesiredAvailable: 0, inventoryAppliedAvailable: 2 }) as never
+    );
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const query = String(body.query);
+      if (query.includes("ShopifyInventoryProjectionRead")) {
+        return jsonResponse(inventoryRead(2));
+      }
+      if (query.includes("inventorySetQuantities")) {
+        expect(body.variables.input.quantities[0]).toMatchObject({
+          quantity: 0,
+          changeFromQuantity: 2,
+        });
+        return jsonResponse({
+          data: {
+            inventorySetQuantities: {
+              inventoryAdjustmentGroup: { reason: "correction" },
+              userErrors: [],
+            },
+          },
+        });
+      }
+      if (query.includes("ShopifyVariantInventoryPolicyRead")) {
+        return jsonResponse({
+          data: { productVariant: { id: "gid://shopify/ProductVariant/8", inventoryPolicy: "CONTINUE" } },
+        });
+      }
+      if (query.includes("ShopifyVariantDenyOversell")) {
+        expect(body.variables).toEqual({
+          productId: "gid://shopify/Product/55",
+          variants: [{ id: "gid://shopify/ProductVariant/8", inventoryPolicy: "DENY" }],
+        });
+        return jsonResponse({
+          data: {
+            productVariantsBulkUpdate: {
+              productVariants: [{ id: "gid://shopify/ProductVariant/8", inventoryPolicy: "DENY" }],
+              userErrors: [],
+            },
+          },
+        });
+      }
+      throw new Error(`unexpected op ${query.slice(0, 80)}`);
+    });
+    const result = await handleShopifyProjectInventoryJob(claim(), { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(markShopifyInventoryProjectionApplied).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ available: 0 })
+    );
+  });
+
+  it("leaves a zero-quantity variant alone when Shopify already denies overselling", async () => {
+    vi.mocked(prisma.shopifyVariantMap.findUnique).mockResolvedValue(
+      baseMap({ inventoryDesiredAvailable: 0, inventoryAppliedAvailable: 2 }) as never
+    );
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const query = String(body.query);
+      if (query.includes("ShopifyInventoryProjectionRead")) return jsonResponse(inventoryRead(0));
+      if (query.includes("ShopifyVariantInventoryPolicyRead")) {
+        return jsonResponse({
+          data: { productVariant: { id: "gid://shopify/ProductVariant/8", inventoryPolicy: "DENY" } },
+        });
+      }
+      throw new Error(`unexpected op ${query.slice(0, 80)}`);
+    });
+    const result = await handleShopifyProjectInventoryJob(claim(), { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(markShopifyInventoryProjectionApplied).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ available: 0 })
+    );
   });
 });

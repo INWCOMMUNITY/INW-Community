@@ -98,6 +98,8 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
 
   const storeItems: NavItem[] = [
     { href: "/seller-hub/store", label: "Storefront Info", icon: "storefront-outline" },
+    { href: "/seller-hub/store/manage", label: "Manage Store", icon: "list-outline" },
+    { href: "/seller-hub/before-you-start", label: "Seller Variables", icon: "checkbox-outline" },
     { href: "/policies", label: "Policies", icon: "book-outline" },
     { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },

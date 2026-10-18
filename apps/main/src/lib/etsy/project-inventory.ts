@@ -96,10 +96,31 @@ type RemoteInventory = {
   sku_on_property?: number[];
 };
 
+function projectedOfferingsAllSoldOut(
+  products: NonNullable<RemoteInventory["products"]>
+): boolean {
+  const offerings = products.flatMap((product) => product.offerings ?? []);
+  if (offerings.length === 0) return false;
+  return offerings.every((offering) => (offeringQuantity(offering.quantity) ?? 0) <= 0);
+}
+
+function normalizedEtsyListingState(state: string | null | undefined): string {
+  return String(state ?? "").trim().toLowerCase();
+}
+
+/** Etsy rejects a PUT where every offering quantity is 0, so an active listing must be deactivated instead. */
+function listingShouldBeDeactivatedForSellOut(state: string): boolean {
+  return state === "" || state === "active" || state === "edit";
+}
+
 /**
  * PROJECT_INVENTORY handler.
  * Always GET→mutate→PUT the full products[] snapshot (incomplete PUT deletes variants).
- * Stale desires succeed without network writes. Qty 0 sell-outs are allowed.
+ * A single offering may be quantity 0 while another stays in stock.
+ * When every offering would be 0, Etsy rejects the PUT, so the listing is deactivated
+ * (buyers cannot purchase it). A later projection above 0 publishes it again only
+ * when this sync was the one that sold it out.
+ * Stale desires succeed without network writes.
  */
 export async function handleEtsyProjectInventoryJob(
   claim: EtsySyncJobClaim,
@@ -339,7 +360,36 @@ export async function handleEtsyProjectInventoryJob(
     };
   }
 
-  if (remoteQty !== desiredQty || listingLevelDrift) {
+  const listingState = normalizedEtsyListingState(listing.remoteListingState);
+  if (projectedOfferingsAllSoldOut(nextProducts)) {
+    if (listingShouldBeDeactivatedForSellOut(listingState)) {
+      const deactivate = await etsyConnectionRequest({
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        method: "PATCH",
+        path: `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(listing.etsyListingId)}`,
+        bodyEncoding: "form",
+        body: { state: "inactive" },
+        maxAttempts: 1,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (!deactivate.ok) {
+        return classifyFailure(deactivate.class, deactivate.retryAfterMs, deactivate.message);
+      }
+      await prisma.etsyListingLink.update({
+        where: { id: listing.id },
+        data: { remoteListingState: "inactive" },
+      });
+    }
+    await prisma.etsyVariantMap.updateMany({
+      where: {
+        etsyListingLinkId: listing.id,
+        NOT: { id: variantMap.id },
+      },
+      data: { inventoryAppliedAvailable: 0 },
+    });
+  } else if (remoteQty !== desiredQty || listingLevelDrift) {
     const put = await etsyConnectionRequest({
       connectionId: connection.id,
       memberId: connection.memberId,
@@ -358,6 +408,40 @@ export async function handleEtsyProjectInventoryJob(
     });
     if (!put.ok) {
       return classifyFailure(put.class, put.retryAfterMs, put.message);
+    }
+  }
+
+  if (
+    desiredQty > 0 &&
+    (listingState === "inactive" || listingState === "sold_out") &&
+    variantMap.inventoryAppliedAvailable === 0
+  ) {
+    const siblings = await prisma.etsyVariantMap.findMany({
+      where: { etsyListingLinkId: listing.id },
+      select: { id: true, inventoryAppliedAvailable: true },
+    });
+    const siblingStillInStock = siblings.some(
+      (row) => row.id !== variantMap.id && (row.inventoryAppliedAvailable ?? 0) > 0
+    );
+    if (!siblingStillInStock) {
+      const activate = await etsyConnectionRequest({
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        method: "PATCH",
+        path: `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(listing.etsyListingId)}`,
+        bodyEncoding: "form",
+        body: { state: "active" },
+        maxAttempts: 1,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (!activate.ok) {
+        return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
+      }
+      await prisma.etsyListingLink.update({
+        where: { id: listing.id },
+        data: { remoteListingState: "active" },
+      });
     }
   }
 

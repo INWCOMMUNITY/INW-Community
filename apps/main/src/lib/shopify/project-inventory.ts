@@ -431,6 +431,147 @@ async function setAvailableQuantities(input: {
 }
 
 /**
+ * Shopify still sells a variant at quantity 0 when inventoryPolicy is CONTINUE.
+ * DENY is the sold-out state: buyers cannot purchase that variant once available is 0.
+ */
+async function ensureShopifyVariantSoldOut(input: {
+  connectionId: string;
+  productId: string | null | undefined;
+  variantId: string;
+  quantity: number;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  if (input.quantity !== 0) return { ok: true };
+  const productId = input.productId?.trim() ?? "";
+  if (!productId) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "PRODUCT_ID_MISSING",
+      errorMessage: "Shopify listing link is missing shopifyProductId",
+    };
+  }
+
+  const read = await executeShopifyAdminGraphql<{
+    productVariant: { id: string; inventoryPolicy: string | null } | null;
+  }>({
+    connectionId: input.connectionId,
+    operationType: "query",
+    operationName: "ShopifyVariantInventoryPolicyRead",
+    document: `query ShopifyVariantInventoryPolicyRead($id: ID!) {
+      productVariant(id: $id) { id inventoryPolicy }
+    }`,
+    variables: { id: input.variantId },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!read.ok) {
+    const retryable =
+      read.class === "THROTTLED" ||
+      read.class === "TRANSIENT_PROVIDER" ||
+      read.class === "NETWORK_UNKNOWN";
+    return {
+      ok: false,
+      outcome: retryable ? "RETRY" : "DEAD",
+      errorClass: read.class,
+      errorCode: "INVENTORY_POLICY_READ",
+      errorMessage: read.message,
+    };
+  }
+  const variant = read.data?.productVariant ?? null;
+  if (!variant) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "VARIANT_NOT_FOUND",
+      errorMessage: "Shopify variant was not found while marking it sold out",
+    };
+  }
+  if (String(variant.inventoryPolicy ?? "").trim().toUpperCase() === "DENY") {
+    return { ok: true };
+  }
+
+  const update = await executeShopifyAdminGraphql<{
+    productVariantsBulkUpdate: {
+      productVariants: Array<{ id: string; inventoryPolicy: string | null }> | null;
+      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyVariantDenyOversell",
+    document: `mutation ShopifyVariantDenyOversell($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants, allowPartialUpdates: false) {
+        productVariants { id inventoryPolicy }
+        userErrors { field message code }
+      }
+    }`,
+    variables: {
+      productId,
+      variants: [{ id: input.variantId, inventoryPolicy: "DENY" }],
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!update.ok) {
+    const retryable =
+      update.class === "THROTTLED" ||
+      update.class === "TRANSIENT_PROVIDER" ||
+      update.class === "NETWORK_UNKNOWN" ||
+      update.outcomeUnknown;
+    return {
+      ok: false,
+      outcome: retryable ? "RETRY" : "DEAD",
+      errorClass: update.class,
+      errorCode: update.outcomeUnknown ? "INVENTORY_POLICY_UNKNOWN" : "INVENTORY_POLICY",
+      errorMessage: update.message,
+    };
+  }
+  const errors = update.data?.productVariantsBulkUpdate?.userErrors ?? [];
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: userErrorCodes(errors)[0] ?? "INVENTORY_POLICY",
+      errorMessage: errors.map((error) => error.message).join("; "),
+    };
+  }
+  const policy = update.data?.productVariantsBulkUpdate?.productVariants?.[0]?.inventoryPolicy;
+  if (String(policy ?? "").trim().toUpperCase() !== "DENY") {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "INVENTORY_POLICY",
+      errorMessage: "Shopify did not stop selling the variant when its quantity is zero",
+    };
+  }
+  return { ok: true };
+}
+
+async function requireSoldOutWhenZero(input: {
+  connectionId: string;
+  productId: string | null | undefined;
+  variantId: string;
+  quantity: number;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<Extract<ShopifyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> | null> {
+  const soldOut = await ensureShopifyVariantSoldOut(input);
+  if (soldOut.ok) return null;
+  return {
+    outcome: soldOut.outcome,
+    errorClass: soldOut.errorClass,
+    errorCode: soldOut.errorCode,
+    errorMessage: soldOut.errorMessage,
+  };
+}
+
+/**
  * S8: project canonical INW sellable availability to the selected Shopify location.
  * Read-first. Never overwrites unexplained remote quantity. No inbound InventoryState writes.
  */
@@ -510,14 +651,14 @@ export async function handleShopifyProjectInventoryJob(
 
   // Listing-scoped inventory pause (S9). Does not block S7 sale ingestion.
   // A desire that is not applied yet is a seller or INW quantity push. Write it.
-  const listingHealth = await prisma.shopifyListingLink.findUnique({
+  const listing = await prisma.shopifyListingLink.findUnique({
     where: { id: variantMap.shopifyListingLinkId },
-    select: { inventoryHealth: true },
+    select: { inventoryHealth: true, shopifyProductId: true },
   });
   const desireUnapplied = variantMap.inventoryDesiredVersion > variantMap.inventoryAppliedVersion;
   if (
     !desireUnapplied &&
-    (listingHealth?.inventoryHealth === "PAUSED" ||
+    (listing?.inventoryHealth === "PAUSED" ||
       variantMap.inventoryDriftState === "REMOTE_DRIFT" ||
       variantMap.inventoryDriftState === "WAITING_RECONCILIATION")
   ) {
@@ -548,6 +689,15 @@ export async function handleShopifyProjectInventoryJob(
     read.remote.available === variantMap.inventoryPendingTargetQty &&
     read.remote.levelExists
   ) {
+    const soldOut = await requireSoldOutWhenZero({
+      connectionId: connection.id,
+      productId: listing?.shopifyProductId,
+      variantId: variantMap.shopifyVariantId,
+      quantity: variantMap.inventoryPendingTargetQty,
+      fetchImpl: opts?.fetchImpl,
+      now: opts?.now,
+    });
+    if (soldOut) return soldOut;
     await markShopifyInventoryProjectionApplied(prisma, {
       variantMapId: variantMap.id,
       desiredVersion: parsed.inventoryDesiredVersion,
@@ -581,6 +731,15 @@ export async function handleShopifyProjectInventoryJob(
   }
 
   if (decision.action === "ALREADY_CONVERGED") {
+    const soldOut = await requireSoldOutWhenZero({
+      connectionId: connection.id,
+      productId: listing?.shopifyProductId,
+      variantId: variantMap.shopifyVariantId,
+      quantity: decision.quantity,
+      fetchImpl: opts?.fetchImpl,
+      now: opts?.now,
+    });
+    if (soldOut) return soldOut;
     await markShopifyInventoryProjectionApplied(prisma, {
       variantMapId: variantMap.id,
       desiredVersion: parsed.inventoryDesiredVersion,
@@ -742,6 +901,15 @@ export async function handleShopifyProjectInventoryJob(
       });
       return { outcome: "SUCCESS" };
     }
+    const soldOut = await requireSoldOutWhenZero({
+      connectionId: connection.id,
+      productId: listing?.shopifyProductId,
+      variantId: variantMap.shopifyVariantId,
+      quantity: decision.quantity,
+      fetchImpl: opts?.fetchImpl,
+      now: opts?.now,
+    });
+    if (soldOut) return soldOut;
     await markShopifyInventoryProjectionApplied(prisma, {
       variantMapId: variantMap.id,
       desiredVersion: parsed.inventoryDesiredVersion,
@@ -817,6 +985,16 @@ export async function handleShopifyProjectInventoryJob(
         errorMessage: setResult.errorMessage,
       };
     }
+
+    const soldOut = await requireSoldOutWhenZero({
+      connectionId: connection.id,
+      productId: listing?.shopifyProductId,
+      variantId: variantMap.shopifyVariantId,
+      quantity,
+      fetchImpl: opts?.fetchImpl,
+      now: opts?.now,
+    });
+    if (soldOut) return soldOut;
 
     await markShopifyInventoryProjectionApplied(prisma, {
       variantMapId: variantMap.id,

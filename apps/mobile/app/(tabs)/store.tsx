@@ -362,9 +362,9 @@ export default function StoreScreen() {
         fulfillmentType: "ship",
         ...(variant && Object.keys(variant).length > 0 ? { variant } : {}),
       });
-      Alert.alert("Added to cart", `${item.title} was added to your cart.`, [
-        { text: "Keep shopping", style: "cancel" },
-        { text: "View cart", onPress: () => router.push("/cart") },
+      Alert.alert("Added to Cart", undefined, [
+        { text: "View Cart", onPress: () => router.push("/cart") },
+        { text: "Keep Shopping", style: "cancel" },
       ]);
     } catch (e) {
       const err = e as { error?: string; status?: number };

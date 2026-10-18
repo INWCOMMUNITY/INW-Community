@@ -11,6 +11,7 @@ import {
   Alert,
   TextInput,
   Modal,
+  Linking,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
@@ -21,6 +22,7 @@ import {
   storeReturnSellerMoneyActionLabel,
 } from "@/lib/store-return-seller-action";
 import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
+import { getTrackingUrl } from "@/lib/store-order-fulfillment";
 
 interface OrderItem {
   id: string;
@@ -51,7 +53,12 @@ interface StoreOrder {
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   storeReturn?: StoreReturn | null;
-  returnShipment?: { labelUrl?: string | null; labelCostCents?: number } | null;
+  returnShipment?: {
+    labelUrl?: string | null;
+    labelCostCents?: number;
+    trackingNumber?: string | null;
+    carrier?: string | null;
+  } | null;
 }
 
 const SOLD_BEFORE_CHECKOUT_REASON = "Item sold before checkout was complete";
@@ -64,6 +71,12 @@ function isCanceledOrder(order: StoreOrder): boolean {
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatReturnTracking(trackingNumber: string): string {
+  const digits = trackingNumber.replace(/\D/g, "");
+  if (digits.length === 22) return digits.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
+  return trackingNumber.trim();
 }
 
 function formatVariantLabel(variant: unknown): string | null {
@@ -138,6 +151,32 @@ export default function ReturnsScreen() {
     router.push(`/seller-hub/shippo-order/${orderId}?mode=return` as never);
   };
 
+  const askWhoPaysForLabel = (orderId: string) => {
+    Alert.alert(
+      "Who pays for this label?",
+      "Choose before you buy it. If you deduct, the buyer is told the real Shippo price after the label is bought.",
+      [
+        { text: "Later", style: "cancel" },
+        {
+          text: "I'll pay",
+          onPress: () => {
+            void apiPost(`/api/store-orders/${orderId}/returns/label-payer`, { pay: "seller" })
+              .then(() => openReturnLabel(orderId))
+              .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
+          },
+        },
+        {
+          text: "Deduct from refund",
+          onPress: () => {
+            void apiPost(`/api/store-orders/${orderId}/returns/label-payer`, { pay: "buyer" })
+              .then(() => openReturnLabel(orderId))
+              .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
+          },
+        },
+      ]
+    );
+  };
+
   const choiceOrder = orders.find((order) => sellerMustChooseReturnRefundTiming(order)) ?? null;
 
   const chooseRefundTiming = async (timing: "now" | "on_arrival") => {
@@ -167,7 +206,7 @@ export default function ReturnsScreen() {
       const hasShip = approved?.items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
       if (path === "/returns/approve" && hasShip && !approved?.returnShipment?.labelUrl) {
         load();
-        openReturnLabel(orderId);
+        askWhoPaysForLabel(orderId);
         return;
       }
       load();
@@ -210,6 +249,10 @@ export default function ReturnsScreen() {
             orderStatus: order.status,
           });
           const pendingRefund = ret?.status === "requested";
+          const returnTracking = order.returnShipment?.trackingNumber?.trim() || null;
+          const returnTrackingUrl = returnTracking
+            ? getTrackingUrl(order.returnShipment?.carrier || "USPS", returnTracking.replace(/\s/g, ""))
+            : null;
           return (
             <View key={order.id} style={styles.card}>
               <Text style={styles.buyer}>
@@ -222,6 +265,11 @@ export default function ReturnsScreen() {
                     : statusCopy(ret.status)
                   : "Canceled"}
               </Text>
+              {returnTracking && returnTrackingUrl ? (
+                <Pressable onPress={() => Linking.openURL(returnTrackingUrl)} accessibilityRole="link">
+                  <Text style={styles.tracking}>Return tracking {formatReturnTracking(returnTracking)}</Text>
+                </Pressable>
+              ) : null}
               {ret?.reason ? <Text style={styles.meta}>Reason: {ret.reason}</Text> : null}
               {!ret && order.cancelReason ? (
                 <Text style={styles.meta}>{order.cancelReason}</Text>
@@ -323,86 +371,61 @@ export default function ReturnsScreen() {
                   </Pressable>
                 </View>
               ) : null}
-              {hasShip &&
-              (ret?.status === "awaiting_return" || ret?.status === "in_transit") &&
-              !order.returnShipment?.labelUrl ? (
-                <View style={[styles.actions, styles.pairRow]}>
-                  <View style={styles.pairCol}>
-                  <Pressable
-                    style={styles.btn}
-                    onPress={() => {
-                      const go = () =>
-                        router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never);
-                      if (!ret?.chargeReturnShipping) {
-                        go();
-                        return;
-                      }
-                      Alert.alert(
-                        "Who pays for this label?",
-                        "Choose before you buy it. If you deduct, the buyer is told the real Shippo price after the label is bought.",
-                        [
-                          { text: "Later", style: "cancel" },
-                          {
-                            text: "I'll pay",
-                            onPress: () => {
-                              void apiPost(`/api/store-orders/${order.id}/returns/label-payer`, { pay: "seller" })
-                                .then(go)
-                                .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
-                            },
-                          },
-                          {
-                            text: "Deduct from refund",
-                            onPress: () => {
-                              void apiPost(`/api/store-orders/${order.id}/returns/label-payer`, { pay: "buyer" })
-                                .then(go)
-                                .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
-                            },
-                          },
-                        ]
-                      );
-                    }}
-                  >
-                    <Text style={styles.btnText}>Send Buyer Return Label</Text>
-                  </Pressable>
-                  {returnLabelIsDue(order) ? (
-                    <View style={styles.dueTag}>
-                      <Text style={styles.dueTagText}>Due</Text>
-                    </View>
-                  ) : null}
+              {(() => {
+                const showLabel =
+                  hasShip &&
+                  (ret?.status === "awaiting_return" || ret?.status === "in_transit") &&
+                  !order.returnShipment?.labelUrl;
+                if (!showLabel && !moneyAction) return null;
+                return (
+                  <View style={styles.actionSection}>
+                    {showLabel ? (
+                      <View>
+                        {returnLabelIsDue(order) ? (
+                          <Text style={[styles.dueText, { textAlign: "center", marginBottom: 8 }]}>Due</Text>
+                        ) : null}
+                        <Pressable style={styles.btn} onPress={() => askWhoPaysForLabel(order.id)}>
+                          <Text style={styles.btnText}>Send Buyer Return Label</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                    {moneyAction ? (
+                      <View style={showLabel ? styles.stepGap : undefined}>
+                        <Pressable
+                          style={styles.btn}
+                          disabled={busy}
+                          onPress={() => {
+                            if (moneyAction !== "receive") {
+                              act(order.id, "/returns/receive");
+                              return;
+                            }
+                            Alert.alert(
+                              "Are you sure?",
+                              "This marks the return received and refunds the buyer now.",
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                {
+                                  text: "Mark Received & Refund",
+                                  onPress: () => act(order.id, "/returns/receive"),
+                                },
+                              ]
+                            );
+                          }}
+                        >
+                          <Text style={styles.btnText}>
+                            {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
+                          </Text>
+                        </Pressable>
+                        {moneyAction === "receive" ? (
+                          <Text style={styles.autoRefundNote}>
+                            This also refunds on its own when the return is delivered.
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
-                  {moneyAction ? (
-                    <View style={[styles.pairCol, styles.autoRefundBlock]}>
-                      <Pressable
-                        style={styles.btn}
-                        disabled={busy}
-                        onPress={() => act(order.id, "/returns/receive")}
-                      >
-                        <Text style={styles.btnText}>
-                          {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
-                        </Text>
-                      </Pressable>
-                      {moneyAction === "receive" ? (
-                        <Text style={styles.autoRefundNote}>(Refunds Automatic at Delivery)</Text>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </View>
-              ) : moneyAction ? (
-                <View style={[styles.actions, styles.autoRefundBlock]}>
-                  <Pressable
-                    style={styles.btn}
-                    disabled={busy}
-                    onPress={() => act(order.id, "/returns/receive")}
-                  >
-                    <Text style={styles.btnText}>
-                      {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
-                    </Text>
-                  </Pressable>
-                  {moneyAction === "receive" ? (
-                    <Text style={styles.autoRefundNote}>(Refunds Automatic at Delivery)</Text>
-                  ) : null}
-                </View>
-              ) : null}
+                );
+              })()}
               {declineFor === order.id ? (
                 <View style={{ marginTop: 10 }}>
                   <TextInput
@@ -465,6 +488,13 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 10, padding: 14, marginBottom: 14 },
   buyer: { fontSize: 16, fontWeight: "700" },
   meta: { fontSize: 13, color: "#555", marginTop: 4 },
+  tracking: {
+    fontSize: 13,
+    color: theme.colors.primary,
+    fontWeight: "600",
+    marginTop: 4,
+    textDecorationLine: "underline",
+  },
   total: { fontSize: 16, fontWeight: "700", marginTop: 8 },
   itemRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 },
   thumb: { width: 36, height: 36, borderRadius: 6 },
@@ -501,20 +531,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   stockBtnOutlineText: { color: theme.colors.primary, fontSize: 15, fontWeight: "700" },
-  actions: { marginTop: 12, gap: 8 },
-  pairRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  pairCol: { flex: 1, gap: 8 },
-  dueStack: { gap: 8 },
-  dueTag: {
-    backgroundColor: "#6b2430",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    alignItems: "center",
+  actionSection: {
+    marginTop: 12,
+    marginHorizontal: -14,
+    paddingTop: 12,
+    paddingHorizontal: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e5e5",
+    gap: 8,
   },
-  dueTagText: { fontSize: 14, fontWeight: "700", color: "#fff" },
-  autoRefundBlock: { alignItems: "center" },
-  autoRefundNote: { fontSize: 13, fontWeight: "700", color: "#6b2430", textAlign: "center" },
+  stepGap: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#eee" },
+  dueText: { fontSize: 13, fontWeight: "700", color: "#6b2430" },
+  autoRefundNote: { marginTop: 8, fontSize: 13, lineHeight: 18, color: "#555", textAlign: "center" },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel, storeReturnSellerMoneyAction, storeReturnSellerMoneyActionLabel } from "@/lib/store-return";
 import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
+import { getTrackingUrl } from "@/lib/store-order-fulfillment";
 import { ReturnLabelDueTag, SellerReturnRefundChoiceModal } from "@/components/seller/SellerReturnRefundChoice";
 
 interface OrderItem {
@@ -41,7 +42,12 @@ interface StoreOrder {
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   storeReturn?: StoreReturn | null;
-  returnShipment?: { labelUrl?: string | null; labelCostCents?: number; trackingNumber?: string | null } | null;
+  returnShipment?: {
+    labelUrl?: string | null;
+    labelCostCents?: number;
+    trackingNumber?: string | null;
+    carrier?: string | null;
+  } | null;
 }
 
 const SOLD_BEFORE_CHECKOUT_REASON = "Item sold before checkout was complete";
@@ -60,6 +66,12 @@ function stockChoiceLabel(item: OrderItem): string {
   const variant = formatCartVariantLabel(item.variant);
   const name = variant ? `${item.storeItem.title} — ${variant}` : item.storeItem.title;
   return `Return Stock Count for ${name}?`;
+}
+
+function formatReturnTracking(trackingNumber: string): string {
+  const digits = trackingNumber.replace(/\D/g, "");
+  if (digits.length === 22) return digits.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
+  return trackingNumber.trim();
 }
 
 function stockChoiceResult(order: StoreOrder, item: OrderItem): string | null {
@@ -83,6 +95,7 @@ export default function RequestedReturnsPage() {
   const [sendLabelOrder, setSendLabelOrder] = useState<StoreOrder | null>(null);
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string | null>(null);
+  const [confirmReceiveId, setConfirmReceiveId] = useState<string | null>(null);
 
   const openReturnLabel = useCallback(
     (orderId: string) => {
@@ -200,6 +213,13 @@ export default function RequestedReturnsPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("labelSent") !== "1") return;
+    setActionSuccess("Return label sent");
+    window.history.replaceState({}, "", "/seller-hub/store/returns");
+  }, []);
+
   async function postAction(orderId: string, path: string, body?: object) {
     setBusyId(orderId);
     setActionError(null);
@@ -309,13 +329,30 @@ export default function RequestedReturnsPage() {
                     </p>
                     <p className="text-sm mt-2" style={{ color: "var(--color-primary)" }}>
                       {ret
-                        ? ret.status === "awaiting_return" && !order.returnShipment?.labelUrl
+                        ? order.returnShipment?.labelUrl &&
+                          (ret.status === "awaiting_return" || ret.status === "in_transit")
+                          ? "Return label sent."
+                          : ret.status === "awaiting_return" && !order.returnShipment?.labelUrl
                           ? "Return approved. Send the buyer a return label."
                           : (storeReturnBuyerLabel(ret.status, {
                               hasReturnLabel: Boolean(order.returnShipment?.labelUrl),
                             }) ?? ret.status)
                         : "Canceled"}
                     </p>
+                    {order.returnShipment?.trackingNumber ? (
+                      <a
+                        href={getTrackingUrl(
+                          order.returnShipment.carrier || "USPS",
+                          order.returnShipment.trackingNumber.replace(/\s/g, "")
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm mt-1 inline-block font-medium hover:underline"
+                        style={{ color: "var(--color-link)" }}
+                      >
+                        Return tracking {formatReturnTracking(order.returnShipment.trackingNumber)}
+                      </a>
+                    ) : null}
                     {ret?.reason ? <p className="text-sm text-gray-700 mt-1">Reason: {ret.reason}</p> : null}
                     {!ret && order.cancelReason ? (
                       <p className="text-sm text-gray-700 mt-1">{order.cancelReason}</p>
@@ -479,7 +516,13 @@ export default function RequestedReturnsPage() {
                         type="button"
                         disabled={busy}
                         className="btn w-full text-sm py-2 px-3"
-                        onClick={() => postAction(order.id, "/returns/receive")}
+                        onClick={() => {
+                          if (moneyAction === "receive") {
+                            setConfirmReceiveId(order.id);
+                            return;
+                          }
+                          postAction(order.id, "/returns/receive");
+                        }}
                       >
                         {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
                       </button>
@@ -605,6 +648,45 @@ export default function RequestedReturnsPage() {
           if (choiceOrder) void chooseRefundTiming(choiceOrder.id, "on_arrival");
         }}
       />
+
+      {confirmReceiveId ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-receive-refund-title"
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
+            <h3 id="confirm-receive-refund-title" className="text-lg font-bold mb-2">
+              Are you sure?
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This marks the return received and refunds the buyer now.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="flex-1 text-sm py-2 px-3 border rounded-lg bg-white"
+                onClick={() => setConfirmReceiveId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn flex-1 text-sm py-2 px-3"
+                disabled={busyId === confirmReceiveId}
+                onClick={() => {
+                  const orderId = confirmReceiveId;
+                  setConfirmReceiveId(null);
+                  postAction(orderId, "/returns/receive");
+                }}
+              >
+                Mark Received & Refund
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

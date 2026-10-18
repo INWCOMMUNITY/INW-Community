@@ -535,9 +535,9 @@ export default function ProductScreen() {
     setAddingToCart(true);
     try {
       await apiPost("/api/cart", payload);
-      Alert.alert("Added to cart", "Item added successfully.", [
-        { text: "Keep shopping", style: "cancel" },
-        { text: "View cart", onPress: () => router.push("/cart") },
+      Alert.alert("Added to Cart", undefined, [
+        { text: "View Cart", onPress: () => router.push("/cart") },
+        { text: "Keep Shopping", style: "cancel" },
       ]);
     } catch (e) {
       const err = e as { error?: string; status?: number };

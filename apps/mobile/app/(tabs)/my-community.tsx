@@ -121,7 +121,6 @@ function SellerHubContent() {
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
-  const [sellerSetupComplete, setSellerSetupComplete] = useState(false);
 
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
 
@@ -140,48 +139,6 @@ function SellerHubContent() {
           })
           .catch(() => {});
       }
-    }, [hasSeller])
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!hasSeller) return;
-      let cancelled = false;
-      (async () => {
-        try {
-          const [funds, shipping, me] = await Promise.all([
-            apiGet<{ hasStripeConnect?: boolean } | { error?: string }>("/api/seller-funds"),
-            apiGet<{ connected?: boolean } | { error?: string }>("/api/shipping/status"),
-            apiGet<{
-              sellerShippingPolicy?: string | null;
-              sellerLocalDeliveryPolicy?: string | null;
-              sellerPickupPolicy?: string | null;
-              sellerReturnPolicy?: string | null;
-            }>("/api/me"),
-          ]);
-          if (cancelled) return;
-          const stripe = Boolean((funds as { hasStripeConnect?: boolean }).hasStripeConnect);
-          const shippo = Boolean((shipping as { connected?: boolean }).connected);
-          const p = me as {
-            sellerShippingPolicy?: string | null;
-            sellerLocalDeliveryPolicy?: string | null;
-            sellerPickupPolicy?: string | null;
-            sellerReturnPolicy?: string | null;
-          };
-          const anyPolicy = [
-            p?.sellerShippingPolicy,
-            p?.sellerLocalDeliveryPolicy,
-            p?.sellerPickupPolicy,
-            p?.sellerReturnPolicy,
-          ].some((v) => typeof v === "string" && v.trim().length > 0);
-          setSellerSetupComplete(stripe && shippo && anyPolicy);
-        } catch {
-          if (!cancelled) setSellerSetupComplete(false);
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
     }, [hasSeller])
   );
 
@@ -219,27 +176,18 @@ function SellerHubContent() {
     href?: string;
     onPress?: () => void;
     icon: keyof typeof Ionicons.glyphMap;
-  }[] = useMemo(
-    () => [
-      { label: "My Items", href: "/seller-hub/store/items", icon: "cube" },
-      { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
-      { label: "Sync Airport", href: "/seller-hub/apps", icon: "apps-outline" },
-      { label: "Fulfillment", href: "/seller-hub/orders", icon: "receipt" },
-      { label: "Refunds & Cancellations", href: "/seller-hub/store/returns", icon: "arrow-undo-outline" },
-      { label: "Shipping", href: "/seller-hub/shipping-setup", icon: "boat-outline" },
-      { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-      { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
-      { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
-      { label: "Analytics", href: "/seller-hub/analytics", icon: "analytics-outline" },
-      { label: "Data Tools", href: "/seller-hub/data-tools", icon: "download-outline" },
-      {
-        label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
-        href: "/seller-hub/before-you-start",
-        icon: "checkbox-outline",
-      },
-    ],
-    [sellerSetupComplete]
-  );
+  }[] = [
+    { label: "My Items", href: "/seller-hub/store/items", icon: "cube" },
+    { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
+    { label: "Fulfillment", href: "/seller-hub/orders", icon: "receipt" },
+    { label: "Sync Airport", href: "/seller-hub/apps", icon: "apps-outline" },
+    { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+    { label: "Refunds & Cancellations", href: "/seller-hub/store/returns", icon: "arrow-undo-outline" },
+    { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
+    { label: "Shipping", href: "/seller-hub/shipping-setup", icon: "boat-outline" },
+    { label: "Analytics", href: "/seller-hub/analytics", icon: "analytics-outline" },
+    { label: "Data Tools", href: "/seller-hub/data-tools", icon: "download-outline" },
+  ];
 
   const hubBadgeForLabel = useCallback(
     (label: string) => {

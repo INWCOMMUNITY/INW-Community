@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Script from "next/script";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ShippoElementsSurface, ShippoPrintLabelActions } from "@/components/ShippoElementsModal";
 import {
   useShippoLabelFlowForOrder,
@@ -55,6 +55,7 @@ interface StoreOrder extends StoreOrderForShippo {
 
 export default function SellerShippoThinLabelPage() {
   const params = useParams();
+  const router = useRouter();
   const rawOrderId = params?.orderId;
   const orderId =
     typeof rawOrderId === "string" ? rawOrderId : Array.isArray(rawOrderId) ? (rawOrderId[0] ?? "") : "";
@@ -75,7 +76,6 @@ export default function SellerShippoThinLabelPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [autoOpenBlockedReason, setAutoOpenBlockedReason] = useState<string | null>(null);
-  const [labelJustSent, setLabelJustSent] = useState(false);
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string | null>(null);
 
@@ -106,8 +106,11 @@ export default function SellerShippoThinLabelPage() {
     order,
     orderLoading: loading,
     onLabelSaved: () => {
+      if (labelModeRef.current === "return") {
+        router.push("/seller-hub/store/returns?labelSent=1");
+        return;
+      }
       refetchOrder();
-      if (labelModeRef.current === "return") setLabelJustSent(true);
     },
   });
   labelModeRef.current = deepLinkMode;
@@ -176,7 +179,6 @@ export default function SellerShippoThinLabelPage() {
           return;
         }
       }
-      setLabelJustSent(false);
       refetchOrder();
     } catch {
       setChoiceError("Connection failed.");
@@ -329,7 +331,7 @@ export default function SellerShippoThinLabelPage() {
       </div>
 
       <SellerReturnRefundChoiceModal
-        open={labelJustSent || sellerMustChooseReturnRefundTiming(order)}
+        open={sellerMustChooseReturnRefundTiming(order)}
         busy={choiceBusy}
         error={choiceError}
         onRefundNow={() => void chooseRefundTiming("now")}

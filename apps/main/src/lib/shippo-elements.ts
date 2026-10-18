@@ -459,14 +459,22 @@ export interface ElementsTransactionPayload {
   /** Shippo Order object_id for this label purchase (use for our DB; preferred over ORDER_CREATED timing). */
   order_id?: string;
   object_id?: string;
+  objectId?: string;
+  transaction_id?: string;
   label_url?: string;
+  labelUrl?: string;
   tracking_number?: string;
+  trackingNumber?: string;
   tracking_url_provider?: string;
-  rate?: {
-    provider?: string;
-    servicelevel?: { name?: string };
-    amount?: string;
-  };
+  rate?:
+    | string
+    | {
+        provider?: string;
+        carrier?: string;
+        servicelevel_name?: string;
+        servicelevel?: { name?: string };
+        amount?: string | number;
+      };
 }
 
 /** Deduplicate http(s) URLs; drop blanks and non-http schemes. */
@@ -482,8 +490,24 @@ export function uniqueHttpUrls(urls: Array<string | null | undefined>): string[]
   return out;
 }
 
+function payloadString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Shippo sometimes sends one transaction object, or `{ transactions: [...] }`, instead of a bare array. */
+export function elementsTransactionsFromEvent(transactions: unknown): ElementsTransactionPayload[] {
+  if (Array.isArray(transactions)) return transactions as ElementsTransactionPayload[];
+  if (!transactions || typeof transactions !== "object") return [];
+  const record = transactions as Record<string, unknown>;
+  if (Array.isArray(record.transactions)) return record.transactions as ElementsTransactionPayload[];
+  if (record.object_id || record.objectId || record.label_url || record.labelUrl) {
+    return [transactions as ElementsTransactionPayload];
+  }
+  return [];
+}
+
 export function collectLabelUrlsFromTransactions(txs: ElementsTransactionPayload[]): string[] {
-  return uniqueHttpUrls(txs.map((tx) => tx.label_url));
+  return uniqueHttpUrls(txs.map((tx) => payloadString(tx.label_url) ?? payloadString(tx.labelUrl)));
 }
 
 /**
@@ -529,19 +553,21 @@ export function transactionToLabelFromElementsPayload(
   widthIn: number;
   heightIn: number;
 } {
-  const rate = tx.rate as { amount?: string; provider?: string; carrier?: string; servicelevel?: { name?: string } } | undefined;
-  const amountStr = rate?.amount ?? "0";
-  const rateCents = Math.round(parseFloat(amountStr) * 100);
+  const rate = tx.rate && typeof tx.rate === "object" ? tx.rate : undefined;
+  const amountRaw = rate?.amount ?? "0";
+  const amount = typeof amountRaw === "number" ? amountRaw : Number.parseFloat(String(amountRaw));
+  const rateCents = Number.isFinite(amount) ? Math.max(0, Math.round(amount * 100)) : 0;
   const carrier = rate?.provider ?? rate?.carrier ?? "Carrier";
-  const service = rate?.servicelevel?.name ?? "Standard";
-  const trackingNumber = tx.tracking_number?.trim() ?? null;
+  const service = rate?.servicelevel?.name ?? rate?.servicelevel_name ?? "Standard";
+  const trackingNumber = payloadString(tx.tracking_number) ?? payloadString(tx.trackingNumber);
   return {
     carrier,
     service,
     rateCents,
-    labelUrl: tx.label_url?.trim() ?? null,
+    labelUrl: payloadString(tx.label_url) ?? payloadString(tx.labelUrl),
     trackingNumber,
-    shippoTransactionId: tx.object_id?.trim() ?? null,
+    shippoTransactionId:
+      payloadString(tx.object_id) ?? payloadString(tx.objectId) ?? payloadString(tx.transaction_id),
     weightOz: options.weightOz ?? 16,
     lengthIn: options.lengthIn ?? 12,
     widthIn: options.widthIn ?? 12,

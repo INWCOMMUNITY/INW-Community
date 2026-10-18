@@ -33,6 +33,8 @@ describe("seller return money-action surfaces", () => {
     expect(webSrc).toContain("storeReturnSellerMoneyAction");
     expect(webSrc).toContain("storeReturnSellerMoneyActionLabel");
     expect(webSrc).toContain('postAction(order.id, "/returns/receive")');
+    expect(webSrc).toContain('postAction(orderId, "/returns/receive")');
+    expect(webSrc).toContain("Are you sure?");
     expect(webSrc).toContain("if (!res.ok)");
     expect(webSrc).toMatch(/if \(!res\.ok\)[\s\S]*load\(\)/);
     expect(webSrc).not.toMatch(/moneyAction[\s\S]{0,400}Mark received & refund/);
@@ -42,6 +44,7 @@ describe("seller return money-action surfaces", () => {
     expect(mobileSrc).toContain("storeReturnSellerMoneyAction");
     expect(mobileSrc).toContain("storeReturnSellerMoneyActionLabel");
     expect(mobileSrc).toContain('act(order.id, "/returns/receive")');
+    expect(mobileSrc).toContain("Are you sure?");
     expect(mobileSrc).toMatch(/catch \(e: unknown\) \{[\s\S]*load\(\)/);
     expect(mobileSrc).toContain('disabled={busy}');
   });

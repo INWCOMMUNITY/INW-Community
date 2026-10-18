@@ -5,13 +5,13 @@ import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-uti
 import { flushSync } from "react-dom";
 import {
   collectLabelUrlsFromTransactions,
+  elementsTransactionsFromEvent,
   openLabelPdfUrls,
   uniqueHttpUrls,
   buildOrderDetailsFromOrder,
   parcelFromOrderItems,
   resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
-  type ElementsTransactionPayload,
   type OrderForElements,
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
@@ -273,7 +273,7 @@ export function useShippoLabelFlowForOrder(options: {
           shippo.on("LABEL_PURCHASED_SUCCESS", async (transactions: unknown) => {
             if (!singleFlowActiveRef.current) return;
             if (labelSaveHandlingRef.current) return;
-            const txs = Array.isArray(transactions) ? (transactions as ElementsTransactionPayload[]) : [];
+            const txs = elementsTransactionsFromEvent(transactions);
             const saveOrderId = labelFlowOrderIdRef.current;
             if (txs.length === 0 || !saveOrderId) return;
             labelSaveHandlingRef.current = true;
@@ -333,6 +333,9 @@ export function useShippoLabelFlowForOrder(options: {
                   setPurchasedLabelUrls(nextUrls);
                 }
                 labelSavedThisSessionRef.current = true;
+                if (labelKindRef.current === "return") {
+                  closeShippoModalRef.current();
+                }
                 onLabelSavedRef.current();
               } else {
                 setElementsError(

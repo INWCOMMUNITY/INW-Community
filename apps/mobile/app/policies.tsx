@@ -42,10 +42,8 @@ interface PolicyData {
   offerFreeShippingOnInw?: boolean;
 }
 
-const POLICY_FIELDS: { key: keyof PolicyData; label: string; placeholder: string; offerKey?: "offerShipping" | "offerLocalDelivery" | "offerLocalPickup"; offerLabel?: string }[] = [
-  { key: "sellerShippingPolicy", label: "Shipping Policy", placeholder: "e.g. 2–5 business days via USPS. Free over $50.", offerKey: "offerShipping", offerLabel: "Do you offer shipping?" },
-  { key: "sellerLocalDeliveryPolicy", label: "Delivery Policy", placeholder: "e.g. Areas served, contact method, timing.", offerKey: "offerLocalDelivery", offerLabel: "Do you offer local delivery?" },
-  { key: "sellerPickupPolicy", label: "Pick-Up Policy", placeholder: "e.g. Location, contact method, hours.", offerKey: "offerLocalPickup", offerLabel: "Do you offer local pickup?" },
+const POLICY_FIELDS: { key: keyof PolicyData; label: string; placeholder: string }[] = [
+  { key: "sellerLocalDeliveryPolicy", label: "Delivery Policy", placeholder: "e.g. Areas served, contact method, timing." },
 ];
 
 export default function PoliciesScreen() {
@@ -57,12 +55,9 @@ export default function PoliciesScreen() {
   const [values, setValues] = useState<Record<string, string>>({
     sellerShippingPolicy: "",
     sellerLocalDeliveryPolicy: "",
-    sellerPickupPolicy: "",
     sellerReturnPolicy: "",
   });
-  const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
-  const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [acceptReturnsDays, setAcceptReturnsDays] = useState("30");
   const [sellerName, setSellerName] = useState("This seller");
   const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
@@ -74,12 +69,9 @@ export default function PoliciesScreen() {
         setValues({
           sellerShippingPolicy: data?.sellerShippingPolicy ?? "",
           sellerLocalDeliveryPolicy: data?.sellerLocalDeliveryPolicy ?? "",
-          sellerPickupPolicy: data?.sellerPickupPolicy ?? "",
           sellerReturnPolicy: data?.sellerReturnPolicy ?? "",
         });
-        setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
-        setOfferLocalPickup(data?.offerLocalPickup ?? true);
         setAcceptReturnsDays(String(data?.acceptReturnsDays ?? 30));
         setSellerName(data.sellerPolicyName?.trim() || "This seller");
         setOfferFreeShippingOnInw(data?.offerFreeShippingOnInw === true);
@@ -97,11 +89,11 @@ export default function PoliciesScreen() {
       await apiPatch("/api/me", {
         sellerShippingPolicy: values.sellerShippingPolicy.trim() || null,
         sellerLocalDeliveryPolicy: values.sellerLocalDeliveryPolicy.trim() || null,
-        sellerPickupPolicy: values.sellerPickupPolicy.trim() || null,
+        sellerPickupPolicy: null,
         sellerReturnPolicy: values.sellerReturnPolicy.trim() || null,
-        offerShipping,
+        offerShipping: true,
         offerLocalDelivery,
-        offerLocalPickup,
+        offerLocalPickup: false,
         acceptReturns: true,
         acceptReturnsDays: Math.min(365, Math.max(1, Number(acceptReturnsDays) || 30)),
         handlingTime: returnPolicy.handlingTime,
@@ -145,51 +137,35 @@ export default function PoliciesScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.intro}>
-          Set shipping, pickup, delivery, and refund policies here. Buyers see these on your storefront.
+          Set shipping, delivery, and refund policies here. Buyers see these on your storefront.
         </Text>
 
         <SellerPolicyQuestions policy={returnPolicy} onChange={setReturnPolicy} />
 
-        {POLICY_FIELDS.map(({ key, label, placeholder, offerKey, offerLabel }) => (
+        <View style={styles.field}>
+          <PolicyPreviewField
+            label="Shipping Policy"
+            leads={[freeShippingPolicyLead(offerFreeShippingOnInw)]}
+            lead={handlingTimeBoldLine(sellerName, returnPolicy.handlingTime)}
+            value={values.sellerShippingPolicy ?? ""}
+            onChangeText={(t) => setValues((v) => ({ ...v, sellerShippingPolicy: t }))}
+            placeholder="e.g. 2–5 business days via USPS. Free over $50."
+          />
+        </View>
+
+        {POLICY_FIELDS.map(({ key, label, placeholder }) => (
           <View key={key} style={styles.field}>
-            {offerKey && offerLabel && (
-              <View style={styles.checkboxRow}>
-                <Switch
-                  value={
-                    offerKey === "offerShipping"
-                      ? offerShipping
-                      : offerKey === "offerLocalDelivery"
-                        ? offerLocalDelivery
-                        : offerLocalPickup
-                  }
-                  onValueChange={(v) => {
-                    if (offerKey === "offerShipping") setOfferShipping(v);
-                    else if (offerKey === "offerLocalDelivery") setOfferLocalDelivery(v);
-                    else setOfferLocalPickup(v);
-                  }}
-                  trackColor={switchTrackColor()}
-                  thumbColor={switchThumbColor(
-                    offerKey === "offerShipping"
-                      ? offerShipping
-                      : offerKey === "offerLocalDelivery"
-                        ? offerLocalDelivery
-                        : offerLocalPickup,
-                  )}
-                  ios_backgroundColor={switchIosBackgroundColor}
-                />
-                <Text style={styles.checkboxLabel}>{offerLabel}</Text>
-              </View>
-            )}
-            {key === "sellerShippingPolicy" ? (
-              <PolicyPreviewField
-                label={label}
-                leads={[freeShippingPolicyLead(offerFreeShippingOnInw)]}
-                lead={handlingTimeBoldLine(sellerName, returnPolicy.handlingTime)}
-                value={values[key] ?? ""}
-                onChangeText={(t) => setValues((v) => ({ ...v, [key]: t }))}
-                placeholder={placeholder}
+            <View style={styles.checkboxRow}>
+              <Switch
+                value={offerLocalDelivery}
+                onValueChange={setOfferLocalDelivery}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(offerLocalDelivery)}
+                ios_backgroundColor={switchIosBackgroundColor}
               />
-            ) : key === "sellerLocalDeliveryPolicy" && !offerLocalDelivery ? null : (
+              <Text style={styles.checkboxLabel}>Do you offer local delivery?</Text>
+            </View>
+            {offerLocalDelivery ? (
               <>
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
@@ -204,7 +180,7 @@ export default function PoliciesScreen() {
                   autoCorrect={true}
                 />
               </>
-            )}
+            ) : null}
           </View>
         ))}
 

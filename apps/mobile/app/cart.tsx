@@ -455,35 +455,14 @@ export default function CartScreen() {
       else setLoading(true);
     }
     try {
-      const [cartData, meData, offersRaw] = await Promise.all([
+      const [cartData, offersRaw] = await Promise.all([
         apiGet<CartItem[]>("/api/cart"),
-        silent
-          ? Promise.resolve(null)
-          : apiGet<{ deliveryAddress?: { street?: string; city?: string; state?: string; zip?: string } | null }>(
-              "/api/me"
-            ).catch(() => null),
         apiGet<CartBuyerOfferRow[]>(`/api/resale-offers?role=buyer`).catch(() => []),
       ]);
       const list = Array.isArray(cartData) ? cartData : [];
       setItems(list);
       const offersList = Array.isArray(offersRaw) ? offersRaw : [];
       setBuyerOffers(sortBuyerOffersForCart(offersList));
-      if (!silent && meData) {
-        const addr = meData.deliveryAddress;
-        if (addr && (addr.street ?? addr.city ?? addr.state ?? addr.zip)) {
-          setShippingAddress((prev) => {
-            const empty = !prev.street?.trim() && !prev.city?.trim() && !prev.state?.trim() && !prev.zip?.trim();
-            if (!empty) return prev;
-            return {
-              street: addr.street ?? "",
-              aptOrSuite: prev.aptOrSuite ?? "",
-              city: addr.city ?? "",
-              state: addr.state ?? "",
-              zip: addr.zip ?? "",
-            };
-          });
-        }
-      }
       return list;
     } catch (e) {
       if (!silent) {

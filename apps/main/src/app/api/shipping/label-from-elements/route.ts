@@ -36,6 +36,12 @@ const DEFAULT_LENGTH_IN = 12;
 const DEFAULT_WIDTH_IN = 12;
 const DEFAULT_HEIGHT_IN = 12;
 
+function finiteNonNegativeInt(value: unknown): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n));
+}
+
 /**
  * POST: Record a shipment after the seller purchased a label via Shippo Shipping Elements.
  * Accepts order id(s) and transaction data from LABEL_PURCHASED_SUCCESS; does not call Shippo.
@@ -107,8 +113,10 @@ export async function POST(req: NextRequest) {
     ? resolvedShipToToOrderShippingJson(shipToNormalized)
     : null;
 
+  const carrierName = typeof carrier === "string" ? carrier.trim() : "";
+  const serviceName = typeof service === "string" ? service.trim() : "";
   let ids = orderIds && orderIds.length > 0 ? orderIds : orderId ? [orderId] : [];
-  if (ids.length === 0 || !carrier?.trim() || !service?.trim() || rateCents < 0) {
+  if (ids.length === 0 || !carrierName || !serviceName) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
@@ -217,8 +225,8 @@ export async function POST(req: NextRequest) {
 
   let verifiedTracking = trackingNumber?.trim() ?? null;
   let verifiedLabelUrl = labelUrl?.trim() ?? null;
-  let verifiedRateCents = Math.round(rateCents);
-  const txId = shippoTransactionId?.trim() || null;
+  let verifiedRateCents = finiteNonNegativeInt(rateCents);
+  const txId = typeof shippoTransactionId === "string" ? shippoTransactionId.trim() : "";
   if (!txId) {
     return NextResponse.json(
       { error: "Shippo transaction id is required to save a label." },
@@ -235,7 +243,8 @@ export async function POST(req: NextRequest) {
     );
   }
   const tx = await fetchShippoTransaction(cred, txId);
-  if (!tx || !/success/i.test(tx.status)) {
+  const verifiedPurchase = tx != null && (/success|queued/i.test(tx.status) || Boolean(tx.labelUrl));
+  if (!verifiedPurchase || !tx) {
     return NextResponse.json(
       {
         error:
@@ -247,6 +256,8 @@ export async function POST(req: NextRequest) {
   verifiedTracking = tx.trackingNumber ?? verifiedTracking;
   verifiedLabelUrl = tx.labelUrl ?? verifiedLabelUrl;
   if (tx.rateAmountCents != null) verifiedRateCents = tx.rateAmountCents;
+  const carrierNameResolved = tx.carrier || carrierName;
+  const serviceNameResolved = tx.service || serviceName;
 
   const combinedParcel = parcelFromOrderItems({
     id: primaryOrder.id,
@@ -261,14 +272,14 @@ export async function POST(req: NextRequest) {
     ),
   });
   // Prefer listing shipping-option package over client placeholders so sellers don't re-enter dims.
-  const weightOz = combinedParcel?.weightOz ?? weightOzRaw ?? DEFAULT_WEIGHT_OZ;
-  const lengthIn = combinedParcel?.lengthIn ?? lengthInRaw ?? DEFAULT_LENGTH_IN;
-  const widthIn = combinedParcel?.widthIn ?? widthInRaw ?? DEFAULT_WIDTH_IN;
-  const heightIn = combinedParcel?.heightIn ?? heightInRaw ?? DEFAULT_HEIGHT_IN;
+  const weightOz = finiteNonNegativeInt(combinedParcel?.weightOz ?? weightOzRaw ?? DEFAULT_WEIGHT_OZ) || DEFAULT_WEIGHT_OZ;
+  const lengthIn = finiteNonNegativeInt(combinedParcel?.lengthIn ?? lengthInRaw ?? DEFAULT_LENGTH_IN) || DEFAULT_LENGTH_IN;
+  const widthIn = finiteNonNegativeInt(combinedParcel?.widthIn ?? widthInRaw ?? DEFAULT_WIDTH_IN) || DEFAULT_WIDTH_IN;
+  const heightIn = finiteNonNegativeInt(combinedParcel?.heightIn ?? heightInRaw ?? DEFAULT_HEIGHT_IN) || DEFAULT_HEIGHT_IN;
 
   const shipData = {
-    carrier: carrier.trim(),
-    service: service.trim(),
+    carrier: carrierNameResolved,
+    service: serviceNameResolved,
     trackingNumber: verifiedTracking,
     labelUrl: verifiedLabelUrl,
     labelCostCents: verifiedRateCents,
@@ -278,7 +289,7 @@ export async function POST(req: NextRequest) {
     lengthIn,
     widthIn,
     heightIn,
-    shippoTransactionId: shippoTransactionId?.trim() ?? null,
+    shippoTransactionId: txId,
     shippoOrderId: shippoOrderId?.trim() ?? null,
   };
   const orderUpdate = {
@@ -306,7 +317,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const shipment = await prisma.$transaction(async (tx) => {
+  let shipment;
+  try {
+    shipment = await prisma.$transaction(async (tx) => {
     if (shipmentKind === "replacement" && currentOutbound) {
       await tx.shipment.update({
         where: { id: currentOutbound.id },
@@ -350,6 +363,13 @@ export async function POST(req: NextRequest) {
     }
     return s;
   });
+  } catch (err) {
+    console.error("[label-from-elements] save failed", err);
+    return NextResponse.json(
+      { error: "Could not save label to your order. If you were charged, contact support with your order number." },
+      { status: 500 }
+    );
+  }
 
   if (shipmentKind === "return") {
     const activeReturn = primaryOrder.storeReturns[0];
