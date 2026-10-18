@@ -369,7 +369,7 @@ describe("restockAfterExternalRefund cutover ordering", () => {
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_1",
       { amount: 931, metadata: { storeOrderId: "ord-1" } },
-      { idempotencyKey: "nwc_store_reversal_ord-1" }
+      { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
     expect(restockOrderLinesAfterReturn).toHaveBeenCalled();
     expect(mockPrisma.$transaction).toHaveBeenCalled();
@@ -533,7 +533,7 @@ describe("FOUNDATION TransferOperation-aware refund", () => {
         amount: 931,
         metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
       },
-      { idempotencyKey: "nwc_store_reversal_ord-1" }
+      { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
     expect(stripe.refunds.create).toHaveBeenCalled();
   });
@@ -778,9 +778,14 @@ describe("storefront transfer reversal identity", () => {
     mockPersistLocalTransaction();
   });
 
-  it("uses a stable StoreOrder-scoped reversal idempotency key", () => {
-    expect(storefrontTransferReversalIdempotencyKey("ord-1")).toBe("nwc_store_reversal_ord-1");
-    expect(storefrontTransferReversalIdempotencyKey("ord-1")).toBe(storefrontTransferReversalIdempotencyKey("ord-1"));
+  it("uses a stable StoreOrder+amount scoped reversal idempotency key", () => {
+    expect(storefrontTransferReversalIdempotencyKey("ord-1", 931)).toBe("nwc_store_reversal_ord-1_931");
+    expect(storefrontTransferReversalIdempotencyKey("ord-1", 931)).toBe(
+      storefrontTransferReversalIdempotencyKey("ord-1", 931)
+    );
+    expect(storefrontTransferReversalIdempotencyKey("ord-1", 162)).not.toBe(
+      storefrontTransferReversalIdempotencyKey("ord-1", 164)
+    );
   });
 
   it("creates the reversal with transfer id, amount, metadata, and stable key", async () => {
@@ -795,7 +800,7 @@ describe("storefront transfer reversal identity", () => {
         amount: 931,
         metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
       },
-      { idempotencyKey: "nwc_store_reversal_ord-1" }
+      { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
   });
 
@@ -814,9 +819,37 @@ describe("storefront transfer reversal identity", () => {
         amount: 931,
         metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
       },
-      { idempotencyKey: "nwc_store_reversal_ord-1" }
+      { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
     expect(stripe.refunds.create).toHaveBeenCalled();
+  });
+
+  it("recovers when a prior over-request burned an idempotency key with different params", async () => {
+    const stripe = stripeStub(162);
+    stripe.transfers.createReversal
+      .mockRejectedValueOnce({
+        type: "StripeIdempotencyError",
+        message:
+          "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'nwc_store_reversal_ord-1_162'.",
+      })
+      .mockResolvedValueOnce({ id: "rev_recovered", amount: 162 });
+    const result = await refundPaidStorefrontOrder({
+      stripe: stripe as never,
+      order: paidOrder,
+      transferReversalCents: 164,
+    });
+    expect(result.ok).toBe(true);
+    expect(stripe.transfers.createReversal).toHaveBeenCalledTimes(2);
+    expect(stripe.transfers.createReversal.mock.calls[0][2]).toEqual({
+      idempotencyKey: "nwc_store_reversal_ord-1_162",
+    });
+    expect(stripe.transfers.createReversal.mock.calls[1][2]).toEqual({
+      idempotencyKey: "nwc_store_reversal_ord-1_162_r",
+    });
+    expect(stripe.transfers.createReversal.mock.calls[1][1]).toEqual({
+      amount: 162,
+      metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
+    });
   });
 
   it("reuses an existing matching reversal and does not create another", async () => {
@@ -886,8 +919,8 @@ describe("storefront transfer reversal identity", () => {
     const second = await refundPaidStorefrontOrder({ stripe: stripe as never, order: paidOrder });
     expect(second.ok).toBe(true);
     expect(stripe.transfers.createReversal).toHaveBeenCalledTimes(2);
-    expect(stripe.transfers.createReversal.mock.calls[0][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1" });
-    expect(stripe.transfers.createReversal.mock.calls[1][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1" });
+    expect(stripe.transfers.createReversal.mock.calls[0][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1_931" });
+    expect(stripe.transfers.createReversal.mock.calls[1][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1_931" });
     expect(stripe.transfers.createReversal.mock.calls[0][1]).toEqual(stripe.transfers.createReversal.mock.calls[1][1]);
   });
 
@@ -909,8 +942,8 @@ describe("storefront transfer reversal identity", () => {
     expect(a.ok).toBe(true);
     expect(b.ok).toBe(true);
     expect(stripe.transfers.createReversal).toHaveBeenCalledTimes(2);
-    expect(stripe.transfers.createReversal.mock.calls[0][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1" });
-    expect(stripe.transfers.createReversal.mock.calls[1][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1" });
+    expect(stripe.transfers.createReversal.mock.calls[0][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1_931" });
+    expect(stripe.transfers.createReversal.mock.calls[1][2]).toEqual({ idempotencyKey: "nwc_store_reversal_ord-1_931" });
     expect(stripe.refunds.create.mock.calls[0][1]).toEqual({ idempotencyKey: "nwc_store_refund_ord-1" });
     expect(stripe.refunds.create.mock.calls[1][1]).toEqual({ idempotencyKey: "nwc_store_refund_ord-1" });
   });
@@ -1038,7 +1071,7 @@ describe("storefront transfer reversal identity", () => {
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_1",
       { amount: 931, metadata: { storeOrderId: "ord-1" } },
-      { idempotencyKey: "nwc_store_reversal_ord-1" }
+      { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
     expect(stripe.refunds.create).toHaveBeenCalled();
   });
