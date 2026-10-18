@@ -15,7 +15,7 @@ import {
   type OrderForElements,
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
-import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
+import { isInsideNwAppWebView, notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
 import { orderEligibleForAnotherShippoLabel, orderHasShippedLine } from "types";
 
 export const SHIPPO_ORG = "inw-community";
@@ -275,7 +275,13 @@ export function useShippoLabelFlowForOrder(options: {
             if (labelSaveHandlingRef.current) return;
             const txs = elementsTransactionsFromEvent(transactions);
             const saveOrderId = labelFlowOrderIdRef.current;
-            if (txs.length === 0 || !saveOrderId) return;
+            if (txs.length === 0 || !saveOrderId) {
+              setElementsError(
+                "The label was purchased, but we could not read it to send to the buyer. Contact support with your order number."
+              );
+              closeShippoModalRef.current();
+              return;
+            }
             labelSaveHandlingRef.current = true;
             const urlsFromTx = collectLabelUrlsFromTransactions(txs);
             if (urlsFromTx.length > 0) {
@@ -333,19 +339,23 @@ export function useShippoLabelFlowForOrder(options: {
                   setPurchasedLabelUrls(nextUrls);
                 }
                 labelSavedThisSessionRef.current = true;
-                if (labelKindRef.current === "return") {
-                  closeShippoModalRef.current();
+                if (isInsideNwAppWebView()) {
+                  notifyNwAppShippoLabelSuccess({ orderId: saveOrderId });
+                  labelSavedThisSessionRef.current = false;
                 }
-                onLabelSavedRef.current();
+                closeShippoModalRef.current();
+                if (!isInsideNwAppWebView()) onLabelSavedRef.current();
               } else {
                 setElementsError(
                   typeof (saveData as { error?: string }).error === "string"
                     ? (saveData as { error: string }).error
                     : "Could not save label to your order. If you were charged, contact support with your order number."
                 );
+                closeShippoModalRef.current();
               }
             } catch {
               setElementsError("Could not save label to your order.");
+              closeShippoModalRef.current();
             } finally {
               labelSaveHandlingRef.current = false;
             }

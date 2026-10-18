@@ -223,7 +223,11 @@ export default function SellerShippoThinLabelPage() {
   const buyerLine = `${order.buyer.firstName} ${order.buyer.lastName}`.trim();
 
   return (
-    <div className={`mx-auto px-4 py-6 ${embeddedNwAppChrome ? "max-w-none min-h-[100dvh]" : "max-w-lg"}`}>
+    <div
+      className={`mx-auto px-4 ${
+        embeddedNwAppChrome ? "max-w-none min-h-[100dvh] pt-20 pb-6" : "max-w-lg py-6"
+      }`}
+    >
       <Script src={SHIPPO_EMBEDDABLE_URL} strategy="afterInteractive" />
 
       {!embeddedNwAppChrome ? (

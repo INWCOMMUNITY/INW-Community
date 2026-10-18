@@ -594,7 +594,7 @@ export default function MyOrderDetailScreen() {
           <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
             <Text style={styles.modalTitle}>{refundReview ? "Return label" : "Request Refund"}</Text>
             {refundReview ? (
-              <Text style={[styles.ackText, { fontWeight: "700", marginBottom: 16 }]}>
+              <Text style={styles.returnLabelNote}>
                 {buyerReturnLabelFollowup(
                   order.sellerPolicyName || "This seller",
                   policyFromStored({
@@ -1173,8 +1173,13 @@ const styles = StyleSheet.create({
     maxHeight: "80%",
   },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 16, color: "#333" },
-  ackRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 12 },
-  ackText: { flex: 1, fontSize: 13, color: "#444", lineHeight: 18 },
+  returnLabelNote: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#333",
+    lineHeight: 22,
+    marginBottom: 16,
+  },
   modalLabel: { fontSize: 14, fontWeight: "600", color: "#333", marginBottom: 8, marginTop: 12 },
   cancelHint: { fontSize: 14, color: "#666", marginBottom: 12 },
   reasonScroll: { maxHeight: 160, marginBottom: 8 },

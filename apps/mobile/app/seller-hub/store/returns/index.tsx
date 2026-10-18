@@ -22,6 +22,7 @@ import {
   storeReturnSellerMoneyActionLabel,
 } from "@/lib/store-return-seller-action";
 import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
+import { consumeReturnLabelSent } from "@/lib/return-label-sent-signal";
 import { getTrackingUrl } from "@/lib/store-order-fulfillment";
 
 interface OrderItem {
@@ -116,6 +117,7 @@ export default function ReturnsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
   const [choiceBusy, setChoiceBusy] = useState(false);
@@ -143,6 +145,7 @@ export default function ReturnsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (consumeReturnLabelSent()) setSuccess("Return label sent");
       load();
     }, [load])
   );
@@ -236,6 +239,7 @@ export default function ReturnsScreen() {
         Refund requests arrive here after an item ships. Approve or decline each one. Canceled orders
         are listed here too. Under those items, choose Return only when you have that variant back.
       </Text>
+      {success ? <Text style={styles.success}>{success}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {orders.length === 0 ? (
         <Text style={styles.empty}>No refunds yet.</Text>
@@ -484,6 +488,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
   intro: { fontSize: 14, color: theme.colors.text, marginBottom: 16, lineHeight: 20 },
   empty: { fontSize: 15, color: "#888" },
+  success: { color: theme.colors.primary, fontWeight: "700", marginBottom: 12, fontSize: 15 },
   error: { color: "#b91c1c", marginBottom: 12 },
   card: { borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 10, padding: 14, marginBottom: 14 },
   buyer: { fontSize: 16, fontWeight: "700" },

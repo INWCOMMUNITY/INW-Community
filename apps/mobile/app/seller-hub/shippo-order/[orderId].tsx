@@ -8,7 +8,7 @@ import {
   Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,6 +16,7 @@ import { theme } from "@/lib/theme";
 import { useHubWebviewUri } from "@/lib/use-hub-webview-uri";
 import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
 import { isAllowedShippoLabelWebviewUrl } from "@/lib/label-webview-url-allow";
+import { markReturnLabelSent } from "@/lib/return-label-sent-signal";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -46,6 +47,11 @@ export default function SellerHubShippoOrderScreen() {
   const modeParam = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    initialWindowMetrics?.insets.top ?? 0,
+    Platform.OS === "android" ? 24 : 0
+  );
   const [loading, setLoading] = useState(true);
   const shippoLabelBackHandled = useRef(false);
 
@@ -76,9 +82,8 @@ export default function SellerHubShippoOrderScreen() {
         const data = JSON.parse(event.nativeEvent.data) as { type?: string };
         if (data?.type === NW_APP_MSG_SHIPPO_LABEL_SUCCESS && !shippoLabelBackHandled.current) {
           shippoLabelBackHandled.current = true;
-          setTimeout(() => {
-            router.back();
-          }, 400);
+          markReturnLabelSent();
+          router.back();
         }
       } catch {
         // ignore
@@ -110,7 +115,7 @@ export default function SellerHubShippoOrderScreen() {
         <>
           <WebView
             source={{ uri: webViewUri }}
-            style={styles.webview}
+            style={[styles.webview, { marginTop: topInset }]}
             onLoadStart={() => setLoading(true)}
             onLoadEnd={() => setLoading(false)}
             onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
@@ -118,7 +123,7 @@ export default function SellerHubShippoOrderScreen() {
             androidLayerType="hardware"
           />
           <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-            <View style={[styles.chrome, { paddingTop: Math.max(insets.top, 8) }]}>
+            <View style={[styles.chrome, { paddingTop: topInset }]}>
               <Pressable
                 style={({ pressed }) => [styles.closeChip, pressed && { opacity: 0.85 }]}
                 onPress={() => router.back()}

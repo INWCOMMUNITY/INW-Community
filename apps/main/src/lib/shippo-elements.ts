@@ -494,16 +494,40 @@ function payloadString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/** Shippo sometimes sends one transaction object, or `{ transactions: [...] }`, instead of a bare array. */
-export function elementsTransactionsFromEvent(transactions: unknown): ElementsTransactionPayload[] {
-  if (Array.isArray(transactions)) return transactions as ElementsTransactionPayload[];
-  if (!transactions || typeof transactions !== "object") return [];
-  const record = transactions as Record<string, unknown>;
-  if (Array.isArray(record.transactions)) return record.transactions as ElementsTransactionPayload[];
-  if (record.object_id || record.objectId || record.label_url || record.labelUrl) {
-    return [transactions as ElementsTransactionPayload];
+function looksLikeElementsTransaction(value: unknown): value is ElementsTransactionPayload {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Boolean(
+    payloadString(record.object_id) ||
+      payloadString(record.objectId) ||
+      payloadString(record.transaction_id) ||
+      payloadString(record.label_url) ||
+      payloadString(record.labelUrl) ||
+      payloadString(record.tracking_number) ||
+      payloadString(record.trackingNumber)
+  );
+}
+
+function transactionsFromUnknown(value: unknown, depth = 0): ElementsTransactionPayload[] {
+  if (depth > 4 || value == null) return [];
+  if (Array.isArray(value)) {
+    const direct = value.filter(looksLikeElementsTransaction);
+    if (direct.length > 0) return direct;
+    return value.flatMap((item) => transactionsFromUnknown(item, depth + 1));
+  }
+  if (looksLikeElementsTransaction(value)) return [value];
+  if (typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ["transactions", "transaction", "data", "payload", "label", "result"]) {
+    const found = transactionsFromUnknown(record[key], depth + 1);
+    if (found.length > 0) return found;
   }
   return [];
+}
+
+/** Shippo sometimes sends one transaction object, or `{ transactions: [...] }`, instead of a bare array. */
+export function elementsTransactionsFromEvent(transactions: unknown): ElementsTransactionPayload[] {
+  return transactionsFromUnknown(transactions);
 }
 
 export function collectLabelUrlsFromTransactions(txs: ElementsTransactionPayload[]): string[] {

@@ -12,6 +12,9 @@ export function isAllowedShippoLabelWebviewUrl(url: string, siteBase: string): b
     if (p.startsWith("/seller-hub/orders/") && !p.startsWith("/seller-hub/orders/shippo/")) {
       return false;
     }
+    // A saved return label used to navigate here inside the WebView, which left
+    // the purchase screen open and hid the success message.
+    if (p.startsWith("/seller-hub/store/")) return false;
     return true;
   } catch {
     return true;

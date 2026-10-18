@@ -19,7 +19,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiUploadFile, getToken } from "@/lib/api";
-import { AddressSearchInput, type AddressValue } from "@/components/AddressSearchInput";
 import { signOut } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -38,13 +37,6 @@ function formatLoadError(e: unknown): string {
     : msg;
 }
 
-interface DeliveryAddress {
-  street?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-}
-
 interface ProfileData {
   firstName: string;
   lastName: string;
@@ -54,7 +46,6 @@ interface ProfileData {
   bio: string | null;
   city: string | null;
   phone: string | null;
-  deliveryAddress?: DeliveryAddress | null;
   privacyLevel?: "public" | "friends_only" | "completely_private";
 }
 
@@ -79,14 +70,6 @@ export default function ProfileEditScreen() {
   const [phone, setPhone] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [coverPhotoUrl, setCoverPhotoUrl] = useState<string | null>(null);
-  const [deliveryAddress, setDeliveryAddress] = useState<AddressValue>({
-    street: "",
-    aptOrSuite: "",
-    city: "",
-    state: "",
-    zip: "",
-  });
-  const [deliveryAddressFromPlaces, setDeliveryAddressFromPlaces] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [privacyLevel, setPrivacyLevel] = useState<"public" | "friends_only" | "completely_private">("public");
@@ -99,15 +82,6 @@ export default function ProfileEditScreen() {
     setPhone(d.phone ?? "");
     setProfilePhotoUrl(toFullUrl(d.profilePhotoUrl));
     setCoverPhotoUrl(toFullUrl(d.coverPhotoUrl));
-    if (d.deliveryAddress) {
-      setDeliveryAddress({
-        street: d.deliveryAddress.street ?? "",
-        aptOrSuite: "",
-        city: d.deliveryAddress.city ?? "",
-        state: d.deliveryAddress.state ?? "",
-        zip: d.deliveryAddress.zip ?? "",
-      });
-    }
     if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
   };
 
@@ -213,73 +187,6 @@ export default function ProfileEditScreen() {
     }
     setSubmitting(true);
     try {
-      const hasAddress =
-        deliveryAddress.street?.trim() ||
-        deliveryAddress.city?.trim() ||
-        deliveryAddress.state?.trim() ||
-        deliveryAddress.zip?.trim();
-      let payloadDeliveryAddress: { street: string; city: string; state: string; zip: string } | null = null;
-      let addressCorrectedToCarrier = false;
-      if (hasAddress) {
-        if (deliveryAddressFromPlaces) {
-          payloadDeliveryAddress = {
-            street: deliveryAddress.street.trim(),
-            city: deliveryAddress.city.trim(),
-            state: deliveryAddress.state.trim(),
-            zip: deliveryAddress.zip.trim(),
-          };
-        } else {
-          const validateData = await apiPost<{
-            valid?: boolean;
-            formatted?: { street: string; city: string; state: string; zip: string };
-            suggestedFormatted?: { street: string; city: string; state: string; zip: string };
-            error?: string;
-          }>("/api/validate-address", {
-            street: deliveryAddress.street,
-            city: deliveryAddress.city,
-            state: deliveryAddress.state,
-            zip: deliveryAddress.zip,
-          });
-          if (validateData.valid) {
-            payloadDeliveryAddress = validateData.formatted ?? {
-              street: deliveryAddress.street.trim(),
-              city: deliveryAddress.city.trim(),
-              state: deliveryAddress.state.trim(),
-              zip: deliveryAddress.zip.trim(),
-            };
-          } else if (validateData.suggestedFormatted) {
-            const retryData = await apiPost<{
-              valid?: boolean;
-              formatted?: { street: string; city: string; state: string; zip: string };
-              error?: string;
-            }>("/api/validate-address", {
-              street: validateData.suggestedFormatted.street,
-              city: validateData.suggestedFormatted.city,
-              state: validateData.suggestedFormatted.state,
-              zip: validateData.suggestedFormatted.zip,
-            });
-            if (retryData.valid && retryData.formatted) {
-              payloadDeliveryAddress = retryData.formatted;
-              setDeliveryAddress({
-                ...deliveryAddress,
-                street: retryData.formatted.street,
-                city: retryData.formatted.city,
-                state: retryData.formatted.state,
-                zip: retryData.formatted.zip,
-              });
-              addressCorrectedToCarrier = true;
-            } else {
-              setError(retryData.error ?? validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
-              setSubmitting(false);
-              return;
-            }
-          } else {
-            setError(validateData.error ?? "Address could not be verified. Please check street, city, state, and ZIP.");
-            setSubmitting(false);
-            return;
-          }
-        }
-      }
       await apiPatch("/api/me", {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -288,12 +195,8 @@ export default function ProfileEditScreen() {
         phone: phone.trim() || null,
         profilePhotoUrl: profilePhotoUrl || null,
         coverPhotoUrl: coverPhotoUrl || null,
-        deliveryAddress: payloadDeliveryAddress,
         privacyLevel,
       });
-      if (addressCorrectedToCarrier) {
-        Alert.alert("Saved", "Address corrected to carrier records.");
-      }
       // Ensure avatar/profile photo updates immediately across the app.
       try {
         await refreshMember();
@@ -587,22 +490,6 @@ export default function ProfileEditScreen() {
             : "Everyone can see your posts and photos."}
         </Text>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>Shipping Address (private)</Text>
-          <Text style={styles.fieldNote}>
-            Used to autofill checkout. This is never shared publicly.
-          </Text>
-          <AddressSearchInput
-            value={deliveryAddress}
-            onChange={(addr, meta) => {
-              setDeliveryAddress(addr);
-              if (meta?.fromPlaces !== undefined) setDeliveryAddressFromPlaces(meta.fromPlaces);
-            }}
-            placeholder="Search for your address"
-            showManualFallback={false}
-          />
-        </View>
-
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
           style={({ pressed }) => [
@@ -810,15 +697,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontStyle: "italic",
   },
-  row: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  addressRow: {
-    marginTop: 12,
-  },
-  inputHalf: { flex: 1 },
-  inputQuarter: { flex: 0.5 },
   error: {
     color: "#c62828",
     marginBottom: 12,
