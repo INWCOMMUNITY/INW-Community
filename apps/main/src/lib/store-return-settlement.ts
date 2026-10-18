@@ -203,7 +203,8 @@ export async function completeReceivedStoreReturnSettlement(args: {
       return sellerFailed(reversal.error ?? SELLER_FAILED_MSG, reversal.status === "conflict" ? 409 : 500);
     }
     skipSellerLedgerDebit = false;
-    ledgerDebitCents = reversalAmountCents;
+    ledgerDebitCents =
+      typeof reversal.amountCents === "number" ? reversal.amountCents : reversalAmountCents;
   } else if (prepared.kind === "NO_TRANSFER_LOCKED_OUT_WITH_ENTITLEMENT") {
     let entitlement;
     try {

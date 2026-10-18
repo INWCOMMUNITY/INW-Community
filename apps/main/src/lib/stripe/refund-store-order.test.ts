@@ -1,10 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sellerLedgerDebitCents } from "./refund-store-order";
+import { clampStorefrontTransferReversalCents, sellerLedgerDebitCents } from "./refund-store-order";
 
 describe("sellerLedgerDebitCents", () => {
   it("matches the Connect transfer withheld from the seller on fulfill", () => {
     // $10 item: 1% reserve = 10, processing = floor(1000*0.029)+30 = 59 → transfer 931
     expect(sellerLedgerDebitCents({ totalCents: 1000, subtotalCents: 1000 })).toBe(931);
+  });
+});
+
+describe("clampStorefrontTransferReversalCents", () => {
+  it("caps a recalculated reverse above Stripe remaining", () => {
+    // Live transfer left $1.62; recalculated request $1.64 → reverse $1.62 only.
+    expect(
+      clampStorefrontTransferReversalCents(164, { amount: 162, amount_reversed: 0 })
+    ).toBe(162);
+  });
+
+  it("returns remaining when partially reversed already", () => {
+    expect(
+      clampStorefrontTransferReversalCents(200, { amount: 162, amount_reversed: 50 })
+    ).toBe(112);
+  });
+
+  it("returns 0 when nothing is left to reverse", () => {
+    expect(
+      clampStorefrontTransferReversalCents(164, { amount: 162, amount_reversed: 162 })
+    ).toBe(0);
   });
 });
 
@@ -245,10 +266,15 @@ const emptyReversalList = {
   has_more: false,
 };
 
-function stripeStub() {
+function stripeStub(transferAmountCents = 931) {
   return {
     transfers: {
-      createReversal: vi.fn().mockResolvedValue({ id: "rev_1", amount: 931 }),
+      retrieve: vi.fn().mockResolvedValue({
+        id: "tr_1",
+        amount: transferAmountCents,
+        amount_reversed: 0,
+      }),
+      createReversal: vi.fn().mockResolvedValue({ id: "rev_1", amount: transferAmountCents }),
       listReversals: vi.fn().mockResolvedValue(emptyReversalList),
     },
     refunds: {
@@ -761,6 +787,7 @@ describe("storefront transfer reversal identity", () => {
     const stripe = stripeStub();
     const result = await refundPaidStorefrontOrder({ stripe: stripe as never, order: paidOrder });
     expect(result.ok).toBe(true);
+    expect(stripe.transfers.retrieve).toHaveBeenCalledWith("tr_from_op");
     expect(stripe.transfers.createReversal).toHaveBeenCalledTimes(1);
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_from_op",
@@ -770,6 +797,26 @@ describe("storefront transfer reversal identity", () => {
       },
       { idempotencyKey: "nwc_store_reversal_ord-1" }
     );
+  });
+
+  it("clamps reverse to Stripe remaining when recalculated amount is higher", async () => {
+    // Recalc wants 933; live Connect transfer only has 931 left → reverse 931, refund still succeeds.
+    const stripe = stripeStub(931);
+    const result = await refundPaidStorefrontOrder({
+      stripe: stripe as never,
+      order: paidOrder,
+      transferReversalCents: 933,
+    });
+    expect(result.ok).toBe(true);
+    expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
+      "tr_from_op",
+      {
+        amount: 931,
+        metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
+      },
+      { idempotencyKey: "nwc_store_reversal_ord-1" }
+    );
+    expect(stripe.refunds.create).toHaveBeenCalled();
   });
 
   it("reuses an existing matching reversal and does not create another", async () => {
