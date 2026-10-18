@@ -140,7 +140,7 @@ export function BuyerOrderCard({
             </Link>
             {trackingHref ? (
               <a href={trackingHref} target="_blank" rel="noopener noreferrer" className={outlineBtn}>
-                Track package
+                Track Package
               </a>
             ) : null}
             {order.returnShipment?.labelUrl ? (

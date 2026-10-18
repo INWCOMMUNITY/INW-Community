@@ -125,7 +125,7 @@ export default function MyCollectionsPage() {
 
   if (status === "loading" || loading) {
     return (
-      <div>
+      <div className="rounded-2xl px-4 py-8 sm:px-6" style={{ background: "linear-gradient(180deg, #FDEDCC 0%, #F8F4EA 45%, #ffffff 100%)" }}>
         <h1
           className="text-3xl font-bold mb-3"
           style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
@@ -139,7 +139,7 @@ export default function MyCollectionsPage() {
 
   if (status === "unauthenticated") {
     return (
-      <div>
+      <div className="rounded-2xl px-4 py-6 sm:px-6" style={{ background: "linear-gradient(180deg, #FDEDCC 0%, #F8F4EA 40%, #ffffff 100%)" }}>
         <BackToProfileLink />
         <h1
           className="text-3xl font-bold mb-3 mt-2"
@@ -158,7 +158,10 @@ export default function MyCollectionsPage() {
   }
 
   return (
-    <div>
+    <div
+      className="rounded-2xl px-3 py-5 sm:px-5 sm:py-6"
+      style={{ background: "linear-gradient(165deg, #FDEDCC 0%, #F8F4EA 38%, #ffffff 78%)" }}
+    >
       <BackToProfileLink />
 
       <div className="mt-3 mb-2 flex flex-wrap items-end justify-between gap-3">
