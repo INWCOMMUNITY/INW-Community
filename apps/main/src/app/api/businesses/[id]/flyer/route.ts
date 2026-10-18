@@ -18,19 +18,18 @@ const HEADING = rgb(62 / 255, 67 / 255, 47 / 255); // #3E432F
 const BODY = rgb(80 / 255, 85 / 255, 66 / 255); // #505542
 const ACCENT = rgb(93 / 255, 79 / 255, 64 / 255); // #5d4f40
 
-const FLYER_PARTNER_LINE = "Proud partner of Northwest Community";
-const FLYER_SUPPORT_LINE = "Thank you for supporting locally owned businesses.";
+const FLYER_TEXT =
+  "is a proud partner of Northwest Community. Helping keep local businesses thriving in the Inland Northwest.";
 
 const SITE_LABEL = "INWCOMMUNITY.COM";
 const APP_LABEL = "Get the INW Community app";
 const APP_DOWNLOAD_URL = "https://www.inwcommunity.com/download-app";
 
-/** Gaps inside the logo → name → copy stack (PDF points). */
-const GAP_LOGO_TO_NAME = 16;
-const GAP_NAME_TO_RULE = 10;
-const GAP_RULE_TO_BODY = 14;
-const BODY_LINE_GAP = 6;
-const RULE_HEIGHT = 1.5;
+/** Gaps (PDF points). Logo stays top-pinned; name sits clearly below it. */
+const GAP_TOP_TO_LOGO = 28;
+const GAP_LOGO_TO_NAME = 40;
+const GAP_NAME_TO_BODY = 18;
+const BODY_LINE_GAP = 5;
 
 function wrapText(
   text: string,
@@ -225,8 +224,8 @@ export async function GET(
 
     const marginSide = 64;
     const contentWidth = pageWidth - marginSide * 2;
-    const logoSizePt = 2 * PT_PER_IN;
-    const bodySize = 16;
+    const logoSizePt = 2.25 * PT_PER_IN;
+    const bodySize = 17;
     const siteSize = 16;
     const appSize = 13;
     const qrSizePt = 96;
@@ -244,7 +243,6 @@ export async function GET(
       height: footerH,
       color: FOOTER_BAND,
     });
-    // Hairline between content and footer
     page.drawRectangle({
       x: marginSide,
       y: footerY + footerH - 1,
@@ -253,37 +251,9 @@ export async function GET(
       color: ACCENT,
     });
 
-    // Measure hero stack, then vertically center it between top bar and footer.
-    const title = fitBusinessName(business.name, contentWidth, fontBold, 32, 22);
-    const titleLineH = title.size * 1.1;
-    const titleBlockH = title.lines.length * titleLineH;
+    // Logo pinned to top (not vertically centered).
+    let y = pageHeight - barH - GAP_TOP_TO_LOGO;
 
-    const nameLooksLikeNwc = /northwest\s*community/i.test(business.name.trim());
-    const bodyLines = nameLooksLikeNwc
-      ? [FLYER_SUPPORT_LINE]
-      : [FLYER_PARTNER_LINE, FLYER_SUPPORT_LINE];
-    const wrappedBody = bodyLines.flatMap((line) => wrapText(line, contentWidth, font, bodySize));
-    const bodyLineH = bodySize + BODY_LINE_GAP;
-    const bodyBlockH =
-      wrappedBody.length > 0 ? wrappedBody.length * bodySize + (wrappedBody.length - 1) * BODY_LINE_GAP : 0;
-
-    const stackH =
-      logoSizePt +
-      GAP_LOGO_TO_NAME +
-      titleBlockH +
-      GAP_NAME_TO_RULE +
-      RULE_HEIGHT +
-      GAP_RULE_TO_BODY +
-      bodyBlockH;
-
-    const areaTop = pageHeight - barH;
-    const areaBottom = footerY + footerH;
-    const areaH = areaTop - areaBottom;
-    // Top of logo = centered stack top (with a little bias upward so it doesn’t sit on the footer).
-    const stackTop = areaBottom + (areaH + stackH) / 2 + 8;
-    let y = Math.min(areaTop - 20, stackTop);
-
-    // 1. Logo
     if (nwcLogoBytes) {
       const logoProcessed = await logoWhiteToTan(nwcLogoBytes);
       const nwcLogo = await embedLogoImage(doc, logoProcessed);
@@ -296,10 +266,12 @@ export async function GET(
         });
       }
     }
-    // y is the bottom of the logo; first title baseline sits GAP below that.
-    y -= logoSizePt + GAP_LOGO_TO_NAME + title.size * 0.2;
 
-    // 2. Business name (hero)
+    const title = fitBusinessName(business.name, contentWidth, fontBold, 32, 22);
+    const titleLineH = title.size * 1.12;
+    // Decent space from logo bottom to name baseline.
+    y -= logoSizePt + GAP_LOGO_TO_NAME;
+
     for (const line of title.lines) {
       drawCenteredText(page, line, {
         y,
@@ -311,19 +283,9 @@ export async function GET(
       y -= titleLineH;
     }
 
-    // Olive rule under name
-    y -= GAP_NAME_TO_RULE;
-    const ruleW = Math.min(120, contentWidth * 0.28);
-    page.drawRectangle({
-      x: (pageWidth - ruleW) / 2,
-      y,
-      width: ruleW,
-      height: RULE_HEIGHT,
-      color: ACCENT,
-    });
-    y -= RULE_HEIGHT + GAP_RULE_TO_BODY + bodySize * 0.15;
-
-    // 3. Partner / support lines
+    y -= GAP_NAME_TO_BODY;
+    const wrappedBody = wrapText(FLYER_TEXT, contentWidth, font, bodySize);
+    const bodyLineH = bodySize + BODY_LINE_GAP;
     for (const line of wrappedBody) {
       drawCenteredText(page, line, {
         y,
