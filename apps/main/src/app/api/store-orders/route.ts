@@ -7,7 +7,7 @@ import {
   serializeOrderShipments,
   storeOrderShipmentInclude,
 } from "@/lib/store-order-shipments";
-import { ACTIVE_STORE_RETURN_STATUSES, buyerReturnPolicyFields } from "@/lib/store-return";
+import { buyerReturnPolicyFields, SELLER_RETURNS_PAGE_STATUSES } from "@/lib/store-return";
 
 export const dynamic = "force-dynamic";
 
@@ -167,7 +167,7 @@ export async function GET(req: NextRequest) {
         where.status = "delivered";
       }
       if (returnsOnly) {
-        where.storeReturns = { some: { status: { in: [...ACTIVE_STORE_RETURN_STATUSES] } } };
+        where.storeReturns = { some: { status: { in: [...SELLER_RETURNS_PAGE_STATUSES] } } };
       }
       const orders = await prisma.storeOrder.findMany({
         where,

@@ -64,10 +64,20 @@ interface StoreOrder {
 
 const SOLD_BEFORE_CHECKOUT_REASON = "Item sold before checkout was complete";
 
+function isFinishedReturn(order: StoreOrder): boolean {
+  const status = order.storeReturn?.status;
+  return status === "refunded" || status === "declined" || status === "canceled";
+}
+
 function isCanceledOrder(order: StoreOrder): boolean {
-  if (order.storeReturn) return false;
   if (order.cancelReason === SOLD_BEFORE_CHECKOUT_REASON) return false;
-  return order.status === "canceled" || order.status === "cancelled" || order.status === "refunded";
+  if (order.storeReturn && !isFinishedReturn(order)) return false;
+  return (
+    isFinishedReturn(order) ||
+    order.status === "canceled" ||
+    order.status === "cancelled" ||
+    order.status === "refunded"
+  );
 }
 
 function formatPrice(cents: number): string {
@@ -107,6 +117,9 @@ function statusCopy(status?: string): string {
   if (status === "awaiting_return") return "Approved — waiting for the item";
   if (status === "in_transit") return "Return in transit";
   if (status === "received") return "Received — refunding";
+  if (status === "refunded") return "Refunded";
+  if (status === "declined") return "Declined";
+  if (status === "canceled") return "Return canceled";
   return status ?? "";
 }
 

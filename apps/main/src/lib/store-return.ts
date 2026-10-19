@@ -25,6 +25,14 @@ export const ACTIVE_STORE_RETURN_STATUSES: readonly StoreReturnStatus[] = [
   "received",
 ];
 
+/** Seller Refunds & Cancellations: open returns plus finished ones. */
+export const SELLER_RETURNS_PAGE_STATUSES: readonly StoreReturnStatus[] = [
+  ...ACTIVE_STORE_RETURN_STATUSES,
+  "refunded",
+  "declined",
+  "canceled",
+];
+
 export const AWAITING_RETURN_STATUSES: readonly StoreReturnStatus[] = [
   "awaiting_return",
   "in_transit",

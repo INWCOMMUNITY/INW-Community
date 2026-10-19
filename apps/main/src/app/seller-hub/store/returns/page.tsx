@@ -52,10 +52,20 @@ interface StoreOrder {
 
 const SOLD_BEFORE_CHECKOUT_REASON = "Item sold before checkout was complete";
 
+function isFinishedReturn(order: StoreOrder): boolean {
+  const status = order.storeReturn?.status;
+  return status === "refunded" || status === "declined" || status === "canceled";
+}
+
 function isCanceledOrder(order: StoreOrder): boolean {
-  if (order.storeReturn) return false;
   if (order.cancelReason === SOLD_BEFORE_CHECKOUT_REASON) return false;
-  return order.status === "canceled" || order.status === "cancelled" || order.status === "refunded";
+  if (order.storeReturn && !isFinishedReturn(order)) return false;
+  return (
+    isFinishedReturn(order) ||
+    order.status === "canceled" ||
+    order.status === "cancelled" ||
+    order.status === "refunded"
+  );
 }
 
 function formatPrice(cents: number): string {
@@ -329,8 +339,14 @@ export default function RequestedReturnsPage() {
                     </p>
                     <p className="text-sm mt-2" style={{ color: "var(--color-primary)" }}>
                       {ret
-                        ? order.returnShipment?.labelUrl &&
-                          (ret.status === "awaiting_return" || ret.status === "in_transit")
+                        ? ret.status === "refunded"
+                          ? "Refunded"
+                          : ret.status === "declined"
+                          ? "Declined"
+                          : ret.status === "canceled"
+                          ? "Return canceled"
+                          : order.returnShipment?.labelUrl &&
+                            (ret.status === "awaiting_return" || ret.status === "in_transit")
                           ? "Return label sent."
                           : ret.status === "awaiting_return" && !order.returnShipment?.labelUrl
                           ? "Return approved. Send the buyer a return label."
