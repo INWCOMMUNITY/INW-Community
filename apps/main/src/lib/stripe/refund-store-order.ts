@@ -23,11 +23,65 @@ import {
   buyerRefundCentsForFeeBearer,
   nonRefundableStripeFeeCents,
   returnRefundAmountCents,
+  SELLER_CONNECT_FEE_RECOVERY_FAILED_MESSAGE,
   sellerLedgerDebitForReturnCents,
   sellerTransferReversalCents,
   type StorefrontStripeFeeBearer,
 } from "@/lib/store-return";
 import { timestampsFromStripeRefund } from "@/lib/store-order-refund-status";
+import {
+  marketplaceRefundMetadata,
+  marketplaceSellerFeeRecoveryMetadata,
+  marketplaceTransferReversalMetadata,
+} from "@/lib/stripe/marketplace-stripe-metadata";
+
+export const STOREFRONT_SELLER_FEE_RECOVERY_IDEMPOTENCY_PREFIX = "nwc_store_fee_recovery_";
+
+export function storefrontSellerFeeRecoveryIdempotencyKey(
+  storeOrderId: string,
+  amountCents: number
+): string {
+  return `${STOREFRONT_SELLER_FEE_RECOVERY_IDEMPOTENCY_PREFIX}${storeOrderId}_${amountCents}`;
+}
+
+/**
+ * Pull non-refundable Stripe fees from the seller’s Connect balance onto the platform.
+ * Required for seller-borne full card refunds: transfer reversal alone cannot cover the fee
+ * Stripe already kept, and My Funds ledger does not move Stripe cash.
+ */
+export async function recoverSellerNonRefundableFeesFromConnect(args: {
+  stripe: Stripe;
+  connectAccountId: string;
+  amountCents: number;
+  storeOrderId: string;
+  refundOperationId?: string | null;
+}): Promise<{ ok: true; chargeId: string | null } | { ok: false; error: string }> {
+  const amountCents = Math.max(0, Math.floor(args.amountCents));
+  if (amountCents <= 0) return { ok: true, chargeId: null };
+  const connectAccountId = args.connectAccountId.trim();
+  if (!connectAccountId) {
+    return { ok: false, error: "Seller has no Stripe Connect account for fee recovery." };
+  }
+  try {
+    const charge = await args.stripe.charges.create(
+      {
+        amount: amountCents,
+        currency: "usd",
+        source: connectAccountId,
+        metadata: marketplaceSellerFeeRecoveryMetadata({
+          storeOrderId: args.storeOrderId,
+          refundOperationId: args.refundOperationId,
+          amountCents,
+        }),
+      },
+      { idempotencyKey: storefrontSellerFeeRecoveryIdempotencyKey(args.storeOrderId, amountCents) }
+    );
+    return { ok: true, chargeId: charge.id };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Seller fee recovery failed";
+    return { ok: false, error: msg };
+  }
+}
 
 /** Default buyer-initiated refund (Stripe fees deducted from the card refund). */
 export function refundAmountCents(order: { totalCents: number; taxCents?: number | null }): number {
@@ -110,10 +164,11 @@ function causalStorefrontReversalMetadata(args: {
   storeOrderId: string;
   refundOperationId?: string | null;
 }): Record<string, string> {
-  const metadata: Record<string, string> = { storeOrderId: args.storeOrderId };
-  const refundOperationId = args.refundOperationId?.trim();
-  if (refundOperationId) metadata.refundOperationId = refundOperationId;
-  return metadata;
+  return marketplaceTransferReversalMetadata({
+    storeOrderId: args.storeOrderId,
+    refundOperationId: args.refundOperationId,
+    purpose: "order_refund",
+  });
 }
 
 function isCausalStorefrontReversal(
@@ -604,6 +659,11 @@ export async function executeStorefrontBuyerRefund(args: {
     payment_intent: order.stripePaymentIntentId,
     amount,
     reason: "requested_by_customer" as const,
+    metadata: marketplaceRefundMetadata({
+      storeOrderId: order.id,
+      stripeFeeBearer: "buyer",
+      reason: args.reason,
+    }),
   };
   const durableRefundKey = foundationStorefrontRefundIdempotencyKey(order.id);
   let refundAction: "provider_create" | "already_succeeded" = "provider_create";
@@ -800,7 +860,8 @@ export async function refundPaidStorefrontOrder(args: {
   }
 
   const originalTransfer = sellerLedgerDebitCents(order);
-  // Connect can only reverse up to the original transfer; seller-borne fees hit My Funds ledger.
+  // Connect can only reverse up to the original transfer; seller-borne fees are recovered via
+  // Connect account debit (Stripe cash) and mirrored on the My Funds ledger.
   const reversalAmount = args.transferReversalCents ?? originalTransfer;
   const defaultLedgerDebit = sellerLedgerDebitCentsForFeeBearer(order, feeBearer);
 
@@ -856,11 +917,6 @@ export async function refundPaidStorefrontOrder(args: {
     return { ok: false, error: "Order has no payment to refund", status: 400 };
   }
 
-  const refundParams = {
-    payment_intent: order.stripePaymentIntentId,
-    amount,
-    reason: "requested_by_customer" as const,
-  };
   const durableRefundKey = foundationStorefrontRefundIdempotencyKey(order.id);
   let refundAction: "provider_create" | "already_succeeded" = "provider_create";
   let refundKey = durableRefundKey;
@@ -911,6 +967,17 @@ export async function refundPaidStorefrontOrder(args: {
     }
   }
 
+  const refundParams = {
+    payment_intent: order.stripePaymentIntentId,
+    amount,
+    reason: "requested_by_customer" as const,
+    metadata: marketplaceRefundMetadata({
+      storeOrderId: order.id,
+      stripeFeeBearer: feeBearer,
+      reason: args.reason,
+      refundOperationId,
+    }),
+  };
   const refundRequestOptions = { idempotencyKey: refundKey };
 
   let stripeRefund: { id?: string; status?: string | null; created?: number } | null = null;
@@ -931,6 +998,30 @@ export async function refundPaidStorefrontOrder(args: {
       if (args.ledgerDebitCents == null && typeof reversal.amountCents === "number") {
         const feeAddon = feeBearer === "seller" ? nonRefundableStripeFeeCents(order) : 0;
         ledgerDebitCents = reversal.amountCents + feeAddon;
+      }
+    }
+    if (feeBearer === "seller") {
+      const feeCents = nonRefundableStripeFeeCents(order);
+      if (feeCents > 0) {
+        const seller = await prisma.member.findUnique({
+          where: { id: order.sellerId },
+          select: { stripeConnectAccountId: true },
+        });
+        const connectId = seller?.stripeConnectAccountId?.trim() ?? "";
+        const recovery = await recoverSellerNonRefundableFeesFromConnect({
+          stripe,
+          connectAccountId: connectId,
+          amountCents: feeCents,
+          storeOrderId: order.id,
+          refundOperationId,
+        });
+        if (!recovery.ok) {
+          return {
+            ok: false,
+            error: SELLER_CONNECT_FEE_RECOVERY_FAILED_MESSAGE,
+            status: 409,
+          };
+        }
       }
     }
     try {

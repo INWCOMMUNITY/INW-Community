@@ -265,7 +265,7 @@ export function buyerCardRefundCents(order: {
 /**
  * Who absorbs Stripe’s non-refundable processing fees on a storefront refund.
  * - buyer: deducted from the card refund (buyer cancel / buyer return)
- * - seller: buyer is refunded in full; seller’s My Funds debit includes the fee
+ * - seller: buyer is refunded in full; fee is Account-Debited from seller Connect (+ My Funds mirror)
  */
 export type StorefrontStripeFeeBearer = "buyer" | "seller";
 
@@ -343,7 +343,8 @@ export const BUYER_REFUND_POLICY_POPUP_TITLE = "NWC Marketplace Refund Policy";
  * Exact fee is shown separately via {@link formatBuyerRefundFeeDeductionLine}.
  */
 export const BUYER_REFUND_POLICY_POPUP_BODY =
-  "NWC does not personally profit off of items sold in the storefront. Stripe’s credit card processing does not refund their portion, and therefore that processing fee will be eaten by the buyer on a refund request — rather than charging the seller for that fee twice.";
+  "NWC does not personally profit off of items sold in the storefront. Stripe’s credit card processing does not refund its portion when a payment is refunded, so that processing fee is deducted from your refund — rather than charging the seller twice or leaving a shortfall on NWC Marketplace.\n\n" +
+  "If this seller’s return policy charges return shipping, the return-label cost may also be deducted from your refund once the seller buys the label.";
 
 export const BUYER_REFUND_POLICY_CONTINUE_LABEL = "Understood";
 export const BUYER_REFUND_POLICY_NEVERMIND_LABEL = "Nevermind.";
@@ -363,9 +364,18 @@ export function formatBuyerRefundFeeDeductionLine(order: {
 export const SELLER_REFUND_POLICY_POPUP_TITLE = "NWC Marketplace Refund Policy";
 
 export const SELLER_REFUND_POLICY_POPUP_BODY =
-  "NWC does not personally profit off of items sold in the storefront. Stripe’s credit card processing does not refund their portion when you cancel and refund an order. The buyer is refunded in full, and that processing fee is absorbed on the seller side — rather than deducting it from the buyer.";
+  "NWC does not personally profit off of items sold in the storefront. Stripe does not return its card processing fees when you cancel an order or issue a courtesy refund.\n\n" +
+  "The buyer is refunded in full. That non-refundable Stripe fee is pulled from your Stripe Connect balance. If Connect does not have enough, it can go negative for a while and Stripe may debit the bank account or debit card linked to your Connect account. Later sales can refill Connect.\n\n" +
+  "If we cannot recover that fee from Connect, this refund will not go through — so NWC Marketplace is not left covering a shortfall.";
 
-export const SELLER_REFUND_POLICY_FEE_LINE_PREFIX = "Stripe fee you absorb on this refund:";
+export const SELLER_REFUND_POLICY_FEE_LINE_PREFIX = "Stripe fee pulled from your Connect account:";
+
+export const SELLER_REFUND_POLICY_SHORTFALL_NOTE =
+  "If Connect fee recovery fails, cancel/refund is blocked so the marketplace balance does not go negative.";
+
+/** User-facing error when seller Connect Account Debit fails before a full card refund. */
+export const SELLER_CONNECT_FEE_RECOVERY_FAILED_MESSAGE =
+  "Could not pull the Stripe fee from your Connect account. Wait for available Connect balance (or another sale), check that your Connect bank/debit card is verified, then try again. The buyer was not refunded.";
 
 export function formatSellerRefundFeeAbsorptionLine(order: {
   totalCents: number;
@@ -382,7 +392,7 @@ export const NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE = "NWC Marketplace Refu
 
 export const NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT =
   "NWC does not personally profit off of items sold in the storefront. Stripe does not return its card processing fees when a payment is refunded.\n\n" +
-  "If you (the buyer) cancel or request a refund/return, Stripe’s non-refundable processing fee is deducted from your refund. If the seller cancels and refunds the order, you are refunded in full and the seller absorbs that fee.\n\n" +
+  "If you (the buyer) cancel or request a refund/return, Stripe’s non-refundable processing fee is deducted from your refund so NWC Marketplace is not left with a shortfall. If the seller cancels or issues a courtesy refund, you are refunded in full and that fee is pulled from the seller’s Stripe Connect balance.\n\n" +
   "Typical Stripe fees are about 2.9% + $0.30 of the original charge, plus Stripe Tax’s 0.5% product fee when sales tax was collected. Return shipping may also be deducted when the seller’s return policy charges it.";
 
 export function sellerReturnPolicySummary(seller: {

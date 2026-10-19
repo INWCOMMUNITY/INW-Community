@@ -40,6 +40,7 @@ import {
   formatSellerRefundFeeAbsorptionLine,
   SELLER_REFUND_POLICY_POPUP_BODY,
   SELLER_REFUND_POLICY_POPUP_TITLE,
+  SELLER_REFUND_POLICY_SHORTFALL_NOTE,
 } from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -320,7 +321,7 @@ function ToShipFlowView({
     });
     Alert.alert(
       SELLER_REFUND_POLICY_POPUP_TITLE,
-      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\nListing quantities will be restored. This cannot be undone.`,
+      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\n${SELLER_REFUND_POLICY_SHORTFALL_NOTE}\n\nListing quantities will be restored. This cannot be undone.`,
       [
         { text: BUYER_REFUND_POLICY_NEVERMIND_LABEL, style: "cancel" },
         {
@@ -773,7 +774,7 @@ function DeliveriesTabView({
     });
     Alert.alert(
       SELLER_REFUND_POLICY_POPUP_TITLE,
-      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\nListing quantities will be restored. This cannot be undone.`,
+      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\n${SELLER_REFUND_POLICY_SHORTFALL_NOTE}\n\nListing quantities will be restored. This cannot be undone.`,
       [
         { text: BUYER_REFUND_POLICY_NEVERMIND_LABEL, style: "cancel" },
         {

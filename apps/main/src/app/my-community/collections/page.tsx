@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { BackToProfileLink } from "@/components/BackToProfileLink";
+import { CollectionShareButton } from "@/components/CollectionShareButton";
 import { IonIcon } from "@/components/IonIcon";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 
@@ -124,7 +125,7 @@ export default function MyCollectionsPage() {
 
   if (status === "loading" || loading) {
     return (
-      <div className="rounded-2xl px-4 py-8 sm:px-6" style={{ background: "linear-gradient(180deg, #FDEDCC 0%, #F8F4EA 45%, #ffffff 100%)" }}>
+      <div>
         <h1
           className="text-3xl font-bold mb-3"
           style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
@@ -138,7 +139,7 @@ export default function MyCollectionsPage() {
 
   if (status === "unauthenticated") {
     return (
-      <div className="rounded-2xl px-4 py-6 sm:px-6" style={{ background: "linear-gradient(180deg, #FDEDCC 0%, #F8F4EA 40%, #ffffff 100%)" }}>
+      <div>
         <BackToProfileLink />
         <h1
           className="text-3xl font-bold mb-3 mt-2"
@@ -157,10 +158,7 @@ export default function MyCollectionsPage() {
   }
 
   return (
-    <div
-      className="rounded-2xl px-3 py-5 sm:px-5 sm:py-6"
-      style={{ background: "linear-gradient(165deg, #FDEDCC 0%, #F8F4EA 38%, #ffffff 78%)" }}
-    >
+    <div>
       <BackToProfileLink />
 
       <div className="mt-3 mb-2 flex flex-wrap items-end justify-between gap-3">
@@ -177,10 +175,21 @@ export default function MyCollectionsPage() {
         </div>
         <button
           type="button"
-          className="btn text-sm px-5 py-2.5 shrink-0"
+          className="btn text-sm px-5 py-2.5 shrink-0 !inline-flex items-center justify-center gap-2 leading-none"
+          style={{ display: "inline-flex", alignItems: "center" }}
           onClick={() => setCreateOpen((v) => !v)}
         >
-          {createOpen ? "Cancel" : "New collection"}
+          {createOpen ? (
+            <>
+              <IonIcon name="close-outline" size={18} className="text-current shrink-0" />
+              <span>Cancel</span>
+            </>
+          ) : (
+            <>
+              <IonIcon name="book-outline" size={18} className="text-current shrink-0" />
+              <span>New Collection</span>
+            </>
+          )}
         </button>
       </div>
       <p className="text-[var(--color-text)]/80 mb-7 max-w-xl text-[15px] leading-relaxed">
@@ -269,14 +278,14 @@ export default function MyCollectionsPage() {
       ) : (
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-5 lg:gap-6">
           {collections.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/my-community/collections/${c.id}`}
-                className="group block h-full rounded-2xl border-2 bg-white overflow-hidden shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                style={{ borderColor: "var(--color-primary)" }}
-              >
+            <li
+              key={c.id}
+              className="group relative h-full rounded-2xl border-2 bg-white overflow-hidden shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              style={{ borderColor: "var(--color-primary)" }}
+            >
+              <Link href={`/my-community/collections/${c.id}`} className="block">
                 <CollectionMosaic previewItems={c.previewItems} large />
-                <div className="p-4 sm:p-5">
+                <div className="p-4 sm:p-5 pb-14">
                   <div className="flex items-start gap-3">
                     <h2
                       className="text-xl sm:text-2xl font-semibold leading-snug flex-1 group-hover:underline decoration-2 underline-offset-4"
@@ -310,6 +319,18 @@ export default function MyCollectionsPage() {
                   ) : null}
                 </div>
               </Link>
+              <div className="absolute bottom-3 right-3 z-10">
+                <CollectionShareButton
+                  collectionId={c.id}
+                  name={c.name}
+                  isPublic={c.isPublic}
+                  onBecamePublic={() =>
+                    setCollections((prev) =>
+                      prev.map((row) => (row.id === c.id ? { ...row, isPublic: true } : row))
+                    )
+                  }
+                />
+              </div>
             </li>
           ))}
         </ul>

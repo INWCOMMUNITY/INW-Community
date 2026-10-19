@@ -38,6 +38,7 @@ import {
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
 import { ensureStripeCustomerForStorefrontCheckout } from "@/lib/stripe-storefront-checkout-customer";
+import { marketplaceCheckoutMetadata } from "@/lib/stripe/marketplace-stripe-metadata";
 import { storefrontCheckoutTaxShippingParams } from "@/lib/storefront-checkout-session-params";
 import { shippingCentsForSellerLines, storefrontGroupKey } from "@/lib/checkout-shipping-cost";
 import {
@@ -601,34 +602,10 @@ export async function POST(req: NextRequest) {
     });
 
     const branding = getStripeCheckoutBranding();
-    const orderIdsStr = orderIds.join(",");
-    const METADATA_VALUE_MAX = 500;
-    const metadata: Record<string, string> = {};
-    const resaleStr = [...resaleOfferIdsMeta].join(",");
-    if (resaleStr.length > 0 && resaleStr.length <= METADATA_VALUE_MAX) {
-      metadata.resaleOfferIds = resaleStr;
-    } else if (resaleStr.length > METADATA_VALUE_MAX) {
-      metadata.resaleOfferIds = resaleStr.slice(0, METADATA_VALUE_MAX);
-    }
-
-    if (orderIdsStr.length <= METADATA_VALUE_MAX) {
-      metadata.orderIds = orderIdsStr;
-    } else {
-      const parts = orderIdsStr.split(",");
-      let chunk = "";
-      let idx = 0;
-      for (const part of parts) {
-        const next = chunk ? `${chunk},${part}` : part;
-        if (next.length > METADATA_VALUE_MAX && chunk) {
-          metadata[`orderIds_${idx}`] = chunk;
-          idx += 1;
-          chunk = part;
-        } else {
-          chunk = next;
-        }
-      }
-      if (chunk) metadata[`orderIds_${idx}`] = chunk;
-    }
+    const metadata = marketplaceCheckoutMetadata({
+      orderIds,
+      resaleOfferIds: [...resaleOfferIdsMeta],
+    });
     const createParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
       line_items: lineItems,
@@ -639,6 +616,7 @@ export async function POST(req: NextRequest) {
       ...storefrontCheckoutTaxShippingParams({ deferShippingToStripe }),
       customer: customerId,
       metadata,
+      payment_intent_data: { metadata },
       ...(branding ? { branding_settings: branding } : {}),
     };
 

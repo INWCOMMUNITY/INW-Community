@@ -318,7 +318,9 @@ export function BuyerOrderModals({
           <h3 className="text-lg font-bold mb-3" style={{ color: "var(--color-heading)" }}>
             {BUYER_REFUND_POLICY_POPUP_TITLE}
           </h3>
-          <p className="text-sm mb-4 leading-relaxed opacity-90">{BUYER_REFUND_POLICY_POPUP_BODY}</p>
+          <p className="text-sm mb-4 leading-relaxed opacity-90 whitespace-pre-line">
+            {BUYER_REFUND_POLICY_POPUP_BODY}
+          </p>
           <p className="text-sm font-semibold mb-6" style={{ color: "var(--color-primary)" }}>
             {feeLine}
           </p>

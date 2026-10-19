@@ -9,6 +9,7 @@ import {
   formatSellerRefundFeeAbsorptionLine,
   SELLER_REFUND_POLICY_POPUP_BODY,
   SELLER_REFUND_POLICY_POPUP_TITLE,
+  SELLER_REFUND_POLICY_SHORTFALL_NOTE,
 } from "@/lib/store-return";
 import { OrderCard } from "./OrderCard";
 import { OrderEmptyState } from "./OrderEmptyState";
@@ -246,13 +247,16 @@ export function DeliveryQueueSection({
             >
               {SELLER_REFUND_POLICY_POPUP_TITLE}
             </h3>
-            <p className="text-sm mb-4 leading-relaxed opacity-90">{SELLER_REFUND_POLICY_POPUP_BODY}</p>
+            <p className="text-sm mb-4 leading-relaxed opacity-90 whitespace-pre-line">
+              {SELLER_REFUND_POLICY_POPUP_BODY}
+            </p>
             <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-primary)" }}>
               {formatSellerRefundFeeAbsorptionLine({
                 totalCents: cancelPolicyOrder.totalCents,
                 taxCents: cancelPolicyOrder.taxCents,
               })}
             </p>
+            <p className="text-xs mb-2 opacity-80">{SELLER_REFUND_POLICY_SHORTFALL_NOTE}</p>
             <p className="text-xs mb-6 opacity-70">
               Listing quantities will be restored. This cannot be undone.
             </p>

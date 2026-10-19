@@ -13,6 +13,7 @@ import {
   type FoundationReturnEntitlementBeginAction,
 } from "database";
 import { retrieveCheckoutChargeId } from "@/lib/stripe/source-charge";
+import { marketplaceTransferMetadata } from "@/lib/stripe/marketplace-stripe-metadata";
 
 export type SellerReturnEntitlementExecutionResult =
   | {
@@ -188,6 +189,10 @@ async function settleFromBegin(
         destination,
         source_transaction: sourceCharge,
         metadata: {
+          ...marketplaceTransferMetadata({
+            storeOrderId: order.id,
+            purpose: "return_entitlement",
+          }),
           orderId: order.id,
           storeReturnId: began.operation.storeReturnId,
           sellerReturnEntitlementOperationId: began.operation.id,

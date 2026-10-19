@@ -4,7 +4,19 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
-import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel, storeReturnSellerMoneyAction, storeReturnSellerMoneyActionLabel } from "@/lib/store-return";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  formatSellerRefundFeeAbsorptionLine,
+  orderCanBuyReturnLabel,
+  returnRefundAmountCents,
+  SELLER_REFUND_POLICY_POPUP_BODY,
+  SELLER_REFUND_POLICY_POPUP_TITLE,
+  SELLER_REFUND_POLICY_SHORTFALL_NOTE,
+  storeReturnBuyerLabel,
+  storeReturnSellerMoneyAction,
+  storeReturnSellerMoneyActionLabel,
+} from "@/lib/store-return";
 
 interface OrderItem {
   id: string;
@@ -78,6 +90,7 @@ export default function RequestedReturnsPage() {
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
   const [sendLabelOrder, setSendLabelOrder] = useState<StoreOrder | null>(null);
+  const [courtesyPolicyOrder, setCourtesyPolicyOrder] = useState<StoreOrder | null>(null);
 
   const openReturnLabel = useCallback(
     (orderId: string) => {
@@ -373,7 +386,7 @@ export default function RequestedReturnsPage() {
                       type="button"
                       disabled={busy}
                       className="mt-3 text-sm py-2 px-3 border rounded-lg"
-                      onClick={() => postAction(order.id, "/refund", { requireReturn: false })}
+                      onClick={() => setCourtesyPolicyOrder(order)}
                     >
                       Courtesy refund (keep item)
                     </button>
@@ -523,6 +536,72 @@ export default function RequestedReturnsPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {courtesyPolicyOrder ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close"
+            onClick={() => setCourtesyPolicyOrder(null)}
+            disabled={busyId != null}
+          />
+          <div
+            className="relative w-full max-w-md rounded-lg border-2 p-6 max-h-[90vh] overflow-y-auto bg-white"
+            style={{ borderColor: "var(--color-primary)" }}
+            role="dialog"
+            aria-modal
+            aria-labelledby="courtesy-refund-policy-title"
+          >
+            <h3
+              id="courtesy-refund-policy-title"
+              className="text-lg font-bold mb-3"
+              style={{ color: "var(--color-heading)" }}
+            >
+              {SELLER_REFUND_POLICY_POPUP_TITLE}
+            </h3>
+            <p className="text-sm mb-4 leading-relaxed opacity-90 whitespace-pre-line">
+              {SELLER_REFUND_POLICY_POPUP_BODY}
+            </p>
+            <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-primary)" }}>
+              {formatSellerRefundFeeAbsorptionLine({
+                totalCents: courtesyPolicyOrder.totalCents,
+                taxCents: courtesyPolicyOrder.taxCents,
+              })}
+            </p>
+            <p className="text-xs mb-2 opacity-80">{SELLER_REFUND_POLICY_SHORTFALL_NOTE}</p>
+            <p className="text-xs mb-6 opacity-70">
+              The buyer keeps the item. This cannot be undone.
+            </p>
+            <div className="flex flex-row gap-3 justify-center">
+              <button
+                type="button"
+                className="btn text-white hover:text-white"
+                style={{ backgroundColor: "var(--color-primary)" }}
+                disabled={busyId != null}
+                onClick={() => {
+                  const orderId = courtesyPolicyOrder.id;
+                  setCourtesyPolicyOrder(null);
+                  void postAction(orderId, "/refund", { requireReturn: false });
+                }}
+              >
+                {busyId === courtesyPolicyOrder.id
+                  ? "Refunding…"
+                  : BUYER_REFUND_POLICY_CONTINUE_LABEL}
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded border-2"
+                style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+                disabled={busyId != null}
+                onClick={() => setCourtesyPolicyOrder(null)}
+              >
+                {BUYER_REFUND_POLICY_NEVERMIND_LABEL}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

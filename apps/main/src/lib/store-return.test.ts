@@ -27,11 +27,12 @@ describe("return refund math", () => {
     expect(buyerCardRefundCents({ totalCents: 1000, taxCents: 0 })).toBe(941);
     expect(buyerRefundCentsForFeeBearer({ totalCents: 1000, taxCents: 0 }, "buyer")).toBe(941);
     expect(buyerRefundCentsForFeeBearer({ totalCents: 1000, taxCents: 0 }, "seller")).toBe(1000);
-    expect(nonRefundableStripeFeeCents({ totalCents: 10000, taxCents: 100 })).toBe(373);
-    expect(buyerCardRefundCents({ totalCents: 10000, taxCents: 100 })).toBe(9727);
+    // charge 10100: processing floor(10100*0.029)+30=322; tax product floor(10100*0.005)=50
+    expect(nonRefundableStripeFeeCents({ totalCents: 10000, taxCents: 100 })).toBe(372);
+    expect(buyerCardRefundCents({ totalCents: 10000, taxCents: 100 })).toBe(9728);
   });
 
-  // charge 10100 → processing floor(10100*0.029)+30=323; tax product floor(10100*0.005)=50 → 9727
+  // charge 10100 → processing floor(10100*0.029)+30=322; tax product floor(10100*0.005)=50 → 9728
   it("deducts non-refundable Stripe fees when return shipping is not charged", () => {
     expect(
       returnRefundAmountCents({
@@ -40,7 +41,7 @@ describe("return refund math", () => {
         chargeReturnShipping: false,
         returnLabelCostCents: 850,
       })
-    ).toBe(9727);
+    ).toBe(9728);
   });
 
   it("deducts Stripe fees then the return label when chargeReturnShipping is on", () => {
@@ -51,7 +52,7 @@ describe("return refund math", () => {
         chargeReturnShipping: true,
         returnLabelCostCents: 850,
       })
-    ).toBe(8877);
+    ).toBe(8878);
   });
 
   it("does not go below zero", () => {

@@ -217,6 +217,11 @@ describe("executeSellerReturnEntitlement", () => {
         orderId: "ord-1",
         storeReturnId: "ret-1",
         sellerReturnEntitlementOperationId: "sreo_1",
+        product: "NWC Marketplace",
+        flow: "return_seller_entitlement",
+        storeOrderId: "ord-1",
+        store_order_id: "ord-1",
+        label: "Return seller entitlement",
       },
     });
     expect(stripe.transfers.create.mock.calls[0][1]).toEqual({ idempotencyKey: KEY });

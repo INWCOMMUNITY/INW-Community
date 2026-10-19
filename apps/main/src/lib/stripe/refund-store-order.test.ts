@@ -94,6 +94,7 @@ const {
   return {
     mockPrisma: {
       storeOrder: { findUnique: vi.fn(), update: vi.fn() },
+      member: { findUnique: vi.fn() },
       $transaction: vi.fn(),
     },
     assertLegacyInteractiveMutationAllowed: vi.fn(async () => {}),
@@ -281,6 +282,9 @@ function stripeStub(transferAmountCents = 931) {
       create: vi.fn().mockResolvedValue({ id: "re_1", status: "succeeded", created: 1_700_000_000 }),
       list: vi.fn(),
     },
+    charges: {
+      create: vi.fn().mockResolvedValue({ id: "ch_fee_1" }),
+    },
   };
 }
 
@@ -368,7 +372,14 @@ describe("restockAfterExternalRefund cutover ordering", () => {
     expect(stripe.transfers.listReversals).toHaveBeenCalledWith("tr_1", { limit: 100 });
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_1",
-      { amount: 931, metadata: { storeOrderId: "ord-1" } },
+      {
+        amount: 931,
+        metadata: expect.objectContaining({
+          storeOrderId: "ord-1",
+          product: "NWC Marketplace",
+          label: "Reverse seller payout",
+        }),
+      },
       { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
     expect(restockOrderLinesAfterReturn).toHaveBeenCalled();
@@ -445,6 +456,7 @@ describe("courtesy refund restock:false remains ungated", () => {
   });
 
   it("does not call the inventory cutover assertion", async () => {
+    mockPrisma.member.findUnique.mockResolvedValue({ stripeConnectAccountId: "acct_seller_1" });
     const stripe = stripeStub();
     const result = await refundPaidStorefrontOrder({
       stripe: stripe as never,
@@ -455,10 +467,47 @@ describe("courtesy refund restock:false remains ungated", () => {
     expect(result).toEqual({ ok: true, refunded: true, amountCents: 1000 });
     expect(assertLegacyInteractiveMutationAllowed).not.toHaveBeenCalled();
     expect(restockOrderLinesAfterReturn).not.toHaveBeenCalled();
+    // processing 59 + tax product 0 on $10 no-tax = 59
+    expect(stripe.charges.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 59,
+        source: "acct_seller_1",
+        metadata: expect.objectContaining({
+          product: "NWC Marketplace",
+          flow: "seller_fee_recovery",
+          label: "Seller Stripe fee recovery",
+        }),
+      }),
+      { idempotencyKey: "nwc_store_fee_recovery_ord-1_59" }
+    );
     expect(stripe.refunds.create).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 1000 }),
+      expect.objectContaining({
+        amount: 1000,
+        metadata: expect.objectContaining({
+          product: "NWC Marketplace",
+          stripe_fee_bearer: "seller",
+          label: "Seller-initiated / courtesy refund",
+        }),
+      }),
       expect.anything()
     );
+  });
+
+  it("blocks seller-borne refund when Connect fee recovery fails", async () => {
+    mockPrisma.member.findUnique.mockResolvedValue({ stripeConnectAccountId: "acct_seller_1" });
+    const stripe = stripeStub();
+    stripe.charges.create.mockRejectedValueOnce(new Error("insufficient funds"));
+    const result = await refundPaidStorefrontOrder({
+      stripe: stripe as never,
+      order: paidOrder,
+      restock: false,
+      stripeFeeBearer: "seller",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(409);
+    expect(result.error).toMatch(/Connect account/i);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
   });
 });
 
@@ -531,7 +580,12 @@ describe("FOUNDATION TransferOperation-aware refund", () => {
       "tr_from_op",
       {
         amount: 931,
-        metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
+        metadata: expect.objectContaining({
+          storeOrderId: "ord-1",
+          refundOperationId: "ro_1",
+          product: "NWC Marketplace",
+          label: "Reverse seller payout",
+        }),
       },
       { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
@@ -798,7 +852,12 @@ describe("storefront transfer reversal identity", () => {
       "tr_from_op",
       {
         amount: 931,
-        metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
+        metadata: expect.objectContaining({
+          storeOrderId: "ord-1",
+          refundOperationId: "ro_1",
+          product: "NWC Marketplace",
+          label: "Reverse seller payout",
+        }),
       },
       { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
@@ -817,7 +876,12 @@ describe("storefront transfer reversal identity", () => {
       "tr_from_op",
       {
         amount: 931,
-        metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
+        metadata: expect.objectContaining({
+          storeOrderId: "ord-1",
+          refundOperationId: "ro_1",
+          product: "NWC Marketplace",
+          label: "Reverse seller payout",
+        }),
       },
       { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
@@ -848,7 +912,12 @@ describe("storefront transfer reversal identity", () => {
     });
     expect(stripe.transfers.createReversal.mock.calls[1][1]).toEqual({
       amount: 162,
-      metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
+      metadata: expect.objectContaining({
+        storeOrderId: "ord-1",
+        refundOperationId: "ro_1",
+        product: "NWC Marketplace",
+        label: "Reverse seller payout",
+      }),
     });
   });
 
@@ -1056,10 +1125,14 @@ describe("storefront transfer reversal identity", () => {
     const result = await refundPaidStorefrontOrder({ stripe: stripe as never, order: paidOrder });
     expect(result.ok).toBe(true);
     expect(stripe.transfers.createReversal).toHaveBeenCalledTimes(1);
-    expect(stripe.transfers.createReversal.mock.calls[0][1].metadata).toEqual({
-      storeOrderId: "ord-1",
-      refundOperationId: "ro_1",
-    });
+    expect(stripe.transfers.createReversal.mock.calls[0][1].metadata).toEqual(
+      expect.objectContaining({
+        storeOrderId: "ord-1",
+        refundOperationId: "ro_1",
+        product: "NWC Marketplace",
+        label: "Reverse seller payout",
+      })
+    );
   });
 
   it("LEGACY seller-transfer refund uses the StoreOrder reversal key and metadata without RefundOperation", async () => {
@@ -1070,7 +1143,14 @@ describe("storefront transfer reversal identity", () => {
     expect(ensureFoundationStorefrontRefundOperation).not.toHaveBeenCalled();
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_1",
-      { amount: 931, metadata: { storeOrderId: "ord-1" } },
+      {
+        amount: 931,
+        metadata: expect.objectContaining({
+          storeOrderId: "ord-1",
+          product: "NWC Marketplace",
+          label: "Reverse seller payout",
+        }),
+      },
       { idempotencyKey: "nwc_store_reversal_ord-1_931" }
     );
     expect(stripe.refunds.create).toHaveBeenCalled();

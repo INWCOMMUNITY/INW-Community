@@ -19,6 +19,14 @@ import {
   storeReturnSellerMoneyAction,
   storeReturnSellerMoneyActionLabel,
 } from "@/lib/store-return-seller-action";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  formatSellerRefundFeeAbsorptionLine,
+  SELLER_REFUND_POLICY_POPUP_BODY,
+  SELLER_REFUND_POLICY_POPUP_TITLE,
+  SELLER_REFUND_POLICY_SHORTFALL_NOTE,
+} from "@/lib/order-status";
 
 interface OrderItem {
   id: string;
@@ -281,12 +289,24 @@ export default function ReturnsScreen() {
                   <Pressable
                     style={[styles.btnOutline, { marginTop: 10 }]}
                     disabled={busy}
-                    onPress={() =>
-                      Alert.alert("Courtesy refund", "Refund now and let the buyer keep the item?", [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Refund", onPress: () => act(order.id, "/refund", { requireReturn: false }) },
-                      ])
-                    }
+                    onPress={() => {
+                      const feeLine = formatSellerRefundFeeAbsorptionLine({
+                        totalCents: order.totalCents,
+                        taxCents: order.taxCents,
+                      });
+                      Alert.alert(
+                        SELLER_REFUND_POLICY_POPUP_TITLE,
+                        `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\n${SELLER_REFUND_POLICY_SHORTFALL_NOTE}\n\nThe buyer keeps the item. This cannot be undone.`,
+                        [
+                          { text: BUYER_REFUND_POLICY_NEVERMIND_LABEL, style: "cancel" },
+                          {
+                            text: BUYER_REFUND_POLICY_CONTINUE_LABEL,
+                            style: "destructive",
+                            onPress: () => act(order.id, "/refund", { requireReturn: false }),
+                          },
+                        ]
+                      );
+                    }}
                   >
                     <Text style={styles.btnOutlineText}>Courtesy refund</Text>
                   </Pressable>

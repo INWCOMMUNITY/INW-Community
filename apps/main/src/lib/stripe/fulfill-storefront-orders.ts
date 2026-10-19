@@ -37,6 +37,7 @@ import {
 } from "@/lib/storefront-payout";
 import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 import { retrieveCheckoutChargeId } from "@/lib/stripe/source-charge";
+import { marketplaceTransferMetadata } from "@/lib/stripe/marketplace-stripe-metadata";
 
 type FulfillOptions = {
   /** When set (app success return), only fulfill orders owned by this buyer. */
@@ -294,7 +295,10 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           currency: "usd",
           destination: connectId,
           source_transaction: chargeId,
-          metadata: { orderId: order.id },
+          metadata: {
+            ...marketplaceTransferMetadata({ storeOrderId: order.id }),
+            orderId: order.id,
+          },
         },
         { idempotencyKey: `nwc_store_transfer_${order.id}` }
       );
@@ -664,7 +668,11 @@ async function fulfillFoundationPendingOrders(args: {
           currency: began.operation.currency,
           destination: connectId,
           source_transaction: chargeId,
-          metadata: { orderId: order.id, transferOperationId: began.operation.id },
+          metadata: {
+            ...marketplaceTransferMetadata({ storeOrderId: order.id }),
+            orderId: order.id,
+            transferOperationId: began.operation.id,
+          },
         },
         { idempotencyKey: began.operation.providerIdempotencyKey }
       );
