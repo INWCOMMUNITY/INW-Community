@@ -70,6 +70,88 @@ export async function notifyEtsyListingIssueOnce(input: {
   return { created };
 }
 
+const ETSY_REAUTH_MESSAGE = "Etsy needs to be reconnected before listing sync can continue.";
+
+/** One seller alert when Etsy refresh can no longer keep the shop connected. */
+export async function notifyEtsyReauthorizationRequired(input: {
+  connectionId: string;
+  memberId: string;
+  message?: string;
+}): Promise<{ created: boolean }> {
+  const message = (input.message || ETSY_REAUTH_MESSAGE).slice(0, 2000);
+  const link = await prisma.etsyListingLink.findFirst({
+    where: { etsyConnectionId: input.connectionId, memberId: input.memberId },
+    select: { storeItemId: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (link) {
+    return notifyEtsyListingIssueOnce({
+      memberId: input.memberId,
+      storeItemId: link.storeItemId,
+      connectionId: input.connectionId,
+      subjectId: `connection:${input.connectionId}`,
+      issueCode: "ETSY_REAUTHORIZATION_REQUIRED",
+      issueFingerprint: "reauthorization",
+      severity: "ACTION_REQUIRED",
+      message,
+    });
+  }
+  return notifyEtsyConnectionSyncFailure({
+    memberId: input.memberId,
+    connectionId: input.connectionId,
+    subjectId: `connection:${input.connectionId}`,
+    issueCode: "ETSY_REAUTHORIZATION_REQUIRED",
+    issueFingerprint: "reauthorization",
+    message,
+    title: "Etsy needs to be reconnected",
+  });
+}
+
+async function notifyEtsyConnectionSyncFailure(input: {
+  memberId: string;
+  connectionId: string;
+  subjectId: string;
+  issueCode: string;
+  issueFingerprint: string;
+  message: string;
+  title: string;
+}): Promise<{ created: boolean }> {
+  const dedupeKey = etsyListingIssueDedupeKey({
+    connectionId: input.connectionId,
+    subjectId: input.subjectId,
+    issueCode: input.issueCode,
+    issueFingerprint: input.issueFingerprint,
+  });
+  const created = await logSellerActivityOnce({
+    memberId: input.memberId,
+    action: "sync_error",
+    entityType: "channel_link",
+    entityId: input.connectionId,
+    dedupeKey,
+    detail: {
+      provider: "etsy",
+      severity: "ACTION_REQUIRED",
+      issueCode: input.issueCode,
+      subjectId: input.subjectId,
+      errorMessage: input.message,
+    },
+    metadata: { source: "cron" },
+  });
+  if (created) {
+    await sendPushNotification(input.memberId, {
+      category: "seller_ops",
+      title: input.title,
+      body: input.message,
+      data: {
+        screen: "seller-hub-etsy",
+        subjectId: input.subjectId,
+        issueCode: input.issueCode,
+      },
+    });
+  }
+  return { created };
+}
+
 function storeItemIdFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const id = (payload as { storeItemId?: unknown }).storeItemId;
@@ -91,15 +173,11 @@ export async function notifyEtsySyncJobDeadOnce(input: {
   };
 }): Promise<{ created: boolean }> {
   const storeItemId = storeItemIdFromPayload(input.claim.payload);
-  if (!storeItemId) return { created: false };
-
-  // Evidence / bulk-import jobs have no per-listing seller alert context.
-  if (
+  const connectionLevelKind =
+    input.claim.kind === "POLL_LISTING_CONTENT" ||
     input.claim.kind === "PROCESS_PROVIDER_EVIDENCE" ||
-    input.claim.kind === "IMPORT_BATCH"
-  ) {
-    return { created: false };
-  }
+    input.claim.kind === "IMPORT_BATCH";
+  if (!storeItemId && !connectionLevelKind) return { created: false };
 
   const connection = await prisma.etsyConnection.findUnique({
     where: { id: input.claim.etsyConnectionId },
@@ -125,6 +203,32 @@ export async function notifyEtsySyncJobDeadOnce(input: {
     input.result.errorClass === "NETWORK"
   ) {
     return { created: false };
+  }
+
+  if (input.claim.kind === "POLL_LISTING_CONTENT") {
+    const authFailure =
+      input.result.errorClass === "AUTH" ||
+      input.result.errorClass === "CONNECTION_INACTIVE" ||
+      input.result.errorClass === "NOT_CONFIGURED";
+    if (!authFailure) return { created: false };
+  }
+
+  if (!storeItemId) {
+    const title =
+      input.claim.kind === "IMPORT_BATCH"
+        ? "Etsy import stopped"
+        : input.claim.kind === "PROCESS_PROVIDER_EVIDENCE"
+          ? "Etsy order sync stopped"
+          : "Etsy listing sync stopped";
+    return notifyEtsyConnectionSyncFailure({
+      memberId: connection.memberId,
+      connectionId: connection.id,
+      subjectId: `job:${input.claim.id}`,
+      issueCode,
+      issueFingerprint: `${input.claim.kind}:${issueCode}:${message}`.slice(0, 200),
+      message,
+      title,
+    });
   }
 
   const link = await prisma.etsyListingLink.findUnique({

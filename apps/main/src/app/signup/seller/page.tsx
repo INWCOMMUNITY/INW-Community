@@ -296,6 +296,10 @@ export default function SignupSellerPage() {
   async function handleContactSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
+      setError("First name, last name, and phone are required.");
+      return;
+    }
     setLoading(true);
     try {
       const payload: Record<string, unknown> = { phone: phone.trim() || null };
@@ -550,9 +554,6 @@ export default function SignupSellerPage() {
             onBack={() => go("account")}
           />
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          <button type="button" onClick={() => go("contact")} className="btn-outline w-full text-center">
-            Skip this step
-          </button>
         </div>
       )}
 
@@ -561,24 +562,21 @@ export default function SignupSellerPage() {
           <ListingFormSection title="Contact" description="Your name and phone, so we can reach you. Shipping details come in the next steps.">
           <div>
             <label className="block text-sm font-medium mb-1">First name</label>
-            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass} style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }} />
+            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required className={fieldClass} style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }} />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Last name</label>
-            <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass} style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }} />
+            <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required className={fieldClass} style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }} />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Phone</label>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={fieldClass} style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }} />
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required className={fieldClass} style={{ borderColor: "var(--color-primary)", color: "var(--color-text)" }} />
           </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => go("business")} className="btn-outline flex-1 text-center">Back</button>
             <button type="submit" className="btn flex-1" disabled={loading}>
               {loading ? "Saving…" : "Continue"}
-            </button>
-            <button type="button" onClick={() => go("subscribe")} className="btn-outline flex-1 text-center">
-              Skip
             </button>
           </div>
           </ListingFormSection>
@@ -647,9 +645,6 @@ export default function SignupSellerPage() {
             <button type="button" onClick={() => void handleCheckout()} className="btn flex-1 text-center" disabled={loading}>
               {loading ? "Redirecting…" : "Subscribe & Complete Onboarding"}
             </button>
-            <button type="button" onClick={() => go("shipping")} className="btn-outline flex-1 text-center">
-              Skip
-            </button>
           </div>
         </div>
         </ListingFormSection>
@@ -684,9 +679,6 @@ export default function SignupSellerPage() {
               </button>
               <button type="button" className="btn flex-1 text-center" disabled={!shippingReady || waitingForPlan} onClick={() => go("policies")}>
                 Continue
-              </button>
-              <button type="button" className="btn-outline flex-1 text-center" onClick={() => go("policies")}>
-                Skip
               </button>
             </div>
           </div>
@@ -734,6 +726,11 @@ export default function SignupSellerPage() {
               Mention this return window in your refund policy below.
             </p>
           </div>
+          {policyDraft.returnLabelPayer !== "seller" ? (
+            <p className="text-sm text-gray-600">
+              You did not select “I do.” Say in this policy who pays for the return label.
+            </p>
+          ) : null}
           <PolicyPreviewField
             id="onboarding-return-policy"
             label="Refund Policy"
@@ -748,9 +745,6 @@ export default function SignupSellerPage() {
             <button type="button" onClick={() => go("shipping")} className="btn-outline flex-1 text-center">Back</button>
             <button type="button" className="btn flex-1 text-center" disabled={loading || !policyDraft.handlingTime} onClick={() => void savePoliciesAndContinue()}>
               {loading ? "Saving…" : "Continue"}
-            </button>
-            <button type="button" className="btn-outline flex-1 text-center" onClick={() => go("payouts")}>
-              Skip
             </button>
           </div>
         </div>
@@ -779,9 +773,6 @@ export default function SignupSellerPage() {
             <button type="button" className="btn flex-1 text-center" disabled={!stripeReady} onClick={() => go("import")}>
               Continue
             </button>
-            <button type="button" className="btn-outline flex-1 text-center" onClick={() => go("import")}>
-              Skip
-            </button>
           </div>
         </div>
         </ListingFormSection>
@@ -795,7 +786,7 @@ export default function SignupSellerPage() {
           {channelNote ? <p className="text-sm text-gray-700">{channelNote}</p> : null}
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
-          <ListingFormSection title="Etsy" description="Connect your shop if you want to bring listings over. You can skip this.">
+          <ListingFormSection title="Etsy" description="Connect your shop if you want to bring listings over.">
             {etsyConnected ? (
               <p className="text-sm text-gray-700">
                 Connected{etsyShopName ? `: ${etsyShopName}` : ""}.
@@ -813,7 +804,7 @@ export default function SignupSellerPage() {
           </ListingFormSection>
 
           <form onSubmit={connectShopify}>
-          <ListingFormSection title="Shopify" description="Connect your shop if you want to bring listings over. You can skip this.">
+          <ListingFormSection title="Shopify" description="Connect your shop if you want to bring listings over.">
             {shopifyConnected ? (
               <p className="text-sm text-gray-700">
                 Connected{shopifyShopDomain ? `: ${shopifyShopDomain}` : ""}.

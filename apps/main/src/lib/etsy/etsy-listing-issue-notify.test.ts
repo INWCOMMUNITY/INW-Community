@@ -74,7 +74,13 @@ describe("notifyEtsySyncJobDeadOnce", () => {
     );
   });
 
-  it("skips evidence jobs", async () => {
+  it("notifies when a paid-order job dies", async () => {
+    vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
+      id: "conn-1",
+      memberId: "m1",
+    } as never);
+    vi.mocked(prisma.etsyListingLink.findUnique).mockResolvedValue(null);
+
     const result = await notifyEtsySyncJobDeadOnce({
       claim: {
         id: "job-1",
@@ -82,7 +88,53 @@ describe("notifyEtsySyncJobDeadOnce", () => {
         kind: "PROCESS_PROVIDER_EVIDENCE",
         payload: { storeItemId: "item-1" },
       },
-      result: { errorClass: "PERMANENT", errorMessage: "x" },
+      result: { errorClass: "PERMANENT", errorCode: "MISSING_RECEIPT_ID", errorMessage: "order.paid evidence lacked a durable receipt id" },
+    });
+    expect(result).toEqual({ created: true });
+    expect(logSellerActivityOnce).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memberId: "m1",
+        entityId: "item-1",
+        action: "sync_error",
+      })
+    );
+  });
+
+  it("notifies when a listing poll dies on auth without a listing id", async () => {
+    vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
+      id: "conn-1",
+      memberId: "m1",
+    } as never);
+
+    const result = await notifyEtsySyncJobDeadOnce({
+      claim: {
+        id: "job-poll",
+        etsyConnectionId: "conn-1",
+        kind: "POLL_LISTING_CONTENT",
+        payload: { connectionId: "conn-1", windowStartMs: 1 },
+      },
+      result: { errorClass: "AUTH", errorCode: "AUTH", errorMessage: "Etsy authorization unavailable (AUTH)" },
+    });
+    expect(result).toEqual({ created: true });
+    expect(sendPushNotification).toHaveBeenCalledWith(
+      "m1",
+      expect.objectContaining({ title: "Etsy listing sync stopped" })
+    );
+  });
+
+  it("stays quiet when a listing poll dies for a non-auth reason", async () => {
+    vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
+      id: "conn-1",
+      memberId: "m1",
+    } as never);
+    const result = await notifyEtsySyncJobDeadOnce({
+      claim: {
+        id: "job-poll",
+        etsyConnectionId: "conn-1",
+        kind: "POLL_LISTING_CONTENT",
+        payload: { connectionId: "conn-1" },
+      },
+      result: { errorClass: "PERMANENT", errorMessage: "listing poll failed" },
     });
     expect(result).toEqual({ created: false });
     expect(logSellerActivityOnce).not.toHaveBeenCalled();

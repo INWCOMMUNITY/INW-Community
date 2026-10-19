@@ -12,10 +12,12 @@ describe("ShopifyListingImportAttempt durability", () => {
   const update = vi.fn();
   const updateMany = vi.fn();
 
+  const storeItemFindUnique = vi.fn();
   const tx = {
     $executeRaw: executeRaw,
     shopifyListingImportAttempt: { findUnique, create, update, updateMany },
     shopifyListingLink: { findFirst },
+    storeItem: { findUnique: storeItemFindUnique },
   };
 
   const db = {
@@ -30,6 +32,8 @@ describe("ShopifyListingImportAttempt durability", () => {
     create.mockReset();
     update.mockReset();
     updateMany.mockReset();
+    storeItemFindUnique.mockReset();
+    storeItemFindUnique.mockResolvedValue(null);
     vi.mocked(db.$transaction).mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx));
   });
 
@@ -123,6 +127,7 @@ describe("ShopifyListingImportAttempt durability", () => {
       now,
     });
 
+    expect(storeItemFindUnique).toHaveBeenCalled();
     expect(result.status).toBe("READY");
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -135,5 +140,50 @@ describe("ShopifyListingImportAttempt durability", () => {
         }),
       })
     );
+  });
+
+  it("does not start a new import when the INW listing was ended", async () => {
+    findUnique.mockResolvedValue({
+      id: "attempt-old",
+      status: "COMPLETED",
+      bootstrapStartedAt: new Date("2026-09-01T00:00:00.000Z"),
+      storeItemId: "ended-item",
+      listingLinkId: null,
+      failureCode: null,
+    });
+    findFirst.mockResolvedValue(null);
+    storeItemFindUnique.mockResolvedValue({ status: "inactive" });
+
+    const result = await beginShopifyListingImportAttempt(db, {
+      memberId: "member-a",
+      connectionId: "conn-1",
+      shopifyProductId: "gid://shopify/Product/300",
+      stockMode: "PHYSICAL",
+      now: new Date("2026-10-15T19:00:00.000Z"),
+    });
+
+    expect(result.status).toBe("ALREADY_COMPLETED");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("does not import again after the channel link was removed because the listing ended", async () => {
+    findUnique.mockResolvedValue({
+      id: "attempt-old",
+      status: "FAILED",
+      failureCode: "INW_ENDED",
+      storeItemId: null,
+      listingLinkId: null,
+    });
+
+    const result = await beginShopifyListingImportAttempt(db, {
+      memberId: "member-a",
+      connectionId: "conn-1",
+      shopifyProductId: "gid://shopify/Product/300",
+      stockMode: "PHYSICAL",
+      now: new Date("2026-10-15T19:00:00.000Z"),
+    });
+
+    expect(result.status).toBe("ALREADY_COMPLETED");
+    expect(update).not.toHaveBeenCalled();
   });
 });

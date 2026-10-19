@@ -8,6 +8,11 @@ import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel,
 import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
 import { getTrackingUrl } from "@/lib/store-order-fulfillment";
 import { ReturnLabelDueTag, SellerReturnRefundChoiceModal } from "@/components/seller/SellerReturnRefundChoice";
+import {
+  policyFromStored,
+  returnLabelSellerChooses,
+  type SellerReturnLabelPolicy,
+} from "@/lib/seller-return-label-policy";
 
 interface OrderItem {
   id: string;
@@ -106,6 +111,15 @@ export default function RequestedReturnsPage() {
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string | null>(null);
   const [confirmReceiveId, setConfirmReceiveId] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<SellerReturnLabelPolicy | null>(null);
+
+  const buyerCanBeCharged = useCallback(
+    (order: StoreOrder) => {
+      if (policy) return returnLabelSellerChooses(policy, order.storeReturn?.reason);
+      return order.storeReturn?.chargeReturnShipping === true;
+    },
+    [policy]
+  );
 
   const openReturnLabel = useCallback(
     (orderId: string) => {
@@ -117,13 +131,18 @@ export default function RequestedReturnsPage() {
 
   useEffect(() => {
     if (!sendLabelOrder) return;
-    if (sendLabelOrder.storeReturn?.chargeReturnShipping && !sendLabelOrder.returnShipment?.labelUrl) return;
+    if (buyerCanBeCharged(sendLabelOrder) && !sendLabelOrder.returnShipment?.labelUrl) return;
     const orderId = sendLabelOrder.id;
+    const clearBuyerCharge = Boolean(sendLabelOrder.storeReturn?.chargeReturnShipping);
     const t = window.setTimeout(() => {
+      if (clearBuyerCharge) {
+        void chooseLabelPayer(orderId, "seller");
+        return;
+      }
       openReturnLabel(orderId);
     }, 400);
     return () => window.clearTimeout(t);
-  }, [sendLabelOrder, openReturnLabel]);
+  }, [sendLabelOrder, openReturnLabel, buyerCanBeCharged]);
 
   async function chooseLabelPayer(orderId: string, pay: "seller" | "buyer") {
     setBusyId(orderId);
@@ -190,8 +209,9 @@ export default function RequestedReturnsPage() {
     Promise.all([
       fetch("/api/store-orders?mine=1&returns=1"),
       fetch("/api/store-orders?mine=1&canceled=1"),
+      fetch("/api/me/policies", { credentials: "include" }),
     ])
-      .then(async ([returnsRes, canceledRes]) => {
+      .then(async ([returnsRes, canceledRes, policyRes]) => {
         const returnsData = await returnsRes.json().catch(() => ({}));
         if (!returnsRes.ok) {
           const msg =
@@ -209,6 +229,12 @@ export default function RequestedReturnsPage() {
         const canceledOrders = (Array.isArray(canceledData) ? (canceledData as StoreOrder[]) : []).filter(
           (order) => !seen.has(order.id) && isCanceledOrder(order)
         );
+        if (policyRes.ok) {
+          const policyData = await policyRes.json().catch(() => null);
+          if (policyData && typeof policyData === "object") {
+            setPolicy(policyFromStored(policyData as Parameters<typeof policyFromStored>[0]));
+          }
+        }
         return [...openReturns, ...canceledOrders];
       })
       .then((data: StoreOrder[]) => setOrders(data))
@@ -593,7 +619,7 @@ export default function RequestedReturnsPage() {
             <h3 id="send-return-label-title" className="text-lg font-bold mb-2">
               Send Buyer Return Label
             </h3>
-            {sendLabelOrder.storeReturn?.chargeReturnShipping && !sendLabelOrder.returnShipment?.labelUrl ? (
+            {buyerCanBeCharged(sendLabelOrder) && !sendLabelOrder.returnShipment?.labelUrl ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
                   This return can deduct the label from the refund. Choose before you buy it. The amount

@@ -334,6 +334,10 @@ export default function SignupSellerScreen() {
 
   const handleContactSubmit = async () => {
     setError("");
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
+      setError("First name, last name, and phone are required.");
+      return;
+    }
     setLoading(true);
     try {
       const payload: Record<string, unknown> = { phone: phone.trim() || null };
@@ -472,9 +476,6 @@ export default function SignupSellerScreen() {
                 Add the details shoppers see on your storefront. Categories can be your own, not only the directory list.
               </Text>
               {error ? <Text style={styles.error}>{error}</Text> : null}
-              <Pressable style={[styles.backBtn, { marginTop: 8 }]} onPress={() => advance("contact")}>
-                <Text style={styles.backBtnText}>Skip this step</Text>
-              </Pressable>
             </View>
           }
           footerContent={progress}
@@ -579,7 +580,6 @@ export default function SignupSellerScreen() {
               <StepActions
                 onBack={back ? () => setStep(back) : undefined}
                 onContinue={() => void handleContactSubmit()}
-                onSkip={() => advance("subscribe")}
                 continueLabel="Continue"
                 loading={loading}
               />
@@ -641,9 +641,6 @@ export default function SignupSellerScreen() {
                     <Text style={styles.backBtnText}>Back</Text>
                   </Pressable>
                 ) : null}
-                <Pressable style={styles.subscribeBack} onPress={() => advance("shipping")}>
-                  <Text style={styles.backBtnText}>Skip</Text>
-                </Pressable>
               </View>
             </OnboardingSection>
           ) : null}
@@ -668,7 +665,6 @@ export default function SignupSellerScreen() {
                 <StepActions
                   onBack={back ? () => setStep(back) : undefined}
                   onContinue={() => advance("policies")}
-                  onSkip={() => advance("policies")}
                   continueLabel="Continue"
                   continueDisabled={!shippingReady}
                 />
@@ -703,6 +699,11 @@ export default function SignupSellerScreen() {
                 <Text style={styles.ageLabel}>days after delivery</Text>
               </View>
               <Text style={styles.hint}>Mention this return window in your refund policy below.</Text>
+              {policyDraft.returnLabelPayer !== "seller" ? (
+                <Text style={styles.hint}>
+                  You did not select “I do.” Say in this policy who pays for the return label.
+                </Text>
+              ) : null}
               <PolicyPreviewField
                 label="Refund Policy"
                 leads={[showsFreeReturns(policyDraft) ? "FREE RETURNS" : null]}
@@ -729,7 +730,6 @@ export default function SignupSellerScreen() {
                     .catch((e) => setError((e as { error?: string }).error ?? "Could not save policies."))
                     .finally(() => setLoading(false));
                 }}
-                onSkip={() => advance("payouts")}
                 continueLabel={loading ? "Saving…" : "Continue"}
                 loading={loading}
                 continueDisabled={loading || !policyDraft.handlingTime}
@@ -766,7 +766,6 @@ export default function SignupSellerScreen() {
                 <StepActions
                   onBack={() => setStep("policies")}
                   onContinue={() => advance("import")}
-                  onSkip={() => advance("import")}
                   continueLabel="Continue"
                   continueDisabled={!stripeReady}
                 />
@@ -781,7 +780,7 @@ export default function SignupSellerScreen() {
               </Text>
               <OnboardingSection
                 title="Etsy"
-                description="Connect your shop if you want to bring listings over. You can skip this."
+                description="Connect your shop if you want to bring listings over."
               >
                 {etsyConnected ? (
                   <Text style={styles.readyNote}>Connected{etsyShopName ? `: ${etsyShopName}` : ""}.</Text>
@@ -801,7 +800,7 @@ export default function SignupSellerScreen() {
               </OnboardingSection>
               <OnboardingSection
                 title="Shopify"
-                description="Connect your shop if you want to bring listings over. You can skip this."
+                description="Connect your shop if you want to bring listings over."
               >
                 {shopifyConnected ? (
                   <Text style={styles.readyNote}>
@@ -850,14 +849,12 @@ export default function SignupSellerScreen() {
 function StepActions({
   onBack,
   onContinue,
-  onSkip,
   continueLabel,
   loading,
   continueDisabled,
 }: {
   onBack?: () => void;
   onContinue: () => void;
-  onSkip?: () => void;
   continueLabel: string;
   loading?: boolean;
   continueDisabled?: boolean;
@@ -876,11 +873,6 @@ function StepActions({
       >
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.continueText}>{continueLabel}</Text>}
       </Pressable>
-      {onSkip ? (
-        <Pressable style={styles.backBtn} onPress={onSkip} disabled={loading}>
-          <Text style={styles.backBtnText}>Skip</Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }

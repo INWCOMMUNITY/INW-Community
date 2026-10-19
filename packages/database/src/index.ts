@@ -455,6 +455,7 @@ export {
   consumeEtsyOAuthState,
   createEtsyOAuthState,
   disconnectEtsyConnection,
+  markEtsyConnectionReauthorizationRequired,
   readEtsyOAuthBrowserBindingHash,
   EtsyShopOwnershipConflictError,
   getActiveEtsyConnectionForMember,

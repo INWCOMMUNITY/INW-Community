@@ -6,6 +6,7 @@ vi.mock("database", async () => {
     ...actual,
     prisma: {
       etsyConnection: { findUnique: vi.fn() },
+      etsyProviderEvidence: { findFirst: vi.fn() },
       etsyListingLink: { findMany: vi.fn(), update: vi.fn() },
       storeVariant: { count: vi.fn(), findMany: vi.fn() },
       etsyVariantMap: { count: vi.fn() },
@@ -94,6 +95,8 @@ function okInventory() {
 describe("etsy POLL_LISTING_CONTENT handler", () => {
   beforeEach(() => {
     vi.mocked(prisma.etsyConnection.findUnique).mockReset();
+    vi.mocked(prisma.etsyProviderEvidence.findFirst).mockReset();
+    vi.mocked(prisma.etsyProviderEvidence.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.etsyListingLink.findMany).mockReset();
     vi.mocked(prisma.etsyListingLink.update).mockReset();
     vi.mocked(prisma.storeVariant.count).mockReset();

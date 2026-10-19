@@ -55,7 +55,7 @@ describe("disconnectStoreItemChannels", () => {
     expect(prisma.shopifyListingImportAttempt.updateMany).not.toHaveBeenCalled();
   });
 
-  it("clears the completed Shopify import attempt so the product can be imported again", async () => {
+  it("marks the Shopify import ended so the product is not imported again", async () => {
     prisma.shopifyListingLink.findMany.mockResolvedValue([
       { shopifyConnectionId: "conn-1", shopifyProductId: "gid://shopify/Product/300" },
     ]);
@@ -68,14 +68,13 @@ describe("disconnectStoreItemChannels", () => {
         data: expect.objectContaining({
           status: "FAILED",
           failureCode: "INW_ENDED",
-          storeItemId: null,
           listingLinkId: null,
         }),
       })
     );
   });
 
-  it("clears the completed import attempt so the Etsy listing can be imported again", async () => {
+  it("marks the Etsy import ended so the listing is not imported again", async () => {
     prisma.etsyListingLink.findMany.mockResolvedValue([
       { etsyConnectionId: "conn-1", etsyListingId: "4586600415" },
     ]);
@@ -85,7 +84,7 @@ describe("disconnectStoreItemChannels", () => {
         where: {
           OR: [{ etsyConnectionId: "conn-1", etsyListingId: "4586600415" }],
         },
-        data: expect.objectContaining({ status: "FAILED", failureCode: "INW_ENDED", storeItemId: null }),
+        data: expect.objectContaining({ status: "FAILED", failureCode: "INW_ENDED" }),
       })
     );
   });

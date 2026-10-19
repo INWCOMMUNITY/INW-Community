@@ -233,7 +233,7 @@ function CouponEditCard({
 
       <label className="block text-xs font-semibold text-gray-600">Secret key</label>
       <p className="text-xs text-gray-500 -mt-1">
-        Customers enter this when redeeming for points and tracking. Leave empty if you do not use redemption tracking.
+        Customers enter this when they use the coupon so you can track uses. Leave empty if you do not use redemption tracking.
       </p>
       <input
         className="w-full border rounded px-3 py-2 text-sm font-mono"

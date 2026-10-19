@@ -120,7 +120,7 @@ export function showsFreeReturns(policy: SellerReturnLabelPolicy): boolean {
 }
 
 export function reasonKey(reason: string | null | undefined): ReturnLabelReason | null {
-  const raw = reason?.trim() ?? "";
+  const raw = (reason ?? "").split(" | Note:")[0]?.trim() ?? "";
   const key = raw === "Other" || raw.startsWith("Other:") ? "Other" : raw;
   return (RETURN_LABEL_REASONS as readonly string[]).includes(key) ? (key as ReturnLabelReason) : null;
 }

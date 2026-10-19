@@ -205,6 +205,66 @@ describe("etsy PROJECT_INVENTORY handler", () => {
     );
   });
 
+  it("does not deactivate a shared-quantity listing when another variation still has stock", async () => {
+    vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
+      id: "conn-1",
+      memberId: "m1",
+      shopId: "99",
+      status: "ACTIVE",
+    } as never);
+    vi.mocked(prisma.etsyListingLink.findUnique).mockResolvedValue({
+      id: "link-1",
+      etsyListingId: "555",
+      inventoryHealth: "HEALTHY",
+      remoteListingState: "active",
+    } as never);
+    vi.mocked(prisma.etsyVariantMap.findFirst).mockResolvedValue({
+      id: "map-1",
+      etsyProductId: "10",
+      etsyOfferingId: "20",
+      inventoryDesiredVersion: 1,
+      inventoryAppliedVersion: 0,
+      inventoryDesiredAvailable: 0,
+      inventoryAppliedAvailable: 4,
+    } as never);
+    vi.mocked(prisma.etsyVariantMap.findMany).mockResolvedValue([
+      { inventoryDesiredAvailable: 4 },
+    ] as never);
+    vi.mocked(etsyConnectionRequest).mockResolvedValueOnce({
+      ok: true,
+      class: "SUCCESS",
+      httpStatus: 200,
+      data: {
+        products: [
+          {
+            product_id: 10,
+            offerings: [{ offering_id: 20, quantity: 4, is_enabled: true, price: { amount: 100, divisor: 100 } }],
+          },
+          {
+            product_id: 11,
+            offerings: [{ offering_id: 21, quantity: 4, is_enabled: true, price: { amount: 100, divisor: 100 } }],
+          },
+        ],
+        price_on_property: [],
+        quantity_on_property: [],
+        sku_on_property: [],
+      },
+      message: "ok",
+      retryAfterMs: null,
+      rateLimit: null,
+    });
+
+    const result = await handleEtsyProjectInventoryJob(claim);
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(vi.mocked(etsyConnectionRequest).mock.calls.some((c) => c[0]?.method === "PATCH")).toBe(false);
+    expect(vi.mocked(etsyConnectionRequest).mock.calls.some((c) => c[0]?.method === "PUT")).toBe(false);
+    expect(prisma.etsyVariantMap.updateMany).not.toHaveBeenCalled();
+    expect(markEtsyInventoryProjectionApplied).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ variantMapId: "map-1", available: 0 })
+    );
+  });
+
   it("publishes the listing again when stock returns after a sell-out", async () => {
     vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
       id: "conn-1",

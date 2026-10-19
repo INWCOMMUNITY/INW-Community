@@ -25,6 +25,20 @@ import {
 
 const MAX_LISTINGS_PER_POLL = 25;
 
+/** order.paid is in the inbox but the sale fact is not applied yet. */
+async function connectionHasOpenPaidOrder(connectionId: string): Promise<boolean> {
+  const row = await prisma.etsyProviderEvidence.findFirst({
+    where: {
+      etsyConnectionId: connectionId,
+      topic: "order.paid",
+      processState: "RECEIVED",
+      syncJob: { is: { state: { in: ["PENDING", "RUNNING", "RETRY_WAIT"] } } },
+    },
+    select: { id: true },
+  });
+  return row != null;
+}
+
 function createListingDedupeKey(connectionId: string, storeItemId: string): string {
   return `CREATE_LISTING:${connectionId}:${storeItemId}`;
 }
@@ -315,6 +329,8 @@ export async function handleEtsyPollListingContentJob(
   const hasMore = links.length > pageSize;
   if (hasMore) links.pop();
 
+  const hasPendingOrderEvidence = await connectionHasOpenPaidOrder(connection.id);
+
   for (const link of links) {
     const fetched = await fetchRemoteObservation({
       connectionId: connection.id,
@@ -362,6 +378,7 @@ export async function handleEtsyPollListingContentJob(
         ...(quantityOnProperty
           ? { sharedQuantity: quantityOnProperty.length === 0 && fetched.remote.variants.length > 1 }
           : {}),
+        hasPendingOrderEvidence,
         now: deps.now,
       });
     });

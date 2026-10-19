@@ -6,6 +6,7 @@ import {
   handlingTimeBoldLine,
   policyFromStored,
   returnLabelChargesBuyer,
+  returnLabelSellerChooses,
   showsFreeReturns,
 } from "./seller-return-label-policy";
 
@@ -41,6 +42,16 @@ describe("seller return label policy", () => {
     expect(returnLabelChargesBuyer(policy, "Other: too big")).toBe(false);
     expect(chargeReturnShippingForMode("by_reason")).toBe(false);
     expect(chargeReturnShippingForMode("buyer")).toBe(true);
+  });
+
+  it("hides buyer-pay when the seller chose I do, and still lets the seller pay when the buyer pays", () => {
+    const sellerPays = policyFromStored({ returnLabelPayer: "seller" });
+    expect(returnLabelSellerChooses(sellerPays, "Changed my mind")).toBe(false);
+    expect(returnLabelSellerChooses(sellerPays, "Order Arrived Damaged")).toBe(false);
+
+    const buyerPays = policyFromStored({ returnLabelPayer: "buyer" });
+    expect(returnLabelSellerChooses(buyerPays, "Changed my mind")).toBe(true);
+    expect(returnLabelSellerChooses(buyerPays, "Order Arrived Damaged | Note: cracked")).toBe(true);
   });
 
   it("writes the bold handling line only for a preset", () => {

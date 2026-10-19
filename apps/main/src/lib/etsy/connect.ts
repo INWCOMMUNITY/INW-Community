@@ -1,6 +1,7 @@
 import {
   consumeEtsyOAuthState,
   createEtsyOAuthState,
+  markEtsyConnectionReauthorizationRequired,
   persistEtsyInstall,
   prisma,
   readEtsyOAuthBrowserBindingHash,
@@ -256,7 +257,7 @@ async function refreshAccessTokenLocked(
     return decrypt(latest.accessTokenEncrypted);
   }
   if (latest.refreshTokenExpiresAt.getTime() <= now.getTime()) {
-    throw new EtsyConnectError("Etsy reauthorization is required", "token_exchange");
+    return rejectEtsyReauthorization(latest);
   }
 
   const refreshToken = decrypt(latest.refreshTokenEncrypted);
@@ -276,13 +277,16 @@ async function refreshAccessTokenLocked(
       fetchImpl: deps.fetchImpl,
       now: deps.now ?? new Date(),
     });
-    if (again.status !== "refreshed") {
+    if (again.status === "refreshed") {
+      return persistRefreshedTokens(latest, again.tokens);
+    }
+    if (again.status === "retry") {
       throw new EtsyConnectError("Etsy reauthorization is required", "token_exchange");
     }
-    return persistRefreshedTokens(latest, again.tokens);
+    return rejectEtsyReauthorization(latest);
   }
   if (refreshed.status !== "refreshed") {
-    throw new EtsyConnectError("Etsy reauthorization is required", "token_exchange");
+    return rejectEtsyReauthorization(latest);
   }
   return persistRefreshedTokens(latest, refreshed.tokens);
 }
@@ -324,6 +328,30 @@ async function persistRefreshedTokens(
   return tokens.accessToken;
 }
 
+const ETSY_REAUTH_MESSAGE = "Etsy needs to be reconnected before listing sync can continue.";
+
+/** Refresh token expired or Etsy rejected it. Flag listings, alert once, then throw. */
+async function rejectEtsyReauthorization(connection: {
+  id: string;
+  memberId: string;
+}): Promise<never> {
+  try {
+    await markEtsyConnectionReauthorizationRequired(prisma, {
+      memberId: connection.memberId,
+      connectionId: connection.id,
+    });
+    const { notifyEtsyReauthorizationRequired } = await import("./listing-issue-notify");
+    await notifyEtsyReauthorizationRequired({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      message: ETSY_REAUTH_MESSAGE,
+    });
+  } catch (error) {
+    console.error("[etsy] failed to record reauthorization", error);
+  }
+  throw new EtsyConnectError("Etsy reauthorization is required", "token_exchange");
+}
+
 export async function accessTokenForEtsyConnection(
   connection: {
     id: string;
@@ -342,7 +370,7 @@ export async function accessTokenForEtsyConnection(
     return decrypt(connection.accessTokenEncrypted);
   }
   if (connection.refreshTokenExpiresAt.getTime() <= now.getTime()) {
-    throw new EtsyConnectError("Etsy reauthorization is required", "token_exchange");
+    return rejectEtsyReauthorization(connection);
   }
 
   const existing = refreshInFlight.get(connection.id);

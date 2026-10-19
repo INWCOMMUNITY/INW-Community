@@ -234,6 +234,31 @@ export async function getActiveEtsyConnectionForMember(
   });
 }
 
+/**
+ * Refresh was rejected or the refresh token expired.
+ * Flags mapped listings for the seller. The connection stays ACTIVE so a later
+ * successful refresh keeps the same shop generation and its listing maps.
+ * Inventory health is left alone: a paused flag would skip quantity pushes.
+ */
+export async function markEtsyConnectionReauthorizationRequired(
+  db: EtsyDb,
+  input: { memberId: string; connectionId: string }
+): Promise<boolean> {
+  const updated = await db.etsyListingLink.updateMany({
+    where: {
+      etsyConnectionId: input.connectionId,
+      memberId: input.memberId,
+      NOT: { issueCode: "ETSY_REAUTHORIZATION_REQUIRED" },
+    },
+    data: {
+      readiness: "ACTION_REQUIRED",
+      issueCode: "ETSY_REAUTHORIZATION_REQUIRED",
+      issueMessage: "Etsy needs to be reconnected before listing sync can continue.",
+    },
+  });
+  return updated.count > 0;
+}
+
 export async function disconnectEtsyConnection(
   db: EtsyDb,
   input: { memberId: string; connectionId: string; at?: Date }

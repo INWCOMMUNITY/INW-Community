@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   Pressable,
+  Image,
   ActivityIndicator,
   Alert,
   useWindowDimensions,
@@ -143,6 +144,56 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+function BuyerPhotoSlot({
+  label,
+  previewUri,
+  uploading,
+  progress,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  previewUri?: string;
+  uploading: boolean;
+  progress: number;
+  onAdd: () => void;
+  onRemove: () => void;
+}) {
+  if (!previewUri) {
+    return (
+      <Pressable onPress={onAdd} style={styles.buyerFileAdd}>
+        <Text style={styles.buyerFileAddMark}>+</Text>
+        <Text style={styles.buyerFileAddLabel}>{label}</Text>
+      </Pressable>
+    );
+  }
+  const pct = Math.max(8, Math.min(100, Math.round((uploading ? progress : 1) * 100)));
+  return (
+    <View style={styles.buyerPhotoRow}>
+      <View style={styles.buyerPhotoThumbWrap}>
+        <Image source={{ uri: previewUri }} style={styles.buyerPhotoThumb} />
+        <Pressable
+          onPress={onRemove}
+          style={styles.buyerPhotoRemove}
+          accessibilityRole="button"
+          accessibilityLabel="Remove photo"
+          hitSlop={8}
+        >
+          <Ionicons name="close" size={14} color="#fff" />
+        </Pressable>
+      </View>
+      <View style={styles.buyerPhotoMeta}>
+        <Text style={styles.buyerPhotoLabel}>{label}</Text>
+        {uploading ? (
+          <View style={styles.buyerPhotoBarTrack}>
+            <View style={[styles.buyerPhotoBarFill, { width: `${pct}%` }]} />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export default function ProductScreen() {
   const params = useLocalSearchParams();
   const slugParam = params.slug;
@@ -172,8 +223,20 @@ export default function ProductScreen() {
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
   const [buyerAnswers, setBuyerAnswers] = useState<
-    Record<string, { text?: string; optionLabel?: string; files?: Array<{ url: string; label?: string | null }> }>
+    Record<
+      string,
+      {
+        text?: string;
+        optionLabel?: string;
+        files?: Array<{ url: string; label?: string | null } | undefined>;
+      }
+    >
   >({});
+  const [photoUploads, setPhotoUploads] = useState<
+    Record<string, { localUri: string; progress: number; uploading: boolean }>
+  >({});
+  const photoUploadGen = useRef<Record<string, number>>({});
+  const photoUploadCancel = useRef<Record<string, () => void>>({});
   const [photoIndex, setPhotoIndex] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -462,6 +525,95 @@ export default function ProductScreen() {
     }
   };
 
+  const buyerPhotoKey = (fieldId: string, index: number) => `${fieldId}:${index}`;
+
+  const clearBuyerPhotoUpload = (key: string) => {
+    setPhotoUploads((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    delete photoUploadCancel.current[key];
+  };
+
+  const removeBuyerPhoto = (fieldId: string, index: number) => {
+    const key = buyerPhotoKey(fieldId, index);
+    photoUploadGen.current[key] = (photoUploadGen.current[key] ?? 0) + 1;
+    photoUploadCancel.current[key]?.();
+    clearBuyerPhotoUpload(key);
+    setBuyerAnswers((prev) => {
+      const nextFiles = [...(prev[fieldId]?.files ?? [])];
+      nextFiles[index] = undefined;
+      return { ...prev, [fieldId]: { ...prev[fieldId], files: nextFiles } };
+    });
+  };
+
+  const pickBuyerPhoto = async (fieldId: string, index: number, label: string | null) => {
+    const key = buyerPhotoKey(fieldId, index);
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    const asset = picked.assets[0];
+    const gen = (photoUploadGen.current[key] ?? 0) + 1;
+    photoUploadGen.current[key] = gen;
+    photoUploadCancel.current[key]?.();
+    setPhotoUploads((prev) => ({
+      ...prev,
+      [key]: { localUri: asset.uri, progress: 0, uploading: true },
+    }));
+    try {
+      const uploaded = await uploadBuyerFileFromUri({
+        localUri: asset.uri,
+        mimeType: asset.mimeType ?? "image/jpeg",
+        fileName: asset.fileName ?? "upload.jpg",
+        fileSize: asset.fileSize,
+        onProgress: (fraction) => {
+          if (photoUploadGen.current[key] !== gen) return;
+          setPhotoUploads((prev) => {
+            const current = prev[key];
+            if (!current) return prev;
+            return { ...prev, [key]: { ...current, progress: fraction, uploading: true } };
+          });
+        },
+        registerCancel: (cancel) => {
+          if (photoUploadGen.current[key] !== gen) {
+            cancel();
+            return;
+          }
+          photoUploadCancel.current[key] = cancel;
+        },
+      });
+      if (photoUploadGen.current[key] !== gen) return;
+      setBuyerAnswers((prev) => {
+        const nextFiles = [...(prev[fieldId]?.files ?? [])];
+        nextFiles[index] = { url: uploaded.url, label };
+        return { ...prev, [fieldId]: { ...prev[fieldId], files: nextFiles } };
+      });
+      setPhotoUploads((prev) => {
+        const current = prev[key];
+        if (!current || photoUploadGen.current[key] !== gen) return prev;
+        return { ...prev, [key]: { ...current, progress: 1, uploading: false } };
+      });
+    } catch (error) {
+      if (photoUploadGen.current[key] !== gen) return;
+      clearBuyerPhotoUpload(key);
+      const cancelled =
+        error != null &&
+        typeof error === "object" &&
+        "cancelled" in error &&
+        Boolean((error as { cancelled?: boolean }).cancelled);
+      if (cancelled) return;
+      const message =
+        error && typeof error === "object" && "error" in error
+          ? String((error as { error?: string }).error)
+          : "Upload failed";
+      Alert.alert("Upload failed", message);
+    }
+  };
+
   const addToCart = async () => {
     if (!item) return;
     const token = await getToken();
@@ -474,6 +626,11 @@ export default function ProductScreen() {
           { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
         ]
       );
+      return;
+    }
+
+    if (Object.values(photoUploads).some((upload) => upload.uploading)) {
+      Alert.alert("Photo still uploading", "Wait for the photo to finish, then add it to your cart.");
       return;
     }
 
@@ -923,62 +1080,24 @@ export default function ProductScreen() {
                           }))
                       ).map((slot, index) => {
                         const saved = buyerAnswers[field.id]?.files?.[index];
+                        const upload = photoUploads[`${field.id}:${index}`];
+                        const slotLabel = `${slot.label}${"required" in slot && slot.required === false ? " (optional)" : ""}`;
                         return (
-                          <Pressable
+                          <BuyerPhotoSlot
                             key={`${field.id}-slot-${index}`}
-                            onPress={async () => {
-                              const picked = await ImagePicker.launchImageLibraryAsync({
-                                mediaTypes: ["images"],
-                                quality: 0.8,
-                              });
-                              if (picked.canceled || !picked.assets[0]) return;
-                              const asset = picked.assets[0];
-                              try {
-                                const uploaded = await uploadBuyerFileFromUri({
-                                  localUri: asset.uri,
-                                  mimeType: asset.mimeType ?? "image/jpeg",
-                                  fileName: asset.fileName ?? "upload.jpg",
-                                  fileSize: asset.fileSize,
-                                });
-                                setBuyerAnswers((prev) => {
-                                  const nextFiles = [...(prev[field.id]?.files ?? [])];
-                                  nextFiles[index] = {
-                                    url: uploaded.url,
-                                    label: field.labelEachFile ? slot.label : null,
-                                  };
-                                  return {
-                                    ...prev,
-                                    [field.id]: { ...prev[field.id], files: nextFiles },
-                                  };
-                                });
-                              } catch (error) {
-                                const message =
-                                  error && typeof error === "object" && "error" in error
-                                    ? String((error as { error?: string }).error)
-                                    : "Upload failed";
-                                Alert.alert("Upload failed", message);
-                              }
-                            }}
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 10,
-                              borderWidth: 1,
-                              borderStyle: "dashed",
-                              borderColor: "#d4d4d4",
-                              backgroundColor: "#f5f5f4",
-                              borderRadius: 8,
-                              paddingHorizontal: 12,
-                              paddingVertical: 12,
-                              marginTop: 8,
-                            }}
-                          >
-                            <Text style={{ fontSize: 18, color: "#444" }}>{saved?.url ? "✓" : "+"}</Text>
-                            <Text style={{ flex: 1 }}>
-                              {slot.label}
-                              {"required" in slot && slot.required === false ? " (optional)" : ""}
-                            </Text>
-                          </Pressable>
+                            label={slotLabel}
+                            previewUri={upload?.localUri ?? saved?.url}
+                            uploading={Boolean(upload?.uploading)}
+                            progress={upload?.progress ?? 0}
+                            onAdd={() =>
+                              pickBuyerPhoto(
+                                field.id,
+                                index,
+                                field.labelEachFile ? slot.label : null
+                              )
+                            }
+                            onRemove={() => removeBuyerPhoto(field.id, index)}
+                          />
                         );
                       })
                     : null}
@@ -2153,5 +2272,77 @@ const styles = StyleSheet.create({
   addBtnTextLong: {
     fontSize: 14,
     lineHeight: 18,
+  },
+  buyerFileAdd: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#d4d4d4",
+    backgroundColor: "#f5f5f4",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  buyerFileAddMark: {
+    fontSize: 18,
+    color: "#444",
+  },
+  buyerFileAddLabel: {
+    flex: 1,
+    color: "#444",
+  },
+  buyerPhotoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    borderRadius: 8,
+    padding: 8,
+    backgroundColor: "#fff",
+  },
+  buyerPhotoThumbWrap: {
+    width: 64,
+    height: 64,
+  },
+  buyerPhotoThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 6,
+    backgroundColor: "#eee",
+  },
+  buyerPhotoRemove: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#333",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buyerPhotoMeta: {
+    flex: 1,
+    gap: 8,
+  },
+  buyerPhotoLabel: {
+    color: "#333",
+    fontSize: 15,
+  },
+  buyerPhotoBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#e5e5e5",
+    overflow: "hidden",
+  },
+  buyerPhotoBarFill: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: theme.colors.primary,
   },
 });

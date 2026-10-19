@@ -339,7 +339,7 @@ export function CouponFormModal({
               <View style={styles.field}>
                 <Text style={styles.label}>Secret Key</Text>
                 <Text style={styles.hint}>
-                  Set a secret key that customers enter when they use the coupon. They earn 10 Community Points per use. This is the only way to track how many times a coupon is redeemed.
+                  Set a secret key that customers enter when they use the coupon. This is how uses are counted.
                 </Text>
                 <TextInput
                   style={styles.input}

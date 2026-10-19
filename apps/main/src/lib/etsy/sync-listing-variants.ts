@@ -300,7 +300,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
         (product?.offerings ?? []).find((o) => o?.is_enabled !== false) ?? product?.offerings?.[0];
       const quantity =
         typeof offering?.quantity === "number" && Number.isFinite(offering.quantity)
-          ? Math.max(1, Math.trunc(offering.quantity))
+          ? Math.max(0, Math.trunc(offering.quantity))
           : 1;
       await prisma.$transaction((tx) =>
         applyFoundationSellerCollapseToSimple(tx, {

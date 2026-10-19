@@ -362,7 +362,17 @@ export async function handleEtsyProjectInventoryJob(
 
   const listingState = normalizedEtsyListingState(listing.remoteListingState);
   if (projectedOfferingsAllSoldOut(nextProducts)) {
-    if (listingShouldBeDeactivatedForSellOut(listingState)) {
+    // Shared Etsy quantity copies one number onto every offering. One INW
+    // variation at 0 must not deactivate the listing while siblings still have stock.
+    const siblingsStillInStock =
+      listingLevelQuantity &&
+      (
+        await prisma.etsyVariantMap.findMany({
+          where: { etsyListingLinkId: listing.id, NOT: { id: variantMap.id } },
+          select: { inventoryDesiredAvailable: true },
+        })
+      ).some((row) => (row.inventoryDesiredAvailable ?? 0) > 0);
+    if (!siblingsStillInStock && listingShouldBeDeactivatedForSellOut(listingState)) {
       const deactivate = await etsyConnectionRequest({
         connectionId: connection.id,
         memberId: connection.memberId,
@@ -382,13 +392,15 @@ export async function handleEtsyProjectInventoryJob(
         data: { remoteListingState: "inactive" },
       });
     }
-    await prisma.etsyVariantMap.updateMany({
-      where: {
-        etsyListingLinkId: listing.id,
-        NOT: { id: variantMap.id },
-      },
-      data: { inventoryAppliedAvailable: 0 },
-    });
+    if (!siblingsStillInStock) {
+      await prisma.etsyVariantMap.updateMany({
+        where: {
+          etsyListingLinkId: listing.id,
+          NOT: { id: variantMap.id },
+        },
+        data: { inventoryAppliedAvailable: 0 },
+      });
+    }
   } else if (remoteQty !== desiredQty || listingLevelDrift) {
     const put = await etsyConnectionRequest({
       connectionId: connection.id,

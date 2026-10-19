@@ -208,7 +208,7 @@ function FileLabelEditor({
         Name each file. Uncheck Required when that photo is optional, such as a second or third dog.
       </p>
       {labels.map((value, index) => (
-        <div key={`${value}-${index}`} className="flex flex-wrap items-center gap-2">
+        <div key={index} className="flex flex-wrap items-center gap-2">
           <input
             className="min-w-[8rem] flex-1 border rounded px-2 py-1.5 text-sm"
             maxLength={FILE_LABEL_MAX}

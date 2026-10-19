@@ -362,6 +362,55 @@ function classifyCandidate(node: GraphqlProductNode): ShopifyImportCandidate {
   };
 }
 
+/** Products already brought in and then ended must not show up as new imports. */
+async function shopifyProductIdsEndedOnInw(
+  connectionId: string,
+  memberId: string,
+  productIds: string[]
+): Promise<Set<string>> {
+  if (productIds.length === 0) return new Set();
+  const attempts = await prisma.shopifyListingImportAttempt.findMany({
+    where: {
+      shopifyConnectionId: connectionId,
+      memberId,
+      shopifyProductId: { in: productIds },
+      OR: [
+        { failureCode: "INW_ENDED" },
+        { status: "COMPLETED", storeItemId: { not: null } },
+      ],
+    },
+    select: { shopifyProductId: true, failureCode: true, storeItemId: true },
+  });
+  const ended = new Set<string>();
+  const itemIds = [
+    ...new Set(
+      attempts
+        .filter((row) => row.failureCode !== "INW_ENDED" && row.storeItemId)
+        .map((row) => row.storeItemId as string)
+    ),
+  ];
+  const inactiveIds = new Set(
+    itemIds.length === 0
+      ? []
+      : (
+          await prisma.storeItem.findMany({
+            where: { id: { in: itemIds }, status: "inactive" },
+            select: { id: true },
+          })
+        ).map((row) => row.id)
+  );
+  for (const attempt of attempts) {
+    if (attempt.failureCode === "INW_ENDED") {
+      ended.add(attempt.shopifyProductId);
+      continue;
+    }
+    if (attempt.storeItemId && inactiveIds.has(attempt.storeItemId)) {
+      ended.add(attempt.shopifyProductId);
+    }
+  }
+  return ended;
+}
+
 /**
  * Discover unmapped Shopify products for import on the seller's ACTIVE connection generation.
  * Provider IDs only — never SKU/title/handle inference.
@@ -477,9 +526,9 @@ export async function discoverShopifyImportCandidates(input: {
         select: { shopifyProductId: true, storeItem: { select: { status: true } } },
       })
     : [];
-  const mappedSet = new Set(
-    mapped.filter((row) => row.storeItem.status !== "inactive").map((row) => row.shopifyProductId)
-  );
+  const mappedSet = new Set(mapped.map((row) => row.shopifyProductId));
+  const endedProductIds = await shopifyProductIdsEndedOnInw(connection.id, input.memberId, productIds);
+  for (const productId of endedProductIds) mappedSet.add(productId);
 
   const candidates = nodes
     .filter((node) => {
@@ -545,7 +594,7 @@ export async function fetchShopifyImportProductDetail(input: {
     },
     select: { storeItemId: true, storeItem: { select: { status: true } } },
   });
-  if (mapped && mapped.storeItem.status !== "inactive") {
+  if (mapped || (await shopifyProductIdsEndedOnInw(connection.id, input.memberId, [productId])).has(productId)) {
     return {
       status: "ERROR",
       code: "ALREADY_MAPPED",

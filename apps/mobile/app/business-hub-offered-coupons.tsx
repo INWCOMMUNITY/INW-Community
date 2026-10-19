@@ -224,7 +224,7 @@ function CouponEditor({
       />
       <Text style={styles.fieldLabel}>Secret key</Text>
       <Text style={styles.fieldHint}>
-        Customers enter this when redeeming so you can track uses and they earn points. Leave empty if you do not use redemption tracking.
+        Customers enter this when they use the coupon so you can track uses. Leave empty if you do not use redemption tracking.
       </Text>
       <TextInput
         style={styles.input}

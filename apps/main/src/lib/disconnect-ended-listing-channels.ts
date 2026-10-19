@@ -4,7 +4,8 @@ const OPEN_JOB = ["PENDING", "RETRY_WAIT", "RUNNING"] as const;
 
 /**
  * Drop Etsy and Shopify links for one INW listing.
- * The remote Etsy listing and Shopify product stay in the seller's shop so they can be imported again as new INW listings.
+ * The remote product stays in the seller's shop, but the import attempt is marked ended
+ * so a later sync does not create another INW copy.
  */
 export async function disconnectStoreItemChannels(storeItemId: string): Promise<void> {
   const id = storeItemId.trim();
@@ -54,7 +55,6 @@ export async function disconnectStoreItemChannels(storeItemId: string): Promise<
         status: "FAILED",
         failureCode: "INW_ENDED",
         failureMessage: "INW listing ended and the channel link was removed",
-        storeItemId: null,
         listingLinkId: null,
         etsyProductId: null,
         etsyOfferingId: null,
@@ -73,7 +73,6 @@ export async function disconnectStoreItemChannels(storeItemId: string): Promise<
         status: "FAILED",
         failureCode: "INW_ENDED",
         failureMessage: "INW listing ended and the channel link was removed",
-        storeItemId: null,
         listingLinkId: null,
         shopifyVariantId: null,
         shopifyInventoryItemId: null,

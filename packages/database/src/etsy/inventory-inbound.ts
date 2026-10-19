@@ -15,6 +15,16 @@ import {
 
 export type EtsyInventoryInboundDb = PrismaClient | Prisma.TransactionClient;
 
+function remoteQuantityIsDrop(
+  remote: number,
+  applied: number | null,
+  desired: number | null
+): boolean {
+  if (applied != null) return remote < applied;
+  if (desired != null) return remote < desired;
+  return false;
+}
+
 export type ApplyEtsyInventoryObservationResult =
   | { status: "APPLIED_EDIT"; created: boolean; onHandAfter: number }
   | { status: "ECHO_CONFIRMED" }
@@ -76,8 +86,8 @@ export async function applyEtsyOfferingInventoryObservation(
     return { status: "ECHO_CONFIRMED" };
   }
 
-  // Only wait on sale facts that can explain THIS variant/item. A stuck shop-wide
-  // RECEIVED order.paid used to block every offering qty pull (Etsy edits never landed).
+  // Wait on sale facts for this variant. Unprocessed order.paid evidence only
+  // holds a quantity drop, so a restock on another listing still lands.
   const pendingVariantSales = await db.etsyOrderLineSaleFact.count({
     where: {
       etsyConnectionId: input.connectionId,
@@ -88,7 +98,14 @@ export async function applyEtsyOfferingInventoryObservation(
       ],
     },
   });
-  if (pendingVariantSales > 0 || input.hasPendingOrderEvidence) {
+  const dropWaitingOnOrder =
+    input.hasPendingOrderEvidence === true &&
+    remoteQuantityIsDrop(
+      remote,
+      variantMap.inventoryAppliedAvailable,
+      variantMap.inventoryDesiredAvailable
+    );
+  if (pendingVariantSales > 0 || dropWaitingOnOrder) {
     return { status: "WAITING_ORDER", code: "WAITING_ORDER_CAUSALITY" };
   }
 
@@ -305,6 +322,8 @@ export async function applyEtsyListingInventoryInbound(
     variants: Array<{ etsyOfferingId: string; quantity: number | null }>;
     /** Empty Etsy quantity_on_property: one quantity shared by every combination. */
     sharedQuantity?: boolean;
+    /** True when an order.paid job for this shop is still open. Drops wait; increases do not. */
+    hasPendingOrderEvidence?: boolean;
     now?: Date;
   }
 ): Promise<{ applied: number; waitingOrder: number }> {
@@ -327,6 +346,7 @@ export async function applyEtsyListingInventoryInbound(
       etsyListingId: input.etsyListingId,
       etsyOfferingId: variant.etsyOfferingId,
       remoteAvailable: variant.quantity,
+      hasPendingOrderEvidence: input.hasPendingOrderEvidence,
       now: input.now,
     });
     if (result.status === "APPLIED_EDIT") applied += 1;

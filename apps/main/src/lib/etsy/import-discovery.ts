@@ -438,6 +438,46 @@ export async function discoverEtsyImportCandidates(input: {
   );
 }
 
+async function etsyListingIdsEndedOnInw(connectionId: string, listingIds: string[]): Promise<Set<string>> {
+  if (listingIds.length === 0) return new Set();
+  const attempts = await prisma.etsyListingImportAttempt.findMany({
+    where: {
+      etsyConnectionId: connectionId,
+      etsyListingId: { in: listingIds },
+      OR: [{ failureCode: "INW_ENDED" }, { status: "COMPLETED", storeItemId: { not: null } }],
+    },
+    select: { etsyListingId: true, failureCode: true, storeItemId: true },
+  });
+  const ended = new Set<string>();
+  const itemIds = [
+    ...new Set(
+      attempts
+        .filter((row) => row.failureCode !== "INW_ENDED" && row.storeItemId)
+        .map((row) => row.storeItemId as string)
+    ),
+  ];
+  const inactiveIds = new Set(
+    itemIds.length === 0
+      ? []
+      : (
+          await prisma.storeItem.findMany({
+            where: { id: { in: itemIds }, status: "inactive" },
+            select: { id: true },
+          })
+        ).map((row) => row.id)
+  );
+  for (const attempt of attempts) {
+    if (attempt.failureCode === "INW_ENDED") {
+      ended.add(attempt.etsyListingId);
+      continue;
+    }
+    if (attempt.storeItemId && inactiveIds.has(attempt.storeItemId)) {
+      ended.add(attempt.etsyListingId);
+    }
+  }
+  return ended;
+}
+
 async function buildDiscoverResult(
   connection: { id: string; shopId: string; shopName: string | null },
   rows: EtsyListingRow[],
@@ -449,9 +489,16 @@ async function buildDiscoverResult(
     where: { etsyConnectionId: connection.id },
     select: { etsyListingId: true, storeItem: { select: { status: true } } },
   });
-  const mappedIds = new Set(
-    linked.filter((row) => row.storeItem.status !== "inactive").map((row) => row.etsyListingId)
-  );
+  const mappedIds = new Set(linked.map((row) => row.etsyListingId));
+  const listingIds = rows
+    .map((row) => {
+      const rawId = row.listing_id ?? (row as { listingId?: unknown }).listingId;
+      return rawId == null ? "" : String(rawId);
+    })
+    .filter((id) => id.length > 0);
+  for (const listingId of await etsyListingIdsEndedOnInw(connection.id, listingIds)) {
+    mappedIds.add(listingId);
+  }
 
   const candidates: EtsyImportCandidate[] = [];
   let alreadyLinkedOnPage = 0;

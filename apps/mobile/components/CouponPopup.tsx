@@ -142,37 +142,21 @@ export function CouponPopup({
     setRedeemError(null);
     setRedeemSuccess(null);
     try {
-      const me = await apiGet<{ points?: number }>("/api/me");
-      const previousTotal = me?.points ?? 0;
-
       const res = await apiPost<{
         ok: boolean;
-        pointsAwarded: number;
-        totalPoints?: number;
         usedThisMonth: number;
         maxMonthlyUses: number;
       }>(
         `/api/coupons/${couponId}/redeem`,
         { secretKey: secretKeyInput.trim() }
       );
-      const newTotal =
-        typeof res.totalPoints === "number" && Number.isFinite(res.totalPoints)
-          ? res.totalPoints
-          : previousTotal + res.pointsAwarded;
-      const pointsDelta = Math.max(0, newTotal - previousTotal);
       setRedeemSuccess(
-        `You earned ${pointsDelta} Community Points! (${res.usedThisMonth}/${res.maxMonthlyUses} used this month)`
+        `Coupon recorded. Used ${res.usedThisMonth}/${res.maxMonthlyUses} this month.`
       );
       setSecretKeyInput("");
       if (data) {
         setData({ ...data, usedThisMonth: res.usedThisMonth, usedToday: true });
       }
-      setPointsPopup({
-        businessName: data?.business?.name ?? "Local Business",
-        pointsAwarded: pointsDelta,
-        previousTotal,
-        newTotal,
-      });
     } catch (e) {
       const err = e as { error?: string };
       setRedeemError(err.error ?? "Failed to redeem. Try again.");
@@ -344,7 +328,7 @@ export function CouponPopup({
               <View style={styles.redeemSection}>
                 <Text style={styles.redeemTitle}>Redeem Coupon</Text>
                 <Text style={styles.redeemHint}>
-                  Enter the secret key from the business to earn 10 Community Points.
+                  Enter the secret key from the business to record this coupon.
                 </Text>
 
                 {data.usedThisMonth > 0 && (
@@ -393,7 +377,7 @@ export function CouponPopup({
                 {redeemError ? <Text style={styles.redeemError}>{redeemError}</Text> : null}
                 {redeemSuccess ? (
                   <View style={styles.successBanner}>
-                    <Ionicons name="star" size={18} color="#f9a825" />
+                    <Ionicons name="checkmark-circle" size={18} color={DARK_GREEN} />
                     <Text style={styles.successText}>{redeemSuccess}</Text>
                   </View>
                 ) : null}

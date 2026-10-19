@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { LATEST_STORE_RETURN_ORDER_BY } from "@/lib/store-return-order";
+import { policyFromStored, returnLabelSellerChooses } from "@/lib/seller-return-label-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (current.returnShipmentId) {
     return NextResponse.json({ error: "A return label already exists for this order." }, { status: 400 });
+  }
+
+  if (body.pay === "buyer") {
+    const seller = await prisma.member.findUnique({
+      where: { id: userId },
+      select: {
+        chargeReturnShipping: true,
+        returnLabelPayer: true,
+        returnLabelPayerByReason: true,
+      },
+    });
+    const policy = policyFromStored(seller ?? {});
+    if (!returnLabelSellerChooses(policy, current.reason)) {
+      return NextResponse.json({ error: "Your return policy pays for this label." }, { status: 400 });
+    }
   }
 
   const updated = await prisma.storeReturn.update({

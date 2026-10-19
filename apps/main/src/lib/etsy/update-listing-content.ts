@@ -539,7 +539,12 @@ export async function handleEtsyUpdateListingContentJob(
             errorMessage: message,
           };
         }
-        // Permanent photo failure: title/desc already patched (or matched); finish product desire.
+        return {
+          outcome: "DEAD",
+          errorClass: "PERMANENT",
+          errorCode: "PHOTO_UPLOAD_FAILED",
+          errorMessage: message,
+        };
       }
     }
 

@@ -205,8 +205,22 @@ export async function importEtsyListing(input: {
       : 0;
   const title = snap.title.slice(0, 200);
   const description = normalizeEtsyDescription(snap.description) || null;
-  const photos = await ensureInwHostedListingPhotos(snap.photos.slice(0, 20));
   const priceCents = snap.variants[0]?.priceCents ?? snap.priceCents ?? 0;
+  const pricesToCheck =
+    snap.variants.length > 0 ? snap.variants.map((variant) => variant.priceCents) : [priceCents];
+  if (pricesToCheck.some((cents) => typeof cents !== "number" || !Number.isFinite(cents) || cents <= 0)) {
+    await failEtsyListingImportAttempt(prisma, {
+      attemptId: attempt.id,
+      code: "PRICE_REQUIRED",
+      message: "Etsy listing price must be greater than zero",
+    });
+    return {
+      status: "ERROR",
+      code: "PRICE_REQUIRED",
+      message: "Etsy listing price must be greater than zero",
+    };
+  }
+  const photos = await ensureInwHostedListingPhotos(snap.photos.slice(0, 20));
   const sku = snap.variants[0]?.sku ?? null;
   const matrix = matrixFromCandidate(snap);
   const etsyWhoMade = isEtsyWhoMade(snap.etsyWhoMade) ? snap.etsyWhoMade : null;

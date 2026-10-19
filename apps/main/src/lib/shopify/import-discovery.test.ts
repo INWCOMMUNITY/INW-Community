@@ -7,6 +7,8 @@ vi.mock("database", async () => {
     prisma: {
       shopifyConnection: { findFirst: vi.fn() },
       shopifyListingLink: { findMany: vi.fn(), findFirst: vi.fn() },
+      shopifyListingImportAttempt: { findMany: vi.fn(async () => []) },
+      storeItem: { findMany: vi.fn(async () => []) },
     },
   };
 });

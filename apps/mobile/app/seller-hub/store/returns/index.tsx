@@ -24,6 +24,11 @@ import {
 import { returnLabelIsDue, sellerMustChooseReturnRefundTiming } from "@/lib/return-refund-timing";
 import { consumeReturnLabelSent } from "@/lib/return-label-sent-signal";
 import { getTrackingUrl } from "@/lib/store-order-fulfillment";
+import {
+  policyFromStored,
+  returnLabelSellerChooses,
+  type SellerReturnLabelPolicy,
+} from "@/lib/seller-return-label-policy";
 
 interface OrderItem {
   id: string;
@@ -135,19 +140,27 @@ export default function ReturnsScreen() {
   const [declineReason, setDeclineReason] = useState("");
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<SellerReturnLabelPolicy | null>(null);
 
   const load = useCallback(() => {
     Promise.all([
       apiGet<StoreOrder[]>("/api/store-orders?mine=1&returns=1").catch(() => [] as StoreOrder[]),
       apiGet<StoreOrder[]>("/api/store-orders?mine=1&canceled=1").catch(() => [] as StoreOrder[]),
+      apiGet<{
+        handlingTime?: string | null;
+        returnLabelPayer?: string | null;
+        returnLabelPayerByReason?: unknown;
+        chargeReturnShipping?: boolean | null;
+      }>("/api/me/policies").catch(() => null),
     ])
-      .then(([returns, canceled]) => {
+      .then(([returns, canceled, policies]) => {
         const openReturns = Array.isArray(returns) ? returns : [];
         const seen = new Set(openReturns.map((order) => order.id));
         const canceledOrders = (Array.isArray(canceled) ? canceled : []).filter(
           (order) => !seen.has(order.id) && isCanceledOrder(order)
         );
         setOrders([...openReturns, ...canceledOrders]);
+        setPolicy(policies ? policyFromStored(policies) : null);
       })
       .catch(() => setOrders([]))
       .finally(() => {
@@ -165,6 +178,11 @@ export default function ReturnsScreen() {
 
   const openReturnLabel = (orderId: string) => {
     router.push(`/seller-hub/shippo-order/${orderId}?mode=return` as never);
+  };
+
+  const buyerCanBeCharged = (order: StoreOrder) => {
+    if (policy) return returnLabelSellerChooses(policy, order.storeReturn?.reason);
+    return order.storeReturn?.chargeReturnShipping === true;
   };
 
   const askWhoPaysForLabel = (orderId: string) => {
@@ -191,6 +209,20 @@ export default function ReturnsScreen() {
         },
       ]
     );
+  };
+
+  const startReturnLabel = (order: StoreOrder) => {
+    if (!buyerCanBeCharged(order)) {
+      if (order.storeReturn?.chargeReturnShipping) {
+        void apiPost(`/api/store-orders/${order.id}/returns/label-payer`, { pay: "seller" })
+          .then(() => openReturnLabel(order.id))
+          .catch(() => Alert.alert("Could not save", "Try again before buying the label."));
+        return;
+      }
+      openReturnLabel(order.id);
+      return;
+    }
+    askWhoPaysForLabel(order.id);
   };
 
   const choiceOrder = orders.find((order) => sellerMustChooseReturnRefundTiming(order)) ?? null;
@@ -220,9 +252,9 @@ export default function ReturnsScreen() {
       await apiPost(`/api/store-orders/${orderId}${path}`, body ?? {});
       const approved = orders.find((o) => o.id === orderId);
       const hasShip = approved?.items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
-      if (path === "/returns/approve" && hasShip && !approved?.returnShipment?.labelUrl) {
+      if (path === "/returns/approve" && hasShip && !approved?.returnShipment?.labelUrl && approved) {
         load();
-        askWhoPaysForLabel(orderId);
+        startReturnLabel(approved);
         return;
       }
       load();
@@ -401,7 +433,7 @@ export default function ReturnsScreen() {
                         {returnLabelIsDue(order) ? (
                           <Text style={[styles.dueText, { textAlign: "center", marginBottom: 8 }]}>Due</Text>
                         ) : null}
-                        <Pressable style={styles.btn} onPress={() => askWhoPaysForLabel(order.id)}>
+                        <Pressable style={styles.btn} onPress={() => startReturnLabel(order)}>
                           <Text style={styles.btnText}>Send Buyer Return Label</Text>
                         </Pressable>
                       </View>

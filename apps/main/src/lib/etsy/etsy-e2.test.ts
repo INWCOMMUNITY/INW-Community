@@ -26,8 +26,14 @@ vi.mock("database", () => ({
   prisma: {
     etsyConnection: {
       findFirst: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    etsyListingLink: {
+      updateMany: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
+  markEtsyConnectionReauthorizationRequired: vi.fn(async () => false),
   rotateEtsyTokenMaterial: vi.fn(),
   createEtsyOAuthState: vi.fn(),
   consumeEtsyOAuthState: vi.fn(),

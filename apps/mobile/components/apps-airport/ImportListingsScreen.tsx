@@ -31,6 +31,7 @@ type BatchProgress = {
   skipped: number;
   processed: number;
   remaining: number;
+  failures?: Array<{ message?: string; etsyListingId?: string; shopifyProductId?: string }>;
 };
 
 export type ImportCandidate = {
@@ -318,6 +319,20 @@ export function ImportListingsScreen({ channel, doneHref }: Props) {
           <Text style={styles.cardBody}>
             {batch.completed} imported · {batch.failed} failed · {batch.skipped} skipped
           </Text>
+          {batch.failures && batch.failures.length > 0 ? (
+            <View style={{ marginTop: 8 }}>
+              {batch.failures.map((row, index) =>
+                row.message ? (
+                  <Text
+                    key={`${row.etsyListingId ?? row.shopifyProductId ?? "row"}-${index}`}
+                    style={styles.error}
+                  >
+                    {row.message}
+                  </Text>
+                ) : null
+              )}
+            </View>
+          ) : null}
           <View style={{ marginTop: 10 }}>
             <LiveImportBar batch={batch} />
           </View>

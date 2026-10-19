@@ -21,6 +21,18 @@ export type BeginShopifyListingImportAttemptResult =
       attempt: ShopifyListingImportAttempt;
     };
 
+async function endedStoreItemStillExists(
+  tx: ShopifyImportAttemptDb,
+  storeItemId: string | null
+): Promise<boolean> {
+  if (!storeItemId) return false;
+  const item = await tx.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { status: true },
+  });
+  return item?.status === "inactive";
+}
+
 function attemptLockKey(connectionId: string, productId: string): string {
   return `shopify-import:${connectionId}:${productId}`;
 }
@@ -37,11 +49,6 @@ function freshAttemptData(stockMode: "PHYSICAL" | "MADE_TO_ORDER", now: Date) {
     failureCode: null,
     failureMessage: null,
   };
-}
-
-async function releaseShopifyListingLink(tx: ShopifyImportAttemptDb, listingLinkId: string): Promise<void> {
-  await tx.shopifyVariantMap.deleteMany({ where: { shopifyListingLinkId: listingLinkId } });
-  await tx.shopifyListingLink.delete({ where: { id: listingLinkId } });
 }
 
 async function healCompletedFromMapping(
@@ -72,10 +79,7 @@ async function healCompletedFromMapping(
       },
     },
   });
-  if (!mapping || mapping.storeItem.status === "inactive") {
-    if (mapping) await releaseShopifyListingLink(tx, mapping.id);
-    return null;
-  }
+  if (!mapping) return null;
 
   const variant = mapping.variantMaps[0] ?? null;
   // Preserve original attempt cutoff when present; else mapping cutoff; never invent after map.
@@ -122,11 +126,12 @@ async function healCompletedFromMapping(
  * Captures bootstrapStartedAt before any remote inventory snapshot.
  *
  * Cutoff reuse rules:
- * - COMPLETED with a live active INW listing → never create a new cutoff
- * - COMPLETED after the INW listing or Shopify link was removed → new cutoff
+ * - COMPLETED while the INW listing still exists, including an ended listing → do not import again
+ * - COMPLETED after the INW listing was deleted → new cutoff
+ * - FAILED because the INW listing was ended (INW_ENDED) → do not import again
  * - STARTED fresh → reuse same attempt + cutoff (IN_PROGRESS)
  * - STARTED stale (>15m) with no mapping → explicit abandon; new cutoff allowed
- * - FAILED with no mapping → explicit abandon; new cutoff allowed
+ * - FAILED for another reason with no mapping → explicit abandon; new cutoff allowed
  */
 export async function beginShopifyListingImportAttempt(
   db: PrismaClient,
@@ -163,10 +168,9 @@ export async function beginShopifyListingImportAttempt(
         },
         select: { id: true, storeItem: { select: { status: true } } },
       });
-      if (liveLink && liveLink.storeItem.status !== "inactive") {
+      if (liveLink || (await endedStoreItemStillExists(tx, existing.storeItemId))) {
         return { status: "ALREADY_COMPLETED", attempt: existing, reusedCompleted: true };
       }
-      if (liveLink) await releaseShopifyListingLink(tx, liveLink.id);
       const restarted = await tx.shopifyListingImportAttempt.update({
         where: { id: existing.id },
         data: freshAttemptData(input.stockMode, now),
@@ -209,6 +213,9 @@ export async function beginShopifyListingImportAttempt(
     }
 
     if (existing?.status === "FAILED") {
+      if (existing.failureCode === "INW_ENDED") {
+        return { status: "ALREADY_COMPLETED", attempt: existing, reusedCompleted: true };
+      }
       // Explicit abandon: FAILED with no mapping may take a new cutoff.
       const retried = await tx.shopifyListingImportAttempt.update({
         where: { id: existing.id },

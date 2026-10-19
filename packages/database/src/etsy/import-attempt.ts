@@ -10,6 +10,18 @@ export type BeginEtsyListingImportAttemptResult =
   | { status: "ALREADY_COMPLETED"; attempt: EtsyListingImportAttempt; reusedCompleted: true }
   | { status: "IN_PROGRESS"; attempt: EtsyListingImportAttempt };
 
+async function endedStoreItemStillExists(
+  tx: EtsyImportAttemptDb,
+  storeItemId: string | null
+): Promise<boolean> {
+  if (!storeItemId) return false;
+  const item = await tx.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { status: true },
+  });
+  return item?.status === "inactive";
+}
+
 function attemptLockKey(connectionId: string, listingId: string): string {
   return `etsy-import:${connectionId}:${listingId}`;
 }
@@ -26,11 +38,6 @@ function freshAttemptData(stockMode: "PHYSICAL" | "MADE_TO_ORDER", now: Date) {
     etsyProductId: null,
     etsyOfferingId: null,
   };
-}
-
-async function releaseEtsyListingLink(tx: EtsyImportAttemptDb, listingLinkId: string): Promise<void> {
-  await tx.etsyVariantMap.deleteMany({ where: { etsyListingLinkId: listingLinkId } });
-  await tx.etsyListingLink.delete({ where: { id: listingLinkId } });
 }
 
 async function healCompletedFromMapping(
@@ -61,10 +68,7 @@ async function healCompletedFromMapping(
       },
     },
   });
-  if (!mapping || mapping.storeItem.status === "inactive") {
-    if (mapping) await releaseEtsyListingLink(tx, mapping.id);
-    return null;
-  }
+  if (!mapping) return null;
 
   const variant = mapping.variantMaps[0] ?? null;
   const bootstrapStartedAt =
@@ -141,10 +145,9 @@ export async function beginEtsyListingImportAttempt(
         where: { etsyConnectionId: input.connectionId, etsyListingId: listingId },
         select: { id: true, storeItem: { select: { status: true } } },
       });
-      if (liveLink && liveLink.storeItem.status !== "inactive") {
+      if (liveLink || (await endedStoreItemStillExists(tx, existing.storeItemId))) {
         return { status: "ALREADY_COMPLETED", attempt: existing, reusedCompleted: true };
       }
-      if (liveLink) await releaseEtsyListingLink(tx, liveLink.id);
       const restarted = await tx.etsyListingImportAttempt.update({
         where: { id: existing.id },
         data: freshAttemptData(input.stockMode, now),
@@ -186,6 +189,9 @@ export async function beginEtsyListingImportAttempt(
     }
 
     if (existing?.status === "FAILED") {
+      if (existing.failureCode === "INW_ENDED") {
+        return { status: "ALREADY_COMPLETED", attempt: existing, reusedCompleted: true };
+      }
       const restarted = await tx.etsyListingImportAttempt.update({
         where: { id: existing.id },
         data: {
