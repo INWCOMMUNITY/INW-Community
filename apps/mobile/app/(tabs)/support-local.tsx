@@ -350,15 +350,33 @@ export default function SupportLocalScreen() {
           marginBottom: 4,
           textAlign: "center",
         },
+        headerTitleRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          marginBottom: 16,
+        },
         headerTitle: {
           fontSize: 20,
+          lineHeight: 24,
           fontWeight: "bold",
           color: "#fff",
           fontFamily: theme.fonts.heading,
-          marginBottom: 16,
           textAlign: "center",
           flexShrink: 1,
           maxWidth: "92%",
+          ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
+        },
+        headerChevron: {
+          width: 20,
+          height: 24,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        headerChevronStroke: {
+          position: "absolute",
+          left: 0.7,
         },
         logoRow: {
           flexDirection: "row",
@@ -740,11 +758,14 @@ export default function SupportLocalScreen() {
           style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
           onPress={() => setSwitcherVisible(true)}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <View style={styles.headerTitleRow}>
             <Text style={styles.headerTitle}>
               {viewMode === "directory" ? "Local Business Directory" : "Local Sellers"}
             </Text>
-            <Ionicons name="chevron-down" size={20} color="#fff" />
+            <View style={styles.headerChevron}>
+              <Ionicons name="chevron-down" size={20} color="#fff" style={styles.headerChevronStroke} />
+              <Ionicons name="chevron-down" size={20} color="#fff" />
+            </View>
           </View>
         </Pressable>
         <View style={styles.searchInputFrame}>

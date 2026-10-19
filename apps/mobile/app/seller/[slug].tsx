@@ -26,6 +26,7 @@ import { openAddressInMaps } from "@/lib/open-maps";
 import { freeShippingPolicyLead, handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { AppImage } from "@/components/AppImage";
+import { wixOriginalMediaUrl } from "@/lib/business-logo-display";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { NestedHorizontalGallery } from "@/components/NestedHorizontalGallery";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
@@ -97,6 +98,7 @@ function resolveUrl(path: string | null | undefined): string | undefined {
 }
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const LOGO_SIZE = 88;
 
 export default function SellerStorefrontScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -278,7 +280,7 @@ export default function SellerStorefrontScreen() {
   }
 
   const coverUrl = resolveUrl(seller.coverPhotoUrl);
-  const logoUrl = resolveUrl(seller.logoUrl);
+  const logoUrl = resolveUrl(seller.logoUrl ? wixOriginalMediaUrl(seller.logoUrl) : seller.logoUrl);
   const addressDisplay = [seller.address, seller.city].filter(Boolean).join(", ");
   const hasHours = seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
@@ -662,15 +664,6 @@ export default function SellerStorefrontScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
         stickyHeaderIndices={[3]}
       >
-        <View style={styles.logoAbove}>
-          {logoUrl ? (
-            <AppImage uri={logoUrl} targetWidth={96} style={styles.logo} resizeMode="cover" />
-          ) : (
-            <View style={[styles.logo, styles.logoPlaceholder]}>
-              <Ionicons name="business" size={40} color={theme.colors.primary} />
-            </View>
-          )}
-        </View>
         <View style={styles.coverWrap}>
           {coverUrl ? (
             <AppImage uri={coverUrl} targetWidth={width} style={styles.cover} resizeMode="cover" />
@@ -680,8 +673,18 @@ export default function SellerStorefrontScreen() {
             </View>
           )}
         </View>
+        <View style={styles.logoDock}>
+          <View style={styles.logoCircle}>
+            {logoUrl ? (
+              <AppImage uri={logoUrl} targetWidth={LOGO_SIZE} style={styles.logo} resizeMode="cover" />
+            ) : (
+              <View style={styles.logoPlaceholder}>
+                <Ionicons name="business" size={40} color={theme.colors.primary} />
+              </View>
+            )}
+          </View>
+        </View>
 
-        {/* Name + Actions */}
         <View style={styles.nameBlock}>
           <Text style={styles.name}>{seller.name}</Text>
           <View style={styles.actionRow}>
@@ -869,25 +872,36 @@ const styles = StyleSheet.create({
   },
 
   // Cover
-  logoAbove: {
-    alignItems: "center",
-    paddingTop: 16,
-    paddingBottom: 12,
-    backgroundColor: "#fff",
-  },
   coverWrap: { height: 200, backgroundColor: "#f0f0f0" },
   cover: { width: "100%", height: "100%" },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
-  logo: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
+  logoDock: {
+    alignItems: "center",
+    marginTop: -(LOGO_SIZE / 2),
+    zIndex: 2,
+  },
+  logoCircle: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: LOGO_SIZE / 2,
     overflow: "hidden",
-    backgroundColor: "#fff",
     borderWidth: 3,
     borderColor: "#fff",
+    backgroundColor: "#fff",
+    elevation: 3,
   },
-  logoPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "#f5f5f5" },
+  logo: {
+    width: "100%",
+    height: "100%",
+    borderRadius: LOGO_SIZE / 2,
+  },
+  logoPlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f5f5f5",
+  },
 
   // Name Block
   nameBlock: {
