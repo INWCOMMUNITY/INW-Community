@@ -18,6 +18,7 @@ import {
 } from "@/lib/store-return";
 import { freeShippingPolicyLead, handlingTimeBoldLine, policyFromStored, showsFreeReturns } from "@/lib/seller-return-label-policy";
 import { freeShippingBannerText, type FreeShippingBanner } from "@/lib/free-shipping-banner";
+import { wixOriginalMediaUrl } from "@/lib/business-photos";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -194,28 +195,9 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
         </div>
       </div>
 
-      {/* Logo sits above the cover, same width as the Products–Policies tab bar */}
+      {/* Cover first; circular logo hangs halfway over the bottom */}
       <div className="mx-auto w-full max-w-[var(--max-width)]">
-        <div className="flex justify-center bg-white px-4 pb-3 pt-4">
-          <div className="h-[140px] w-[140px] overflow-hidden rounded-xl border-4 border-white bg-white shadow-md md:h-[168px] md:w-[168px]">
-            {seller.logoUrl ? (
-              <Image
-                src={seller.logoUrl}
-                alt={seller.name}
-                width={168}
-                height={168}
-                className="h-full w-full object-cover"
-                quality={75}
-                unoptimized={seller.logoUrl.startsWith("blob:")}
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-[#f5f5f5]">
-                <IonIcon name="business" size={64} className="text-[var(--color-primary)]" />
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="relative h-[calc(260px+1.5in)] overflow-hidden bg-[#f0f0f0] md:h-[calc(320px+1.5in)]">
+        <div className="relative h-[200px] overflow-hidden bg-[#f0f0f0]">
           {seller.coverPhotoUrl ? (
             <Image
               src={seller.coverPhotoUrl}
@@ -231,6 +213,25 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               <IonIcon name="storefront" size={64} className="text-black/15" />
             </div>
           )}
+        </div>
+        <div className="relative z-[2] -mt-11 flex justify-center">
+          <div className="h-[88px] w-[88px] overflow-hidden rounded-full border-[3px] border-white bg-white shadow-md">
+            {seller.logoUrl ? (
+              <Image
+                src={wixOriginalMediaUrl(seller.logoUrl)}
+                alt={seller.name}
+                width={88}
+                height={88}
+                className="h-full w-full object-cover"
+                quality={75}
+                unoptimized={seller.logoUrl.startsWith("blob:")}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[#f5f5f5]">
+                <IonIcon name="business" size={40} className="text-[var(--color-primary)]" />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
